@@ -33,6 +33,41 @@ Markdown + git으로 저장하고, MCP 서버와 CLI로 읽고 쓰며, Obsidian�
 - **읽기**: Node 내장 SQLite의 FTS5 전문 검색(porter stemming). 인덱스는 머신마다 생성하고 commit하지 않습니다.
 - **인터페이스**: MCP 서버(stdio 또는 HTTP)가 1순위, CLI가 같은 기능을 제공하고, Obsidian이 사람용 화면입니다(wikilink, 백링크, 그래프, Dataview 대시보드).
 
+### 구조
+
+```mermaid
+flowchart LR
+  subgraph A["Machine A (laptop)"]
+    A1["Agent (Claude Code, ...)"] -->|"MCP stdio / CLI"| A2["doltap"]
+    A2 --> A3[("wiki/ clone + SQLite index")]
+    A4["Obsidian"] --- A3
+  end
+  subgraph B["Machine B (always-on)"]
+    B1["Agent"] --> B2["doltap"]
+    B2 --> B3[("wiki/ clone + index")]
+    B4["doltap-mcp --http"] --> B3
+  end
+  A3 <-->|"git pull / push"| R[("git remote (private repo)")]
+  B3 <-->|"git pull / push"| R
+  C["claude.ai connector / Claude Code without a clone"] -->|"HTTPS, path token"| B4
+```
+
+### 쓰기 경로
+
+모든 쓰기는 같은 경로를 지납니다. 중복이나 lint 오류는 commit 전에 거부되고, 충돌은 자동 병합하지 않습니다.
+
+```mermaid
+flowchart LR
+  W["wiki_upsert / doltap add"] --> P["git pull --rebase"]
+  P -->|"conflict"| K["keep upstream, save id.conflict-host.md"]
+  P --> D{"similar page exists?"}
+  D -->|"yes"| X["refused: edit that page"]
+  D -->|"no"| L["write file + lint"]
+  L -->|"errors"| Y["refused: file restored, issues returned"]
+  L -->|"ok"| C["commit"] --> U["push (3 retries)"]
+  U -->|"offline"| O["kept locally, pushed on next sync"]
+```
+
 ## 빠른 시작
 
 Node 22.13 이상, git이 필요합니다.

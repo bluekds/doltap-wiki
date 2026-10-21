@@ -33,6 +33,41 @@ The tool's focus is write quality: a classification table, per-category template
 - **Reads**: full-text search with the FTS5 engine of Node's built-in SQLite (porter stemming). The index is generated per machine and never committed.
 - **Interfaces**: the MCP server (stdio or HTTP) comes first, the CLI offers the same operations, and Obsidian is the human view (wikilinks, backlinks, graph, Dataview dashboards).
 
+### Architecture
+
+```mermaid
+flowchart LR
+  subgraph A["Machine A (laptop)"]
+    A1["Agent (Claude Code, ...)"] -->|"MCP stdio / CLI"| A2["doltap"]
+    A2 --> A3[("wiki/ clone + SQLite index")]
+    A4["Obsidian"] --- A3
+  end
+  subgraph B["Machine B (always-on)"]
+    B1["Agent"] --> B2["doltap"]
+    B2 --> B3[("wiki/ clone + index")]
+    B4["doltap-mcp --http"] --> B3
+  end
+  A3 <-->|"git pull / push"| R[("git remote (private repo)")]
+  B3 <-->|"git pull / push"| R
+  C["claude.ai connector / Claude Code without a clone"] -->|"HTTPS, path token"| B4
+```
+
+### Write path
+
+Every write takes the same path. Duplicates and lint errors are refused before the commit; conflicts are never auto-merged.
+
+```mermaid
+flowchart LR
+  W["wiki_upsert / doltap add"] --> P["git pull --rebase"]
+  P -->|"conflict"| K["keep upstream, save id.conflict-host.md"]
+  P --> D{"similar page exists?"}
+  D -->|"yes"| X["refused: edit that page"]
+  D -->|"no"| L["write file + lint"]
+  L -->|"errors"| Y["refused: file restored, issues returned"]
+  L -->|"ok"| C["commit"] --> U["push (3 retries)"]
+  U -->|"offline"| O["kept locally, pushed on next sync"]
+```
+
 ## Quick start
 
 Requires Node 22.13+ and git.
