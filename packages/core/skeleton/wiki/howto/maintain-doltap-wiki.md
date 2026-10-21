@@ -1,0 +1,77 @@
+---
+title: Maintain the wiki (routine for a maintainer agent)
+category: howto
+summary: >-
+  Session-start, weekly, monthly and event-driven checks that keep the wiki
+  healthy, plus prompt templates for running them from a scheduled agent session.
+tags:
+  - wiki
+  - tooling
+confidence: draft
+created: 2026-10-18
+updated: 2026-10-18
+sources: []
+---
+## Prerequisites
+
+- One agent (one Claude Code session, usually on the always-on machine) is named the maintainer. Other agents keep writing pages freely; the maintainer keeps quality up.
+- The maintainer follows [[_meta/PROTOCOL]]; this page only adds the schedule and the limits of its authority.
+- `doltap` is installed and the wiki is cloned on that machine ([[howto/setup-wiki-on-new-machine]]).
+
+## Steps
+
+### Every maintenance session (start)
+
+1. `doltap sync` and read its output: `pulled: true`, no conflict files
+2. `doltap schedule status` reports the periodic sync as installed; if `doltap serve` is used, `doltap serve status` reports it running
+3. `doltap lint` reports 0 errors; fix errors before anything else
+
+### Weekly
+
+1. Review pages added or changed in the last week: `git log --since="1 week ago" --format='%h %s' -- wiki/`, then `doltap get` each. Check category fit, a summary that stands on its own, sensible tags, links to related pages, no secrets, no session-log content. Fix with `doltap patch` / `doltap meta`
+2. `doltap audit`: for each lingering draft decide promote / leave / propose deprecation. Promote only with evidence (someone followed the page and it worked): `doltap meta <id> --confidence verified --add-source "<what confirmed it>"`
+3. Check that every category hub's "Manual list" matches the pages on disk
+4. Spot-check search with 3 queries an agent would realistically type; note pages that should rank first but do not
+5. Look at `wiki/_meta/stats/*.json`: a machine that stopped reporting usually has a broken scheduler
+
+### Monthly
+
+1. Re-verify `reference/` pages about external services whose "Verified on" date is older than ~60 days; update or record what changed
+2. From `doltap audit`, propose deprecating pages nobody read or updated in 90 days (except rare-but-critical procedures)
+3. Update the tooling: `npm install -g doltap-wiki@latest`, then re-run `doltap schedule install` (and `doltap serve install` if used) so the services pick up the new binary
+4. Tag vocabulary: remove unused tags from `_meta/tags.yaml`, add the ones agents keep needing
+
+### Event-driven
+
+- A `*.conflict-<host>.md` file appears: merge both versions into the page, delete the conflict file, commit
+- A machine reports a stuck repository: see [[howto/setup-wiki-on-new-machine#Pitfalls]]
+- The HTTP token was exposed (chat, log, screenshot): `doltap serve token --rotate && doltap serve install`, then update every remote registration
+
+### Running it from a scheduled agent session
+
+Claude Code can schedule prompts inside a long-running session. Open a session on the maintainer machine and ask for two recurring jobs with prompts like these (replace `<wiki-root>`):
+
+> Daily, 09:07: In `<wiki-root>` run the session-start checks from `doltap get howto/maintain-doltap-wiki -s Steps`. Fix only mechanical problems (restart a stopped service, obvious lint fixes, a page missing from its hub list). Never print the HTTP token. Report in at most 3 lines when everything is fine.
+
+> Weekly, Monday 09:13: In `<wiki-root>` follow the Weekly steps of `doltap get howto/maintain-doltap-wiki -s Steps`; on the 1st–7th of the month also the Monthly steps. Allowed without asking: safe fixes and promoting drafts with evidence. Not allowed without approval: deprecating, deleting or merging pages; list those as proposals. Finally re-create both scheduled jobs, because in-session jobs expire after 7 days.
+
+Session-scheduled jobs live only while that session is open; if it ends, open a new one and ask for the jobs again. Set `DOLTAP_AGENT` for that session so commits show who made them.
+
+## Verification
+
+- Session-start checks all green; `doltap lint` 0 errors
+- After the weekly pass: no draft older than 30 days without a recorded decision, no conflict files, every page reachable from its hub
+- After the monthly pass: tooling current, external `reference/` pages verified within ~60 days
+
+## Pitfalls
+
+- The maintainer does not run on its own. Without a scheduled session or a user request, the weekly and monthly passes never happen
+- Do not promote a draft because it looks right; promotion needs evidence that someone followed it and it worked
+- Never paste the HTTP token or full connector URL into chat or a page while debugging the remote endpoint
+- Hub pages and `_meta/` are excluded from orphan checks; a page linked only from a hub is fine
+
+## Related
+
+- [[howto/_index]]
+- [[howto/setup-wiki-on-new-machine]]
+- [[howto/add-wiki-page-manually]]

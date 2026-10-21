@@ -28,3 +28,4 @@ For readers without Dataview (agents, other viewers). `doltap add` and `wiki_ups
 
 - [[howto/add-wiki-page-manually]] — add a page by copying a template when the CLI is unavailable
 - [[howto/setup-wiki-on-new-machine]] — install the CLI, clone the wiki, register the MCP server and skill, install the periodic sync (once per machine)
+- [[howto/maintain-doltap-wiki]] — session-start, weekly, monthly and event-driven checks for a maintainer agent, with prompts for a scheduled session

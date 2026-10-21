@@ -172,6 +172,16 @@ The security model, stated plainly:
 - Conflicts are never auto-merged: the upstream version stays, the local one is saved as `<id>.conflict-<host>.md`, and `doltap sync` and `doltap audit` list such files. Merge the two by hand and delete the conflict file.
 - One agent can own wiki maintenance. Write the routine (session-start checks, weekly review of new pages, audit, draft promotion, monthly re-verification) as a wiki page and let that agent follow it.
 
+## A maintainer agent session (optional)
+
+A wiki that only grows gets messy. Give one agent the maintainer role and quality holds. `doltap init --new` creates the page `howto/maintain-doltap-wiki` with the routine:
+
+- **Session start**: sync, service status, lint
+- **Weekly**: review new pages (category, summary, tags, links, secrets), audit, draft promotion, hub lists, search quality, per-machine stats
+- **Monthly**: re-verify external `reference/` pages, update the tooling, prune tags
+
+Open a Claude Code session on an always-on machine and ask: "read `howto/maintain-doltap-wiki` and schedule the daily and weekly jobs in this session". That session then runs the checks at the given times and reports back. Deprecating, deleting or merging pages is only proposed, never done without your approval. The schedule lives as long as that session is open.
+
 ## What it is not
 
 - Not a generator of codebase documentation (projects such as [OpenWiki](https://github.com/langchain-ai/openwiki) cover that). Doltap is for operational knowledge that agents write themselves while working.
