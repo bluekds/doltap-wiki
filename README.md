@@ -40,6 +40,10 @@ Markdown + git으로 저장하고, MCP 서버와 CLI로 읽고 쓰며, Obsidian�
 
 ### 구조
 
+<p align="center"><img src="static/architecture.png" width="760" alt="구조: 각 머신의 에이전트가 doltap으로 로컬 clone을 읽고 쓰고, git 원격으로 동기화하며, 상시 머신의 HTTP MCP에 원격 클라이언트가 연결됨"></p>
+
+<details><summary>Mermaid 소스</summary>
+
 ```mermaid
 flowchart LR
   subgraph A["Machine A (laptop)"]
@@ -57,9 +61,15 @@ flowchart LR
   C["claude.ai connector / Claude Code without a clone"] -->|"HTTPS, path token"| B4
 ```
 
+</details>
+
 ### 쓰기 경로
 
 모든 쓰기는 같은 경로를 지납니다. 중복이나 lint 오류는 commit 전에 거부되고, 충돌은 자동 병합하지 않습니다.
+
+<p align="center"><img src="static/write-path.png" width="760" alt="쓰기 경로: pull --rebase, 중복 검사, 쓰기+lint, commit, push, 충돌·거부·오프라인 분기"></p>
+
+<details><summary>Mermaid 소스</summary>
 
 ```mermaid
 flowchart LR
@@ -70,6 +80,8 @@ flowchart LR
   P -->|"conflict"| K["keep upstream, save<br/>id.conflict-host.md"]
   U -->|"offline"| O["pushed on<br/>next sync"]
 ```
+
+</details>
 
 ## 빠른 시작
 

@@ -40,6 +40,10 @@ The tool's focus is write quality: a classification table, per-category template
 
 ### Architecture
 
+<p align="center"><img src="static/architecture.png" width="760" alt="Architecture: agents on each machine read and write a local clone through doltap, sync via a git remote, and remote clients connect to the always-on machine's HTTP MCP"></p>
+
+<details><summary>Mermaid source</summary>
+
 ```mermaid
 flowchart LR
   subgraph A["Machine A (laptop)"]
@@ -57,9 +61,15 @@ flowchart LR
   C["claude.ai connector / Claude Code without a clone"] -->|"HTTPS, path token"| B4
 ```
 
+</details>
+
 ### Write path
 
 Every write takes the same path. Duplicates and lint errors are refused before the commit; conflicts are never auto-merged.
+
+<p align="center"><img src="static/write-path.png" width="760" alt="Write path: pull --rebase, duplicate check, write+lint, commit, push, with conflict, refusal and offline branches"></p>
+
+<details><summary>Mermaid source</summary>
 
 ```mermaid
 flowchart LR
@@ -70,6 +80,8 @@ flowchart LR
   P -->|"conflict"| K["keep upstream, save<br/>id.conflict-host.md"]
   U -->|"offline"| O["pushed on<br/>next sync"]
 ```
+
+</details>
 
 ## Quick start
 
