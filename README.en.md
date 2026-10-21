@@ -202,6 +202,24 @@ npm link -w doltap-wiki            # makes this checkout's `doltap` and `doltap-
 
 Packages: `@bluekds/doltap-core` (parser, lint, search, git sync, scaffold), `@bluekds/doltap-mcp` (MCP server), `doltap-wiki` (CLI and both binaries, `doltap` and `doltap-mcp`). CI builds, tests and scaffolds an empty wiki on macOS, Linux and Windows.
 
+## Badge
+
+Paste this into the README of a wiki or project managed with Doltap Wiki (switches to the light version in dark mode):
+
+<p align="center"><a href="https://github.com/bluekds/doltap-wiki"><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/bluekds/doltap-wiki/main/static/badge-dark.png">
+  <img src="https://raw.githubusercontent.com/bluekds/doltap-wiki/main/static/badge.png" width="120" alt="Managed with Doltap Wiki">
+</picture></a></p>
+
+```html
+<a href="https://github.com/bluekds/doltap-wiki"><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/bluekds/doltap-wiki/main/static/badge-dark.png">
+  <img src="https://raw.githubusercontent.com/bluekds/doltap-wiki/main/static/badge.png" width="120" alt="Managed with Doltap Wiki">
+</picture></a>
+```
+
+Logo and badge sources are in [`static/`](static/) (MIT).
+
 ## License
 
 MIT

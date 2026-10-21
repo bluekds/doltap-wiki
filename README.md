@@ -202,6 +202,24 @@ npm link -w doltap-wiki            # 이 체크아웃의 `doltap`, `doltap-mcp`�
 
 패키지: `@bluekds/doltap-core`(파서, lint, 검색, git 동기화, 스캐폴드), `@bluekds/doltap-mcp`(MCP 서버), `doltap-wiki`(CLI와 두 실행 파일 `doltap`, `doltap-mcp`). CI는 macOS, Linux, Windows에서 빌드와 테스트, 빈 위키 생성까지 확인합니다.
 
+## 배지
+
+돌탑 위키로 관리하는 위키나 프로젝트의 README에 아래를 붙이면 배지가 표시됩니다(다크 모드에서는 밝은 버전으로 자동 전환).
+
+<p align="center"><a href="https://github.com/bluekds/doltap-wiki"><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/bluekds/doltap-wiki/main/static/badge-dark.png">
+  <img src="https://raw.githubusercontent.com/bluekds/doltap-wiki/main/static/badge.png" width="120" alt="Managed with Doltap Wiki">
+</picture></a></p>
+
+```html
+<a href="https://github.com/bluekds/doltap-wiki"><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/bluekds/doltap-wiki/main/static/badge-dark.png">
+  <img src="https://raw.githubusercontent.com/bluekds/doltap-wiki/main/static/badge.png" width="120" alt="Managed with Doltap Wiki">
+</picture></a>
+```
+
+로고와 배지 원본은 [`static/`](static/)에 있습니다(MIT).
+
 ## 라이선스
 
 MIT
