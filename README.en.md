@@ -152,7 +152,7 @@ npm ci && npm run build && npm test
 npm link -w doltap-wiki            # makes this checkout's `doltap` and `doltap-mcp` global
 ```
 
-Packages: `@doltap/core` (parser, lint, search, git sync, scaffold), `@doltap/mcp` (MCP server), `doltap-wiki` (CLI and both binaries, `doltap` and `doltap-mcp`). CI builds, tests and scaffolds an empty wiki on macOS, Linux and Windows.
+Packages: `@bluekds/doltap-core` (parser, lint, search, git sync, scaffold), `@bluekds/doltap-mcp` (MCP server), `doltap-wiki` (CLI and both binaries, `doltap` and `doltap-mcp`). CI builds, tests and scaffolds an empty wiki on macOS, Linux and Windows.
 
 ## License
 

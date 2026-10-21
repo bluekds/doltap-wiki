@@ -22,7 +22,7 @@ import {
   audit,
   publishHostStats,
   type WikiConfig,
-} from "@doltap/core";
+} from "@bluekds/doltap-core";
 
 const CategoryEnum = z.enum(CATEGORIES);
 const ConfidenceEnum = z.enum(CONFIDENCE);

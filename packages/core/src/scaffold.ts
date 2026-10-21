@@ -3,7 +3,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, s
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-/** Files shipped with @doltap/core; `dot.<name>` entries become `.<name>` on copy so npm packs them. */
+/** Files shipped with @bluekds/doltap-core; `dot.<name>` entries become `.<name>` on copy so npm packs them. */
 const SKELETON_DIR = fileURLToPath(new URL("../skeleton/", import.meta.url));
 
 export interface ScaffoldOptions {

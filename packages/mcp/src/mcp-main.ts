@@ -1,5 +1,5 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { resolveConfig } from "@doltap/core";
+import { resolveConfig } from "@bluekds/doltap-core";
 import { createServer } from "./server.js";
 import { serveHttp } from "./http.js";
 

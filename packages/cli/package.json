@@ -11,9 +11,9 @@
     "integrations"
   ],
   "dependencies": {
-    "@doltap/core": "0.1.0",
+    "@bluekds/doltap-core": "0.1.0",
     "commander": "^13.0.0",
-    "@doltap/mcp": "0.1.0"
+    "@bluekds/doltap-mcp": "0.1.0"
   },
   "description": "Doltap Wiki: a Markdown+git knowledge base shared by AI agents across machines (CLI, MCP server, Obsidian vault)",
   "keywords": [

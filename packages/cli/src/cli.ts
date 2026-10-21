@@ -39,7 +39,7 @@ import {
   type SyncReport,
   type WikiConfig,
   scaffoldWiki,
-} from "@doltap/core";
+} from "@bluekds/doltap-core";
 
 const program = new Command();
 program
@@ -428,7 +428,7 @@ const INTEGRATIONS_DIR = fileURLToPath(new URL("../integrations/", import.meta.u
 function stdioMcpCommand(): string[] {
   const binDir = resolve(process.argv[1], "..");
   if (process.platform !== "win32") return [existsSync(join(binDir, "doltap-mcp")) ? join(binDir, "doltap-mcp") : "doltap-mcp"];
-  try { return ["node", createRequire(import.meta.url).resolve("@doltap/mcp/dist/main.js")]; } catch { return ["doltap-mcp"]; }
+  try { return ["node", createRequire(import.meta.url).resolve("@bluekds/doltap-mcp/dist/main.js")]; } catch { return ["doltap-mcp"]; }
 }
 
 function claudeCli(args: string[], allowFail = false): string | null {

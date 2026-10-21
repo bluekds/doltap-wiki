@@ -44,7 +44,7 @@ sources: []
 6. Register the MCP server and skill for Claude Code (other clients: run `doltap-mcp` over stdio):
 
    ```sh
-   npm link -w @doltap/mcp
+   npm link -w @bluekds/doltap-mcp
    claude mcp add -s user doltap -e DOLTAP_ROOT="$HOME/.doltap" -e DOLTAP_AGENT=claude-code -- "$(which doltap-mcp)"
    cp -r ~/.doltap/integrations/claude-code/skills/wiki ~/.claude/skills/
    cat ~/.doltap/integrations/claude-code/CLAUDE.md.snippet >> ~/.claude/CLAUDE.md

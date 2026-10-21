@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { join } from "node:path";
-import type { WikiConfig } from "@doltap/core";
+import type { WikiConfig } from "@bluekds/doltap-core";
 import { createServer } from "./server.js";
 
 export interface HttpOptions {
