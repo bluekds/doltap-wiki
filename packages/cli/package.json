@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "type": "module",
   "bin": {
-    "doltap": "./dist/main.js",
-    "doltap-mcp": "./dist/mcp.js"
+    "doltap": "dist/main.js",
+    "doltap-mcp": "dist/mcp.js"
   },
   "files": [
     "dist",
