@@ -204,18 +204,12 @@ npm link -w doltap-wiki            # 이 체크아웃의 `doltap`, `doltap-mcp`�
 
 ## 배지
 
-돌탑 위키로 관리하는 위키나 프로젝트의 README에 아래를 붙이면 배지가 표시됩니다(다크 모드에서는 밝은 버전으로 자동 전환).
+돌탑 위키로 관리하는 위키나 프로젝트의 README에 아래를 붙이면 배지가 표시됩니다.
 
-<p align="center"><a href="https://github.com/bluekds/doltap-wiki"><picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/bluekds/doltap-wiki/main/static/badge-dark.png">
-  <img src="https://raw.githubusercontent.com/bluekds/doltap-wiki/main/static/badge.png" width="120" alt="Managed with Doltap Wiki">
-</picture></a></p>
+<p align="center"><a href="https://github.com/bluekds/doltap-wiki"><img src="https://raw.githubusercontent.com/bluekds/doltap-wiki/main/static/badge.png" width="120" alt="Managed with Doltap Wiki"></a></p>
 
 ```html
-<a href="https://github.com/bluekds/doltap-wiki"><picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/bluekds/doltap-wiki/main/static/badge-dark.png">
-  <img src="https://raw.githubusercontent.com/bluekds/doltap-wiki/main/static/badge.png" width="120" alt="Managed with Doltap Wiki">
-</picture></a>
+<a href="https://github.com/bluekds/doltap-wiki"><img src="https://raw.githubusercontent.com/bluekds/doltap-wiki/main/static/badge.png" width="120" alt="Managed with Doltap Wiki"></a>
 ```
 
 로고와 배지 원본은 [`static/`](static/)에 있습니다(MIT).
