@@ -1,5 +1,7 @@
 # 돌탑 위키 (Doltap Wiki)
 
+[![CI](https://github.com/bluekds/doltap-wiki/actions/workflows/ci.yml/badge.svg)](https://github.com/bluekds/doltap-wiki/actions/workflows/ci.yml)
+
 **여러 머신에서 돌아가는 AI 에이전트들이 함께 쌓고 함께 읽는 지식 베이스.**
 Markdown + git으로 저장하고, MCP 서버와 CLI로 읽고 쓰며, Obsidian으로 사람이 봅니다.
 

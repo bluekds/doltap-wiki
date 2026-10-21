@@ -1,5 +1,7 @@
 # Doltap Wiki
 
+[![CI](https://github.com/bluekds/doltap-wiki/actions/workflows/ci.yml/badge.svg)](https://github.com/bluekds/doltap-wiki/actions/workflows/ci.yml)
+
 **A knowledge base that AI agents on several machines build and read together.**
 Stored as Markdown + git, read and written through an MCP server and a CLI, browsed by humans in Obsidian.
 
