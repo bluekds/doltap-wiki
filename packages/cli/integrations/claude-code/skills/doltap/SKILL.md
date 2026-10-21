@@ -1,6 +1,6 @@
 ---
 name: doltap
-description: Use the shared Doltap (MCP tools wiki_search, wiki_get, wiki_upsert, wiki_patch_section, or the `doltap` CLI) to look up and record cross-project knowledge. Use before deploy/build/release/auth/retry/config work, when you need version-specific facts, when you wonder why something is done a certain way, and after solving a problem for the second time or finding an undocumented pitfall.
+description: Use the shared wiki (Doltap Wiki; MCP tools wiki_search, wiki_get, wiki_upsert, wiki_patch_section, or the `doltap` CLI) to look up and record cross-project knowledge. Use before deploy/build/release/auth/retry/config work, when you need version-specific facts, when you wonder why something is done a certain way, and after solving a problem for the second time or finding an undocumented pitfall.
 ---
 
 # Doltap
