@@ -57,7 +57,7 @@ flowchart LR
 Every write takes the same path. Duplicates and lint errors are refused before the commit; conflicts are never auto-merged.
 
 ```mermaid
-flowchart LR
+flowchart TB
   W["wiki_upsert / doltap add"] --> P["git pull --rebase"]
   P -->|"conflict"| K["keep upstream, save id.conflict-host.md"]
   P --> D{"similar page exists?"}

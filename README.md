@@ -57,7 +57,7 @@ flowchart LR
 모든 쓰기는 같은 경로를 지납니다. 중복이나 lint 오류는 commit 전에 거부되고, 충돌은 자동 병합하지 않습니다.
 
 ```mermaid
-flowchart LR
+flowchart TB
   W["wiki_upsert / doltap add"] --> P["git pull --rebase"]
   P -->|"conflict"| K["keep upstream, save id.conflict-host.md"]
   P --> D{"similar page exists?"}
