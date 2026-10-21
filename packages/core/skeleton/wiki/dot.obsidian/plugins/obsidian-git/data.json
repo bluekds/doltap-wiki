@@ -1,0 +1,14 @@
+{
+  "autoSaveInterval": 10,
+  "autoPullInterval": 10,
+  "autoPullOnBoot": true,
+  "autoPushInterval": 10,
+  "pullBeforePush": true,
+  "disablePush": false,
+  "commitMessage": "wiki: obsidian edit {{date}}\n\n[host:{{hostname}}] [agent:obsidian]",
+  "commitDateFormat": "YYYY-MM-DD HH:mm:ss",
+  "syncMethod": "rebase",
+  "updateSubmodules": false,
+  "basePath": "..",
+  "disablePopups": false
+}

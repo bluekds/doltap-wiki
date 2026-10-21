@@ -1,0 +1,14 @@
+# Generated per machine (never commit)
+wiki/_meta/index.md
+.doltap/
+.DS_Store
+
+# Obsidian per-machine state
+wiki/.obsidian/workspace.json
+wiki/.obsidian/workspace-mobile.json
+wiki/.obsidian/cache
+
+# Obsidian community plugin binaries (settings data.json stays tracked)
+wiki/.obsidian/plugins/*/main.js
+wiki/.obsidian/plugins/*/manifest.json
+wiki/.obsidian/plugins/*/styles.css

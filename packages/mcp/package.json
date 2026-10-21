@@ -1,0 +1,29 @@
+{
+  "name": "@doltap/mcp",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "doltap-mcp": "./dist/main.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@doltap/core": "0.1.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "zod": "^4.6.7"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bluekds/doltap-wiki.git"
+  },
+  "homepage": "https://github.com/bluekds/doltap-wiki#readme",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "description": "Doltap MCP server (stdio and Streamable HTTP) for agent clients"
+}

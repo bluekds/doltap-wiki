@@ -1,0 +1,43 @@
+# Allowed tag vocabulary. Add new tags here before using them.
+# Format: tag: one-line description
+# Groups are for readability only; tags themselves are flat.
+
+language:
+  python: Python in general
+  typescript: TypeScript / JavaScript
+  go: Go
+  rust: Rust
+  shell: bash/zsh scripting
+  sql: SQL
+
+platform:
+  macos: macOS-specific
+  linux: Linux-specific
+  windows: Windows-specific
+  docker: Docker / containers
+  github: GitHub, gh CLI, Actions
+  cloud: cloud services in general
+
+domain:
+  auth: authentication / authorization
+  database: databases
+  api: HTTP / REST / GraphQL APIs
+  cli: building command-line tools
+  testing: testing
+  ci: CI/CD pipelines
+  release: versioning / deployment / releases
+  logging: logging / observability
+  performance: performance
+  security: security
+  networking: networking
+
+agent:
+  claude-code: Claude Code specifics
+  mcp: MCP servers / clients
+  prompting: prompt and agent instruction design
+  wiki: this wiki itself
+
+meta:
+  obsidian: Obsidian usage / conventions
+  git: git workflows
+  tooling: development tool setup

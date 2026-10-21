@@ -1,0 +1,246 @@
+import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join, sep } from "node:path";
+import type { WikiConfig } from "./config.js";
+
+export interface GitResult {
+  ok: boolean;
+  stdout: string;
+  stderr: string;
+}
+
+export interface SyncReport {
+  pulled: boolean;
+  pushed: boolean;
+  offline: boolean;
+  conflicts: string[];
+  messages: string[];
+}
+
+export function git(cfg: WikiConfig, args: string[], opts: { timeoutMs?: number; allowFail?: boolean } = {}): GitResult {
+  const o: ExecFileSyncOptions = {
+    cwd: cfg.root,
+    encoding: "utf8",
+    timeout: opts.timeoutMs ?? 30000,
+    stdio: ["ignore", "pipe", "pipe"],
+    // GIT_EDITOR=: works through git's bundled sh on every platform including Git for Windows.
+    env: { ...process.env, GIT_EDITOR: ":", GIT_TERMINAL_PROMPT: "0" },
+  };
+  try {
+    const stdout = execFileSync("git", args, o) as string;
+    return { ok: true, stdout: stdout.trim(), stderr: "" };
+  } catch (e) {
+    const err = e as { stdout?: string | Buffer; stderr?: string | Buffer; message: string };
+    const res = { ok: false, stdout: String(err.stdout ?? "").trim(), stderr: String(err.stderr ?? err.message).trim() };
+    if (opts.allowFail) return res;
+    throw new Error(`git ${args.join(" ")} failed: ${res.stderr || res.stdout}`);
+  }
+}
+
+export function isRepo(cfg: WikiConfig): boolean {
+  return existsSync(join(cfg.root, ".git"));
+}
+
+export function hasRemote(cfg: WikiConfig): boolean {
+  return git(cfg, ["remote"], { allowFail: true }).stdout.length > 0;
+}
+
+export function isDirty(cfg: WikiConfig, pathspec = "wiki"): boolean {
+  return git(cfg, ["status", "--porcelain", "--", pathspec]).stdout.length > 0;
+}
+
+interface SyncState {
+  lastPull?: string;
+  pendingPush?: boolean;
+}
+
+function statePath(cfg: WikiConfig): string {
+  return join(cfg.stateDir, "sync.json");
+}
+
+export function readSyncState(cfg: WikiConfig): SyncState {
+  try {
+    return JSON.parse(readFileSync(statePath(cfg), "utf8")) as SyncState;
+  } catch {
+    return {};
+  }
+}
+
+export function writeSyncState(cfg: WikiConfig, patch: SyncState): void {
+  writeFileSync(statePath(cfg), JSON.stringify({ ...readSyncState(cfg), ...patch }, null, 2));
+}
+
+function looksOffline(stderr: string): boolean {
+  return /could not resolve|unable to access|connection|network|timed out|Could not read from remote/i.test(stderr);
+}
+
+/**
+ * Keep the upstream version (index stage 2) of one conflicted path. For wiki pages the local version
+ * (stage 3) is preserved next to it as `<name>.conflict-<host>.md`; for anything else (lockfiles, build
+ * config) the local change is discarded, since only wiki/ is meant to be edited on client machines.
+ * Stage numbers are the same for a rebase stop and for a failed autostash pop.
+ */
+function resolveOneConflict(cfg: WikiConfig, file: string, saved: string[]): void {
+  const upstream = git(cfg, ["show", `:2:${file}`], { allowFail: true });
+  const local = git(cfg, ["show", `:3:${file}`], { allowFail: true });
+  const isPage = file.startsWith("wiki/") && file.endsWith(".md") && !file.startsWith("wiki/.obsidian/");
+  const conflictName = file.replace(/\.md$/, "") + `.conflict-${cfg.hostname}.md`;
+  if (isPage && local.ok) writeFileSync(join(cfg.root, conflictName), local.stdout + "\n");
+  if (upstream.ok) writeFileSync(join(cfg.root, file), upstream.stdout + "\n");
+  else git(cfg, ["rm", "-q", "--", file], { allowFail: true });
+  git(cfg, ["add", "--", file, ...(isPage && local.ok ? [conflictName] : [])], { allowFail: true });
+  if (isPage && local.ok) saved.push(conflictName);
+}
+
+/** After `pull --autostash` fails to re-apply the stash, resolve the unmerged paths and drop the stash. */
+function resolveAutostashConflicts(cfg: WikiConfig): string[] {
+  const saved: string[] = [];
+  const conflicted = git(cfg, ["diff", "--name-only", "--diff-filter=U"], { allowFail: true }).stdout.split("\n").filter(Boolean);
+  for (const file of conflicted) resolveOneConflict(cfg, file, saved);
+  // The resolved files are now staged; unstage so they stay plain working-tree edits (pages) or clean (others).
+  git(cfg, ["reset", "-q"], { allowFail: true });
+  const stashes = git(cfg, ["stash", "list"], { allowFail: true }).stdout;
+  if (/autostash/i.test(stashes)) git(cfg, ["stash", "drop", "-q"], { allowFail: true });
+  return saved;
+}
+
+/**
+ * Resolve a rebase stopped on conflicts by keeping the upstream version of each conflicted file and
+ * saving the replayed (local) version next to it as `<name>.conflict-<host>.md`.
+ */
+function resolveRebaseConflicts(cfg: WikiConfig): string[] {
+  const saved: string[] = [];
+  for (let guard = 0; guard < 20; guard++) {
+    const conflicted = git(cfg, ["diff", "--name-only", "--diff-filter=U"], { allowFail: true }).stdout.split("\n").filter(Boolean);
+    if (!conflicted.length) {
+      const st = git(cfg, ["status", "--porcelain"], { allowFail: true }).stdout;
+      if (!existsSync(join(cfg.root, ".git", "rebase-merge")) && !existsSync(join(cfg.root, ".git", "rebase-apply"))) break;
+      if (!st) break;
+    }
+    for (const file of conflicted) resolveOneConflict(cfg, file, saved);
+    const cont = git(cfg, ["rebase", "--continue"], { allowFail: true });
+    if (cont.ok) break;
+    if (/no rebase in progress/i.test(cont.stderr)) break;
+    if (!/conflict/i.test(cont.stderr + cont.stdout) && !git(cfg, ["diff", "--name-only", "--diff-filter=U"], { allowFail: true }).stdout) {
+      // Empty commit after taking upstream: skip it.
+      git(cfg, ["rebase", "--skip"], { allowFail: true });
+    }
+  }
+  return saved;
+}
+
+/** git pull --rebase --autostash. Returns a report; never throws on network failure. */
+export function pull(cfg: WikiConfig, report: SyncReport = emptyReport()): SyncReport {
+  if (cfg.noSync || !isRepo(cfg) || !hasRemote(cfg)) return report;
+  const res = git(cfg, ["pull", "--rebase", "--autostash", "--quiet"], { allowFail: true, timeoutMs: 20000 });
+  // A failed autostash re-apply exits 0 and only prints to stderr, so look at the index instead.
+  const unmerged = git(cfg, ["diff", "--name-only", "--diff-filter=U"], { allowFail: true }).stdout.split("\n").filter(Boolean);
+  const stashLeft = /autostash/i.test(git(cfg, ["stash", "list"], { allowFail: true }).stdout);
+  if (res.ok || (unmerged.length && stashLeft)) {
+    if (unmerged.length) {
+      const saved = resolveAutostashConflicts(cfg);
+      report.conflicts.push(...saved);
+      report.messages.push(`autostash conflicted; upstream kept${saved.length ? `, local pages saved as: ${saved.join(", ")}` : ""}`);
+    }
+    report.pulled = true;
+    writeSyncState(cfg, { lastPull: new Date().toISOString() });
+    return report;
+  }
+  if (looksOffline(res.stderr)) {
+    report.offline = true;
+    report.messages.push("pull skipped: remote unreachable");
+    return report;
+  }
+  const output = res.stderr + res.stdout;
+  if (/conflict/i.test(output)) {
+    const saved = resolveRebaseConflicts(cfg);
+    report.conflicts.push(...saved);
+    report.pulled = true;
+    report.messages.push(`pull had conflicts; local versions saved as: ${saved.join(", ") || "(none)"}`);
+    writeSyncState(cfg, { lastPull: new Date().toISOString() });
+    return report;
+  }
+  report.messages.push(`pull failed: ${res.stderr}`);
+  return report;
+}
+
+export function emptyReport(): SyncReport {
+  return { pulled: false, pushed: false, offline: false, conflicts: [], messages: [] };
+}
+
+export function commitMessage(cfg: WikiConfig, action: string, id: string, extra?: string): string {
+  const tags = [`[host:${cfg.hostname}]`, `[agent:${cfg.agent}]`];
+  if (cfg.session) tags.push(`[session:${cfg.session}]`);
+  return `wiki: ${action} ${id}\n\n${tags.join(" ")}${extra ? "\n\n" + extra : ""}`;
+}
+
+/** Stage the given paths (relative to root), commit, then push with rebase-retry. */
+export function commitAndPush(cfg: WikiConfig, paths: string[], message: string, report: SyncReport = emptyReport()): SyncReport {
+  if (!isRepo(cfg)) return report;
+  // git pathspecs are always forward-slash, even on Windows.
+  git(cfg, ["add", "--", ...paths.map((p) => p.split(sep).join("/"))]);
+  const staged = git(cfg, ["diff", "--cached", "--name-only"], { allowFail: true }).stdout;
+  if (!staged) {
+    report.messages.push("nothing to commit");
+    return report;
+  }
+  git(cfg, ["commit", "--quiet", "-m", message]);
+  if (cfg.noSync || !hasRemote(cfg)) return report;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const res = git(cfg, ["push", "--quiet"], { allowFail: true, timeoutMs: 20000 });
+    if (res.ok) {
+      report.pushed = true;
+      writeSyncState(cfg, { pendingPush: false });
+      return report;
+    }
+    if (looksOffline(res.stderr)) {
+      report.offline = true;
+      report.messages.push("push skipped: remote unreachable (commit saved locally)");
+      writeSyncState(cfg, { pendingPush: true });
+      return report;
+    }
+    pull(cfg, report);
+  }
+  report.messages.push("push failed after 3 attempts (commit saved locally)");
+  writeSyncState(cfg, { pendingPush: true });
+  return report;
+}
+
+/** Push anything left over from an earlier offline write. */
+export function pushPending(cfg: WikiConfig, report: SyncReport = emptyReport()): SyncReport {
+  if (cfg.noSync || !isRepo(cfg) || !hasRemote(cfg)) return report;
+  const ahead = git(cfg, ["rev-list", "--count", "@{u}..HEAD"], { allowFail: true });
+  if (!ahead.ok || ahead.stdout === "0") return report;
+  const res = git(cfg, ["push", "--quiet"], { allowFail: true, timeoutMs: 20000 });
+  if (res.ok) {
+    report.pushed = true;
+    writeSyncState(cfg, { pendingPush: false });
+  } else if (looksOffline(res.stderr)) report.offline = true;
+  else report.messages.push(`push failed: ${res.stderr}`);
+  return report;
+}
+
+/** Full sync: pull (resolving conflicts) then push anything pending. */
+export function syncAll(cfg: WikiConfig): SyncReport {
+  const report = emptyReport();
+  pull(cfg, report);
+  pushPending(cfg, report);
+  return report;
+}
+
+/** Pull if the last pull is older than cfg.autoPullMinutes. Cheap no-op otherwise. */
+export function maybeAutoPull(cfg: WikiConfig): SyncReport {
+  const report = emptyReport();
+  if (cfg.noSync || cfg.autoPullMinutes <= 0) return report;
+  const last = readSyncState(cfg).lastPull;
+  const ageMin = last ? (Date.now() - Date.parse(last)) / 60000 : Infinity;
+  if (ageMin < cfg.autoPullMinutes) return report;
+  return pull(cfg, report);
+}
+
+/** Conflict files currently present in the working tree. */
+export function listConflictFiles(cfg: WikiConfig): string[] {
+  const out = git(cfg, ["ls-files", "--", "wiki"], { allowFail: true }).stdout.split("\n");
+  const untracked = git(cfg, ["ls-files", "--others", "--exclude-standard", "--", "wiki"], { allowFail: true }).stdout.split("\n");
+  return [...out, ...untracked].filter((f) => /\.conflict-[^./]+\.md$/.test(f));
+}

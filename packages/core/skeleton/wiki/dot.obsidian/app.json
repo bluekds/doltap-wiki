@@ -1,0 +1,14 @@
+{
+  "baseTheme": "obsidian",
+  "alwaysUpdateLinks": true,
+  "newLinkFormat": "absolute",
+  "useMarkdownLinks": false,
+  "showUnsupportedFiles": false,
+  "strictLineBreaks": false,
+  "userIgnoreFilters": [
+    "_meta/templates/"
+  ],
+  "newFileLocation": "current",
+  "attachmentFolderPath": "_meta/attachments",
+  "promptDelete": true
+}

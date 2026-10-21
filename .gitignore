@@ -1,0 +1,20 @@
+# Generated per machine (never commit)
+wiki/_meta/index.md
+.doltap/
+node_modules/
+dist/
+*.log
+.DS_Store
+
+# Obsidian per-machine workspace state
+wiki/.obsidian/workspace.json
+wiki/.obsidian/workspace-mobile.json
+wiki/.obsidian/cache
+
+# TypeScript incremental build cache (per machine)
+*.tsbuildinfo
+
+# Obsidian community plugin binaries (installed per machine, settings data.json stays tracked)
+wiki/.obsidian/plugins/*/main.js
+wiki/.obsidian/plugins/*/manifest.json
+wiki/.obsidian/plugins/*/styles.css

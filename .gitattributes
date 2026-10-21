@@ -1,0 +1,9 @@
+# Pages and code are always LF so agents on Windows and Unix produce identical bytes.
+* text=auto eol=lf
+*.md text eol=lf
+*.ts text eol=lf
+*.json text eol=lf
+*.yaml text eol=lf
+*.png binary
+*.jpg binary
+*.pdf binary

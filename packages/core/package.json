@@ -1,0 +1,31 @@
+{
+  "name": "@doltap/core",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./quiet": "./dist/quiet.js"
+  },
+  "files": [
+    "dist",
+    "skeleton"
+  ],
+  "dependencies": {
+    "yaml": "^2.6.0"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bluekds/doltap-wiki.git"
+  },
+  "homepage": "https://github.com/bluekds/doltap-wiki#readme",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "description": "Doltap core: Markdown+git wiki parsing, lint, FTS5 search, multi-machine sync"
+}
