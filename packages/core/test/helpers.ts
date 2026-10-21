@@ -46,6 +46,8 @@ export function makeTwoMachines(): { bare: string; a: string; b: string; cleanup
   sh(base, "git", ["init", "-q", "-b", "main", seed]);
   copyWiki(join(seed, "wiki"));
   cpSync(fileURLToPath(new URL("../../../.gitignore", import.meta.url)), join(seed, ".gitignore"));
+  // Real wikis pin LF through .gitattributes; without it Git for Windows (autocrlf=true) checks out CRLF.
+  cpSync(fileURLToPath(new URL("../../../.gitattributes", import.meta.url)), join(seed, ".gitattributes"));
   // A tracked non-wiki file, so tests can simulate `npm install` dirtying the lockfile on a client machine.
   writeFileSync(join(seed, "package-lock.json"), "{\n  \"version\": \"seed\"\n}\n");
   sh(seed, "git", ["add", "-A"]);

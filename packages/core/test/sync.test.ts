@@ -83,7 +83,7 @@ describe("multi-machine sync", () => {
     patchSection(A, { id: "reference/obsidian-conventions", section: "Details", content: "upstream details" });
     writeFileSync(join(m.b, "package-lock.json"), "{\n  \"version\": \"local\"\n}\n");
     const pagePath = join(m.b, "wiki/reference/obsidian-conventions.md");
-    writeFileSync(pagePath, readFileSync(pagePath, "utf8").replace(/## Details\n\n[\s\S]*?\n\n## /, "## Details\n\nlocal details\n\n## "));
+    writeFileSync(pagePath, readFileSync(pagePath, "utf8").replace(/## Details\r?\n\r?\n[\s\S]*?\r?\n\r?\n## /, "## Details\n\nlocal details\n\n## "));
     const r = pull(B);
     expect(r.pulled).toBe(true);
     expect(r.messages.join(" ")).toMatch(/autostash conflicted/);
