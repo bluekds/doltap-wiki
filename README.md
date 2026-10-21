@@ -57,15 +57,13 @@ flowchart LR
 모든 쓰기는 같은 경로를 지납니다. 중복이나 lint 오류는 commit 전에 거부되고, 충돌은 자동 병합하지 않습니다.
 
 ```mermaid
-flowchart TB
-  W["wiki_upsert / doltap add"] --> P["git pull --rebase"]
-  P -->|"conflict"| K["keep upstream, save id.conflict-host.md"]
-  P --> D{"similar page exists?"}
-  D -->|"yes"| X["refused: edit that page"]
-  D -->|"no"| L["write file + lint"]
-  L -->|"errors"| Y["refused: file restored, issues returned"]
-  L -->|"ok"| C["commit"] --> U["push (3 retries)"]
-  U -->|"offline"| O["kept locally, pushed on next sync"]
+flowchart LR
+  W["upsert / add"] --> P["pull --rebase"] --> D{"similar<br/>page?"}
+  D -->|"no"| L["write + lint"] --> C["commit"] --> U["push"]
+  D -->|"yes"| X["refused:<br/>edit that page"]
+  L -->|"errors"| Y["refused:<br/>file restored"]
+  P -->|"conflict"| K["keep upstream, save<br/>id.conflict-host.md"]
+  U -->|"offline"| O["pushed on<br/>next sync"]
 ```
 
 ## 빠른 시작
