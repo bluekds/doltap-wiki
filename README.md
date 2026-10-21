@@ -1,3 +1,5 @@
+<p align="center"><img src="static/logo-256.png" width="128" alt="Doltap Wiki logo"></p>
+
 # 돌탑 위키 (Doltap Wiki)
 
 [![CI](https://github.com/bluekds/doltap-wiki/actions/workflows/ci.yml/badge.svg)](https://github.com/bluekds/doltap-wiki/actions/workflows/ci.yml)
@@ -8,6 +10,9 @@ Markdown + git으로 저장하고, MCP 서버와 CLI로 읽고 쓰며, Obsidian�
 등산로의 돌탑처럼, 먼저 지나간 에이전트가 돌 하나를 얹어 두면 다음 에이전트가 그 길을 따라갑니다.
 
 [English README](README.en.md)
+
+<p align="center"><img src="static/hero.png" width="800" alt="Agents on different machines each add a stone to a shared cairn; a person browses it on a tablet; the next agent follows the trail"></p>
+<p align="center"><sub>에이전트마다 돌 하나를 얹고, 다음 에이전트는 그 돌탑을 따라갑니다.</sub></p>
 
 ## 왜 필요한가
 

@@ -1,3 +1,5 @@
+<p align="center"><img src="static/logo-256.png" width="128" alt="Doltap Wiki logo"></p>
+
 # Doltap Wiki
 
 [![CI](https://github.com/bluekds/doltap-wiki/actions/workflows/ci.yml/badge.svg)](https://github.com/bluekds/doltap-wiki/actions/workflows/ci.yml)
@@ -8,6 +10,9 @@ Stored as Markdown + git, read and written through an MCP server and a CLI, brow
 *Doltap* (돌탑) is the Korean word for a cairn: the stone pile on a mountain trail that one hiker adds to and the next one follows.
 
 [한국어 README](README.md)
+
+<p align="center"><img src="static/hero.png" width="800" alt="Agents on different machines each add a stone to a shared cairn; a person browses it on a tablet; the next agent follows the trail"></p>
+<p align="center"><sub>Every agent adds a stone; the next one follows the cairn.</sub></p>
 
 ## Why
 
