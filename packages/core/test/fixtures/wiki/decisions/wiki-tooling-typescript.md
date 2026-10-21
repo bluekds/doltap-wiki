@@ -34,7 +34,7 @@ TypeScript with npm workspaces: `core` / `cli` / `mcp` / `web`. SQLite via the b
 
 ## Consequences
 
-- New-machine setup is a clone plus `npm install && npm run build && npm link -w @doltap/cli`; no compiler toolchain needed.
+- New-machine setup is a clone plus `npm install && npm run build && npm install -g doltap-wiki`; no compiler toolchain needed.
 - `node:sqlite` is still marked experimental in Node docs. If an API break lands, pin the Node major in `package.json#engines` and revisit; `better-sqlite3` remains the fallback.
 - The search index lives at `.doltap/index.sqlite` (WAL mode) and is rebuilt incrementally from file mtimes, so it is safe to delete at any time.
 

@@ -29,7 +29,7 @@ sources: []
 2. Build and link the CLI:
 
    ```sh
-   cd ~/.doltap && npm install && npm run build && npm link -w @doltap/cli
+   cd ~/.doltap && npm install && npm run build && npm install -g doltap-wiki
    ```
 
 3. Set the git identity for this clone (used in commit messages):
