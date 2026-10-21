@@ -38,7 +38,10 @@ The tool's focus is write quality: a classification table, per-category template
 - **Reads**: full-text search with the FTS5 engine of Node's built-in SQLite (porter stemming). The index is generated per machine and never committed.
 - **Interfaces**: the MCP server (stdio or HTTP) comes first, the CLI offers the same operations, and Obsidian is the human view (wikilinks, backlinks, graph, Dataview dashboards).
 
-### Architecture
+<details>
+<summary><b>Architecture and write path (for the curious)</b></summary>
+
+**Architecture**
 
 <p align="center"><img src="static/architecture.png" width="760" alt="Architecture: agents on each machine read and write a local clone through doltap, sync via a git remote, and remote clients connect to the always-on machine's HTTP MCP"></p>
 
@@ -63,7 +66,7 @@ flowchart LR
 
 </details>
 
-### Write path
+**Write path**
 
 Every write takes the same path. Duplicates and lint errors are refused before the commit; conflicts are never auto-merged.
 
@@ -80,6 +83,8 @@ flowchart LR
   P -->|"conflict"| K["keep upstream, save<br/>id.conflict-host.md"]
   U -->|"offline"| O["pushed on<br/>next sync"]
 ```
+
+</details>
 
 </details>
 

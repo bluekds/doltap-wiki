@@ -38,7 +38,10 @@ Markdown + git으로 저장하고, MCP 서버와 CLI로 읽고 쓰며, Obsidian�
 - **읽기**: Node 내장 SQLite의 FTS5 전문 검색(porter stemming). 인덱스는 머신마다 생성하고 commit하지 않습니다.
 - **인터페이스**: MCP 서버(stdio 또는 HTTP)가 1순위, CLI가 같은 기능을 제공하고, Obsidian이 사람용 화면입니다(wikilink, 백링크, 그래프, Dataview 대시보드).
 
-### 구조
+<details>
+<summary><b>기술 구조와 쓰기 경로 (관심 있는 분만)</b></summary>
+
+**구조**
 
 <p align="center"><img src="static/architecture.png" width="760" alt="구조: 각 머신의 에이전트가 doltap으로 로컬 clone을 읽고 쓰고, git 원격으로 동기화하며, 상시 머신의 HTTP MCP에 원격 클라이언트가 연결됨"></p>
 
@@ -63,7 +66,7 @@ flowchart LR
 
 </details>
 
-### 쓰기 경로
+**쓰기 경로**
 
 모든 쓰기는 같은 경로를 지납니다. 중복이나 lint 오류는 commit 전에 거부되고, 충돌은 자동 병합하지 않습니다.
 
@@ -80,6 +83,8 @@ flowchart LR
   P -->|"conflict"| K["keep upstream, save<br/>id.conflict-host.md"]
   U -->|"offline"| O["pushed on<br/>next sync"]
 ```
+
+</details>
 
 </details>
 
