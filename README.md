@@ -206,10 +206,10 @@ npm link -w doltap-wiki            # 이 체크아웃의 `doltap`, `doltap-mcp`�
 
 돌탑 위키로 관리하는 위키나 프로젝트의 README에 아래를 붙이면 배지가 표시됩니다.
 
-<p align="center"><a href="https://github.com/bluekds/doltap-wiki"><img src="https://raw.githubusercontent.com/bluekds/doltap-wiki/main/static/badge.png" width="120" alt="Managed with Doltap Wiki"></a></p>
+<p align="center"><a href="https://github.com/bluekds/doltap-wiki"><img src="https://raw.githubusercontent.com/bluekds/doltap-wiki/main/static/badge-seal.png" width="120" alt="Managed with Doltap Wiki"></a></p>
 
 ```html
-<a href="https://github.com/bluekds/doltap-wiki"><img src="https://raw.githubusercontent.com/bluekds/doltap-wiki/main/static/badge.png" width="120" alt="Managed with Doltap Wiki"></a>
+<a href="https://github.com/bluekds/doltap-wiki"><img src="https://raw.githubusercontent.com/bluekds/doltap-wiki/main/static/badge-seal.png" width="120" alt="Managed with Doltap Wiki"></a>
 ```
 
 로고와 배지 원본은 [`static/`](static/)에 있습니다(MIT).

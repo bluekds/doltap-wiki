@@ -206,10 +206,10 @@ Packages: `@bluekds/doltap-core` (parser, lint, search, git sync, scaffold), `@b
 
 Paste this into the README of a wiki or project managed with Doltap Wiki:
 
-<p align="center"><a href="https://github.com/bluekds/doltap-wiki"><img src="https://raw.githubusercontent.com/bluekds/doltap-wiki/main/static/badge.png" width="120" alt="Managed with Doltap Wiki"></a></p>
+<p align="center"><a href="https://github.com/bluekds/doltap-wiki"><img src="https://raw.githubusercontent.com/bluekds/doltap-wiki/main/static/badge-seal.png" width="120" alt="Managed with Doltap Wiki"></a></p>
 
 ```html
-<a href="https://github.com/bluekds/doltap-wiki"><img src="https://raw.githubusercontent.com/bluekds/doltap-wiki/main/static/badge.png" width="120" alt="Managed with Doltap Wiki"></a>
+<a href="https://github.com/bluekds/doltap-wiki"><img src="https://raw.githubusercontent.com/bluekds/doltap-wiki/main/static/badge-seal.png" width="120" alt="Managed with Doltap Wiki"></a>
 ```
 
 Logo and badge sources are in [`static/`](static/) (MIT).
