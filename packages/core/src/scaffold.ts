@@ -76,13 +76,12 @@ export function scaffoldWiki(dirIn: string, opts: ScaffoldOptions = {}): Scaffol
   if (!existsSync(join(dir, ".git"))) git(dir, ["init", "-q", "-b", "main"]);
   let identity = "";
   try { identity = git(dir, ["config", "user.email"]); } catch { /* unset */ }
-  if (!identity) {
-    git(dir, ["config", "user.name", "doltap"]);
-    git(dir, ["config", "user.email", "doltap@localhost"]);
-    notes.push("git identity was not configured; set repo-local user.name=doltap user.email=doltap@localhost (change with `git config user.name/user.email`)");
-  }
+  // Commit with a placeholder when no identity is configured, but do not persist it: the user (or agent)
+  // should set the real name and email afterwards, and a later `git config user.email` check must still be empty.
+  const idArgs = identity ? [] : ["-c", "user.name=doltap", "-c", "user.email=doltap@localhost"];
+  if (!identity) notes.push("git identity is not configured; the initial commit is authored as doltap <doltap@localhost>. Set `git config user.name` and `user.email` in this repository before agents write pages");
   git(dir, ["add", "-A"]);
-  git(dir, ["commit", "-q", "-m", "wiki: initialize Doltap wiki\n\n[agent:doltap-init]"]);
+  git(dir, [...idArgs, "commit", "-q", "-m", "wiki: initialize Doltap wiki\n\n[agent:doltap-init]"]);
 
   let pushed: boolean | null = null;
   if (opts.remote) {

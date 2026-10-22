@@ -46,6 +46,7 @@ export function installSchedule(cfg: WikiConfig, wikiBin: string, intervalMinute
   <key>Label</key><string>${LABEL}</string>
   <key>ProgramArguments</key>
   <array>
+    <string>${process.execPath}</string>
     <string>${wikiBin}</string>
     <string>--root</string><string>${cfg.root}</string>
     <string>--agent</string><string>scheduler</string>
@@ -69,7 +70,7 @@ export function installSchedule(cfg: WikiConfig, wikiBin: string, intervalMinute
     execFileSync("launchctl", ["load", p], { stdio: "ignore" });
     return { platform: "launchd", installed: true, detail: `${p} every ${intervalMinutes} min; logs in ${logDir}` };
   }
-  const line = `*/${intervalMinutes} * * * * ${wikiBin} --root ${cfg.root} --agent scheduler sync >> ${join(logDir, "sync.log")} 2>&1 ${cronMarker()}`;
+  const line = `*/${intervalMinutes} * * * * ${process.execPath} ${wikiBin} --root ${cfg.root} --agent scheduler sync >> ${join(logDir, "sync.log")} 2>&1 ${cronMarker()}`;
   let current = "";
   try { current = execFileSync("crontab", ["-l"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }); } catch { current = ""; }
   const kept = current.split("\n").filter((l) => l && !l.includes(cronMarker()));
@@ -138,6 +139,7 @@ export function installHttpService(cfg: WikiConfig, mcpBin: string, port = 8765,
   <key>Label</key><string>${SERVICE_LABEL}</string>
   <key>ProgramArguments</key>
   <array>
+    <string>${process.execPath}</string>
     <string>${mcpBin}</string>
     <string>--http</string>
     <string>--port</string><string>${port}</string>

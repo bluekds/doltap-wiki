@@ -45,7 +45,7 @@ function errorText(e: unknown) {
 
 /** Build a fresh MCP server bound to one wiki config. stdio uses one; HTTP creates one per request (stateless). */
 export function createServer(cfg: WikiConfig): McpServer {
-const server = new McpServer({ name: "doltap", version: "0.1.0" });
+const server = new McpServer({ name: "doltap", version: "0.1.1" });
 
 // ------------------------------------------------------------------ resources
 server.registerResource("protocol", "wiki://protocol", { title: "Doltap protocol", description: "Rules for reading, writing, and classifying wiki pages. Read before writing.", mimeType: "text/markdown" }, async (uri) => ({

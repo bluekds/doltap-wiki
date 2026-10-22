@@ -224,7 +224,7 @@ export class WikiDb {
     // Weight title and summary and tags above body.
     const sql = `
       SELECT p.*, bm25(pages_fts, 0, 10.0, 6.0, 4.0, 1.0) AS score,
-             snippet(pages_fts, 4, '[', ']', ' … ', 12) AS snippet
+             snippet(pages_fts, 4, '**', '**', ' … ', 12) AS snippet
       FROM pages_fts JOIN pages p ON p.id = pages_fts.id
       WHERE ${where.join(" AND ")}
       ORDER BY score LIMIT ?`;

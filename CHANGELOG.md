@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.1 (2026-10-22)
+
+- Scheduler entries (launchd, crontab) now run the JS entry through the absolute Node binary, so Node installed via nvm works for the periodic sync and the HTTP service
+- `doltap init --new` no longer persists the placeholder git identity; it only signs the initial commit with it and tells you to set a real one
+- `doltap integrations install claude` prints the wiki root it will register and, in `--dry-run`, the implicit removal of an existing registration
+- Search snippets mark matches with `**` instead of `[ ]`, which collided with wikilinks and paths
+- `docs/SETUP-FOR-AGENTS.md`: setup instructions an agent can follow end to end (rehearsed)
+
 ## 0.1.0 (2026-10-21)
 
 First public release.

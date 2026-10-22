@@ -449,6 +449,8 @@ integrations
       const skillDir = join(homedir(), ".claude", "skills", "doltap");
       const claudeMd = join(homedir(), ".claude", "CLAUDE.md");
       const actions: string[] = [];
+      const root = o.remote ? null : cfgFrom().cfg.root;
+      actions.push(root ? `wiki root: ${root} (nearest wiki above the current directory, $DOLTAP_ROOT, or ~/.doltap; pass --root to override)` : `remote endpoint (no local clone)`);
 
       actions.push(`write ${join(skillDir, "SKILL.md")}`);
       if (!o.dryRun) {
@@ -469,9 +471,9 @@ integrations
 
       const addArgs = o.remote
         ? ["mcp", "add", "-s", "user", "--transport", "http", "doltap", o.remote]
-        : ["mcp", "add", "-s", "user", "doltap", "-e", `DOLTAP_ROOT=${cfgFrom().cfg.root}`, "-e", "DOLTAP_AGENT=claude-code", "--", ...stdioMcpCommand()];
+        : ["mcp", "add", "-s", "user", "doltap", "-e", `DOLTAP_ROOT=${root}`, "-e", "DOLTAP_AGENT=claude-code", "--", ...stdioMcpCommand()];
       const shown = `claude ${addArgs.map((a) => (/\s/.test(a) ? JSON.stringify(a) : a)).join(" ")}`;
-      if (o.dryRun) actions.push(`run: ${shown}`);
+      if (o.dryRun) actions.push("run: claude mcp remove -s user doltap (replaces an existing registration, if any)", `run: ${shown}`);
       else if (claudeCli(["--version"], true) === null) actions.push(`claude CLI not found on PATH; run manually: ${shown}`);
       else {
         claudeCli(["mcp", "remove", "-s", "user", "doltap"], true);
