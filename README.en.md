@@ -94,6 +94,28 @@ flowchart LR
 
 </details>
 
+**Write path**
+
+Every write takes the same path. Duplicates and lint errors are refused before the commit; conflicts are never auto-merged.
+
+<p align="center"><img src="static/write-path.png" width="760" alt="Write path: pull --rebase, duplicate check, write+lint, commit, push, with conflict, refusal and offline branches"></p>
+
+<details><summary>Mermaid source</summary>
+
+```mermaid
+flowchart LR
+  W["upsert / add"] --> P["pull --rebase"] --> D{"similar<br/>page?"}
+  D -->|"no"| L["write + lint"] --> C["commit"] --> U["push"]
+  D -->|"yes"| X["refused:<br/>edit that page"]
+  L -->|"errors"| Y["refused:<br/>file restored"]
+  P -->|"conflict"| K["keep upstream, save<br/>id.conflict-host.md"]
+  U -->|"offline"| O["pushed on<br/>next sync"]
+```
+
+</details>
+
+</details>
+
 ## Several machines, remote access
 
 - Each machine with `doltap init --repo …` shares the same git remote. `doltap schedule install` pulls every 10 minutes so reads never block on a slow network.

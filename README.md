@@ -92,6 +92,28 @@ flowchart LR
 
 </details>
 
+**쓰기 경로**
+
+모든 쓰기는 같은 경로를 지납니다. 중복이나 lint 오류는 commit 전에 거부되고, 충돌은 자동 병합하지 않습니다.
+
+<p align="center"><img src="static/write-path.png" width="760" alt="쓰기 경로: pull --rebase, 중복 검사, 쓰기+lint, commit, push, 충돌·거부·오프라인 분기"></p>
+
+<details><summary>Mermaid 소스</summary>
+
+```mermaid
+flowchart LR
+  W["upsert / add"] --> P["pull --rebase"] --> D{"similar<br/>page?"}
+  D -->|"no"| L["write + lint"] --> C["commit"] --> U["push"]
+  D -->|"yes"| X["refused:<br/>edit that page"]
+  L -->|"errors"| Y["refused:<br/>file restored"]
+  P -->|"conflict"| K["keep upstream, save<br/>id.conflict-host.md"]
+  U -->|"offline"| O["pushed on<br/>next sync"]
+```
+
+</details>
+
+</details>
+
 ## 여러 머신, 원격 접속
 
 - 머신마다 `doltap init --repo …`로 clone을 두면 같은 git 원격을 공유합니다. `doltap schedule install`이 10분마다 pull해서 읽기가 느린 네트워크에 막히지 않습니다.
