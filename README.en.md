@@ -30,7 +30,7 @@ doltap integrations install claude                                              
 doltap schedule install                                                          # auto-sync every 10 minutes (launchd / crontab / Task Scheduler)
 ```
 
-On every other machine, run the same four lines with `doltap init --repo <wiki-repo-url>` as the first one. The command is `doltap`; add `alias wiki=doltap` to your shell profile if you prefer typing `wiki`.
+On every other machine, run the same four lines with `doltap init --repo <wiki-repo-url>` as the second one. The command is `doltap`; add `alias wiki=doltap` to your shell profile if you prefer typing `wiki`.
 
 **Rather not install it yourself? Hand it to the agent.** Tell Claude Code or a similar agent:
 

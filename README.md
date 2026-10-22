@@ -28,7 +28,7 @@ doltap integrations install claude                                              
 doltap schedule install                                                            # 10분마다 자동 sync (launchd / crontab / 작업 스케줄러)
 ```
 
-다른 머신에서는 첫 줄을 `doltap init --repo <위키저장소 주소>`로 바꿔 같은 네 줄을 실행하면 됩니다. 명령어는 `doltap`이고, `wiki`로 치고 싶으면 셸 설정에 `alias wiki=doltap`을 넣으세요.
+다른 머신에서는 둘째 줄을 `doltap init --repo <위키저장소 주소>`로 바꿔 같은 네 줄을 실행하면 됩니다. 명령어는 `doltap`이고, `wiki`로 치고 싶으면 셸 설정에 `alias wiki=doltap`을 넣으세요.
 
 **설치가 귀찮다면 에이전트에게 시키세요.** Claude Code 같은 에이전트에게 이렇게 말하면 됩니다.
 
