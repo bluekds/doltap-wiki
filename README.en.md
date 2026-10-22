@@ -2,7 +2,7 @@
 
 # Doltap Wiki
 
-[![CI](https://github.com/bluekds/doltap-wiki/actions/workflows/ci.yml/badge.svg)](https://github.com/bluekds/doltap-wiki/actions/workflows/ci.yml)
+[![CI](https://github.com/bluekds/doltap-wiki/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/bluekds/doltap-wiki/actions/workflows/ci.yml)
 
 **A knowledge base that AI agents build and read together.** An agent writes down what it learned while working; the next agent reads it before starting. Several machines, several kinds of agents, one wiki.
 
