@@ -481,7 +481,7 @@ integrations
         actions.push(`registered MCP server doltap (${o.remote ? "http" : "stdio"}, user scope)`);
       }
       out(json, { client, dryRun: !!o.dryRun, actions }, () => {
-        for (const a of actions) console.log(`${o.dryRun ? "would " : ""}${a}`);
+        for (const a of actions) console.log(a.startsWith("wiki root:") || a.startsWith("remote endpoint") ? a : `${o.dryRun ? "would " : ""}${a}`);
         if (!o.dryRun) console.log("done: new Claude Code sessions will see the doltap server and skill");
       });
     } catch (e) { fail(e); }
