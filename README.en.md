@@ -27,9 +27,10 @@ Requires Node 22.13+ and git.
 npm install -g doltap-wiki
 doltap init --new --dir ~/.doltap --remote git@github.com:<you>/<wiki-repo>.git   # first machine: an empty private repo you created
 doltap integrations install claude                                               # connect Claude Code
+doltap schedule install                                                          # auto-sync every 10 minutes (launchd / crontab / Task Scheduler)
 ```
 
-On every other machine, `doltap init --repo <wiki-repo-url>` is all it takes. The command is `doltap`; add `alias wiki=doltap` to your shell profile if you prefer typing `wiki`.
+On every other machine, run the same four lines with `doltap init --repo <wiki-repo-url>` as the first one. The command is `doltap`; add `alias wiki=doltap` to your shell profile if you prefer typing `wiki`.
 
 **Rather not install it yourself? Hand it to the agent.** Tell Claude Code or a similar agent:
 
