@@ -4,39 +4,67 @@
 
 [![CI](https://github.com/bluekds/doltap-wiki/actions/workflows/ci.yml/badge.svg)](https://github.com/bluekds/doltap-wiki/actions/workflows/ci.yml)
 
-**A knowledge base that AI agents on several machines build and read together.**
-Stored as Markdown + git, read and written through an MCP server and a CLI, browsed by humans in Obsidian.
+**A knowledge base that AI agents build and read together.** An agent writes down what it learned while working; the next agent reads it before starting. Several machines, several kinds of agents, one wiki.
 
-*Doltap* (돌탑) is the Korean word for a cairn: the stone pile on a mountain trail that one hiker adds to and the next one follows.
+*Doltap* (돌탑) is the Korean word for a trail cairn: the stone pile one hiker adds to and the next one follows.
 
-[한국어 README](README.md)
+[한국어 README](README.md) · [Setup instructions for agents](docs/SETUP-FOR-AGENTS.md)
 
 <p align="center"><img src="static/hero.png" width="800" alt="Agents on different machines each add a stone to a shared cairn; a person browses it on a tablet; the next agent follows the trail"></p>
 <p align="center"><sub>Every agent adds a stone; the next one follows the cairn.</sub></p>
 
-## Why
+## Who it is for
 
-Coding agents forget what they learned when the session ends. The same deploy procedure, the same library pitfall, the same design rationale gets rediscovered per project, per machine, per session. Doltap keeps that knowledge in one place and makes every agent **search before working and record after solving a problem for the second time**.
+- You use a coding agent such as Claude Code across **several projects and machines**, and keep re-explaining the same deploy procedure or the same library pitfall
+- You want what the agent figured out **kept somewhere**, but notes scatter and go stale
+- You want that knowledge in a form **humans can read and fix** too (Markdown, git, Obsidian)
 
-The tool's focus is write quality: a classification table, per-category templates, lint and duplicate detection run at write time so agents cannot pile up arbitrary notes.
+## Three-minute start
+
+Requires Node 22.13+ and git.
+
+```bash
+npm install -g doltap-wiki
+doltap init --new --dir ~/.doltap --remote git@github.com:<you>/<wiki-repo>.git   # first machine: an empty private repo you created
+doltap integrations install claude                                               # connect Claude Code
+```
+
+On every other machine, `doltap init --repo <wiki-repo-url>` is all it takes. The command is `doltap`; add `alias wiki=doltap` to your shell profile if you prefer typing `wiki`.
+
+**Rather not install it yourself? Hand it to the agent.** Tell Claude Code or a similar agent:
+
+> Read https://github.com/bluekds/doltap-wiki/blob/main/docs/SETUP-FOR-AGENTS.md and set up Doltap Wiki on this machine
+
+The agent installs, connects, verifies and reports back. It will only ask for the repository URL and your git name and email.
+
+## Just talk to the agent
+
+Once connected, new sessions know about the wiki. No commands to memorize; say it the way you normally would.
+
+| You say | The agent |
+|---|---|
+| "**Check the wiki** for the PyPI release procedure, then release" | Finds it with `wiki_search` and follows the `howto` page; verifies as it goes if the page is a `draft` |
+| "**Record** the OrcaRouter TLS issue we just solved **in the wiki**" | Appends a section to a similar page if one exists, otherwise creates a `reference` or `howto` page |
+| "**Save** this retry logic **as a pattern in the wiki**" | Fills the `patterns` template: problem, solution, pitfalls |
+| "**Note in the wiki decisions** why we chose Postgres over SQLite" | Writes an ADR-style record with the options and the deciding reason |
+| "**See what the wiki has** and set this project up" | Reads `projects/` and the related `howto` pages before starting |
+| "**Check the wiki's health**" | Runs `wiki_audit` and reports stale pages, lingering drafts and conflict files |
+
+Agents cannot pile up arbitrary notes. The classification table, per-category templates, lint and duplicate detection run at write time, and secret values are refused. The full rules live in `_meta/PROTOCOL.md` inside the wiki, which agents read automatically.
+
+## How people read it
+
+- **Obsidian**: open `~/.doltap/wiki` as a vault (the `wiki/` directory, not the repository root) and links, backlinks, the graph and the Dataview dashboards just work. Settings are included; install the two plugins (Dataview, Obsidian Git).
+- **Terminal**: `doltap search deploy`, `doltap get howto/deploy-pypi`
+- **Plain files**: Markdown under `wiki/`, readable straight from GitHub
 
 ## How it works
 
-- **Storage**: pages are Markdown files under `wiki/` in an ordinary git repository. History, sync and conflict handling are git's job.
-- **Structure**: five categories, each answering one question.
-
-  | Category | Core question | Example |
-  |---|---|---|
-  | `howto` | How do I do X | PyPI release procedure |
-  | `patterns` | How do I implement X | Exponential backoff retry |
-  | `reference` | What is X | Limits and pitfalls of an external API |
-  | `decisions` | Why X instead of Y | Technology choice record (ADR) |
-  | `projects` | Context of one project | Environment, pages it uses |
-
-- **Trust**: every page carries `confidence: draft | verified | deprecated`, so an agent knows how far to trust it. A page is promoted to `verified` after someone follows it successfully on another machine.
-- **Writes**: every write runs `pull --rebase → lint → commit → push`. On a conflict the upstream version wins and the local one is kept as `<id>.conflict-<host>.md`. Offline writes commit locally and push on the next sync.
-- **Reads**: full-text search with the FTS5 engine of Node's built-in SQLite (porter stemming). The index is generated per machine and never committed.
-- **Interfaces**: the MCP server (stdio or HTTP) comes first, the CLI offers the same operations, and Obsidian is the human view (wikilinks, backlinks, graph, Dataview dashboards).
+- Pages are Markdown under `wiki/` in an ordinary git repository. History, sync and conflicts are git's job.
+- Five categories, each answering one question: `howto` (how do I do X) · `patterns` (how do I implement X) · `reference` (what is X) · `decisions` (why X over Y) · `projects` (context of one project)
+- Every page carries `confidence: draft | verified | deprecated`, so an agent knows how far to trust it. A page becomes `verified` after someone follows it successfully on another machine.
+- Every write runs `pull → lint → commit → push`. On a conflict the upstream version stays and yours is saved as `<id>.conflict-<host>.md`. Offline writes push on the next sync.
+- Search is full-text search in Node's built-in SQLite. No embeddings, no vector database, and the server never calls a model: agents do the thinking, Doltap stores, searches, validates and syncs.
 
 <details>
 <summary><b>Architecture and write path (for the curious)</b></summary>
@@ -66,72 +94,47 @@ flowchart LR
 
 </details>
 
-**Write path**
+## Several machines, remote access
 
-Every write takes the same path. Duplicates and lint errors are refused before the commit; conflicts are never auto-merged.
+- Each machine with `doltap init --repo …` shares the same git remote. `doltap schedule install` pulls every 10 minutes so reads never block on a slow network.
+- Machines without a clone (a laptop, claude.ai on the web) use **remote access**: on an always-on machine run `doltap serve install` and publish it over HTTPS (Tailscale Funnel, for example); other machines connect with `doltap integrations install claude --remote <URL>`, and claude.ai registers it as a custom connector. See "Security" below for the model.
+- Conflicts are never auto-merged. `doltap sync` and `doltap audit` list conflict files; merge the two versions and delete the file.
 
-<p align="center"><img src="static/write-path.png" width="760" alt="Write path: pull --rebase, duplicate check, write+lint, commit, push, with conflict, refusal and offline branches"></p>
+## A maintainer agent (optional)
 
-<details><summary>Mermaid source</summary>
+A wiki that only grows gets messy. Give one agent the maintainer role. `doltap init --new` creates `howto/maintain-doltap-wiki` with the session-start, weekly and monthly routine; in a Claude Code session on an always-on machine say:
 
-```mermaid
-flowchart LR
-  W["upsert / add"] --> P["pull --rebase"] --> D{"similar<br/>page?"}
-  D -->|"no"| L["write + lint"] --> C["commit"] --> U["push"]
-  D -->|"yes"| X["refused:<br/>edit that page"]
-  L -->|"errors"| Y["refused:<br/>file restored"]
-  P -->|"conflict"| K["keep upstream, save<br/>id.conflict-host.md"]
-  U -->|"offline"| O["pushed on<br/>next sync"]
+> Read `howto/maintain-doltap-wiki` and schedule the daily and weekly jobs in this session
+
+That session then runs the checks at the given times and reports back. Deprecating, deleting or merging pages is only proposed, never done without your approval. The schedule lives as long as the session is open.
+
+<details>
+<summary><b>CLI and MCP tool reference</b></summary>
+
+```sh
+doltap search <query> [-c category] [-t tag] [-n limit] [--json]
+doltap get <id> [-s "Section"]
+doltap list [-c category] [-t tag]
+doltap related <id>
+doltap index                              # one line per page
+doltap template <category>
+doltap add <category>/<slug> --title .. --summary .. --tags a,b [--file body.md | --stdin] [--force]
+doltap patch <id> -s "Section" (--content .. | --file .. | --stdin) [--append]
+doltap meta <id> [--confidence verified] [--add-source ..] [--add-tag ..]
+doltap lint [ids...]
+doltap sync                               # pull, push pending, reindex, publish read stats, list conflict files
+doltap reindex [--full]
+doltap audit [--unreferenced-days 90] [--stale-days 90] [--draft-days 30]
+doltap schedule install|status|uninstall  # periodic sync
+doltap serve install|status|uninstall|token [--rotate]   # always-on HTTP MCP service
+doltap integrations install|uninstall claude [--remote <url>] [--dry-run]
 ```
 
-</details>
+Global flags `--root`, `--agent`, `--session`, `--no-sync`, `--json`. Environment: `DOLTAP_ROOT`, `DOLTAP_AGENT`, `DOLTAP_SESSION`, `DOLTAP_NO_SYNC=1`, `DOLTAP_AUTO_PULL_MINUTES` (default 10).
 
-</details>
+`doltap audit` merges read counts from every machine (`wiki/_meta/stats/<host>.json`, published by sync at most every 6 hours) and reports unreferenced pages, stale pages, lingering drafts, orphans, deprecated pages still linked, and conflict files.
 
-## Quick start
-
-Requires Node 22.13+ and git.
-
-```bash
-npm install -g doltap-wiki
-```
-
-**First machine**: create an empty private repository (GitHub or any git host), then
-
-```bash
-doltap init --new --dir ~/.doltap --remote git@github.com:<you>/<wiki-repo>.git
-```
-
-This creates a wiki with the protocol, templates, tag vocabulary, category hubs and Obsidian config, makes the first commit and pushes it.
-
-**Every other machine**:
-
-```bash
-doltap init --repo git@github.com:<you>/<wiki-repo>.git
-```
-
-The command is `doltap`. If you prefer typing `wiki`, add `alias wiki=doltap` to your shell profile (the package does not install a `wiki` binary itself because npm packages with that name already do).
-
-**Claude Code** (skill, global instruction and MCP registration in one step):
-
-```bash
-doltap integrations install claude
-doltap schedule install          # sync every 10 minutes (launchd / crontab / Task Scheduler)
-```
-
-**Obsidian**: open `~/.doltap/wiki` as a vault (the `wiki/` directory, not the repository root). Settings for the Dataview and Obsidian Git plugins are included; install the two plugins and you are done.
-
-Other MCP clients run `doltap-mcp` over stdio with `DOLTAP_ROOT` and `DOLTAP_AGENT` in the environment. The resource `wiki://protocol` carries the full rules, so a client without skills gets the same instructions.
-
-## How agents use it
-
-`_meta/PROTOCOL.md` inside the wiki is the rulebook; the skill is its summary.
-
-- **Before work**: when starting something repetitive or cross-project (deploy, build, release, auth, retry, config), call `wiki_search` first. Follow `verified` pages; treat `draft` pages as hints to verify.
-- **After work**: record when you solved the same problem a second time, found a pitfall missing from official docs, or wrote a procedure that applies to several projects. Prefer `wiki_patch_section` on an existing page; create with `wiki_template` + `wiki_upsert` only when nothing fits.
-- **Never**: session logs, one-off debugging, anything obvious from code or docs, and **secret values**. Record where a secret lives and how to load it instead; lint blocks common key formats.
-
-### MCP tools
+**MCP tools**
 
 | Tool | Purpose |
 |---|---|
@@ -230,6 +233,49 @@ Paste this into the README of a wiki or project managed with Doltap Wiki:
 ```
 
 Logo and badge sources are in [`static/`](static/) (MIT).
+
+## License
+
+MIT
+
+</details>
+
+<details>
+<summary><b>Security</b></summary>
+
+- Remote access is protected by **one 64-character random token in the URL path**. There is no OAuth yet. Anyone with the URL can read and write the whole wiki, so read the token only with `doltap serve token`, never paste it into chats or documents, and rotate it with `doltap serve token --rotate` (then restart the service) if it leaks.
+- The service binds to 127.0.0.1 by default. Exposing it to the internet is a deliberate step in an outer layer such as Tailscale Funnel.
+- Wiki content lives forever in git history, and every page an agent reads is sent to that agent's model provider. That is why secret values never go in.
+- Commits made through the remote server carry the server's hostname; per-client attribution over HTTP is not available yet.
+
+</details>
+
+## What it is not
+
+- Not a generator of codebase documentation (projects such as [OpenWiki](https://github.com/langchain-ai/openwiki) cover that). Doltap is for operational knowledge that agents write themselves while working.
+- No embeddings or vector database. Full-text search plus link structure is the intended scale.
+- The server never calls a model. Agents do the thinking; Doltap stores, searches, validates and syncs.
+
+## Badge
+
+Paste this into the README of a wiki or project managed with Doltap Wiki:
+
+<p align="center"><a href="https://github.com/bluekds/doltap-wiki"><img src="https://raw.githubusercontent.com/bluekds/doltap-wiki/main/static/badge-seal.png" width="120" alt="Managed with Doltap Wiki"></a></p>
+
+```html
+<a href="https://github.com/bluekds/doltap-wiki"><img src="https://raw.githubusercontent.com/bluekds/doltap-wiki/main/static/badge-seal.png" width="120" alt="Managed with Doltap Wiki"></a>
+```
+
+Logo and badge sources are in [`static/`](static/) (MIT).
+
+## Development
+
+```sh
+npm ci && npm run build && npm test
+npm link -w doltap-wiki            # makes this checkout's `doltap` and `doltap-mcp` global
+```
+
+Packages: `@bluekds/doltap-core` (parser, lint, search, git sync, scaffold), `@bluekds/doltap-mcp` (MCP server), `doltap-wiki` (CLI and both binaries, `doltap` and `doltap-mcp`). CI builds, tests and scaffolds an empty wiki on macOS, Linux and Windows.
 
 ## License
 
