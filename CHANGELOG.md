@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `doltap --version` reads the version from package.json instead of a hardcoded string (0.1.1 reports 0.1.0)
+
 ## 0.1.1 (2026-10-22)
 
 - Scheduler entries (launchd, crontab) now run the JS entry through the absolute Node binary, so Node installed via nvm works for the periodic sync and the HTTP service

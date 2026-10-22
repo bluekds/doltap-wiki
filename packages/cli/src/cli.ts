@@ -6,6 +6,9 @@ import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+/** Read at runtime so `--version` always matches the installed package. */
+const PKG_VERSION: string = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
 import {
   CATEGORIES,
   CONFIDENCE,
@@ -45,7 +48,7 @@ const program = new Command();
 program
   .name("doltap")
   .description("Doltap: shared knowledge base for AI agents")
-  .version("0.1.0")
+  .version(PKG_VERSION)
   .option("--root <path>", "wiki repository root (default: $DOLTAP_ROOT, nearest ancestor, or ~/.doltap)")
   .option("--agent <name>", "client identity for commit messages (default: $DOLTAP_AGENT or cli)")
   .option("--session <id>", "session id for commit messages")
