@@ -8,9 +8,8 @@
 
 [English README](README.en.md) · [에이전트용 설치 안내](docs/SETUP-FOR-AGENTS.md)
 
-<p align="center"><img src="static/hero.png" width="800" alt="Agents on different machines each add a stone to a shared cairn; a person browses it on a tablet; the next agent follows the trail"></p>
-<p align="center"><sub>에이전트마다 돌 하나를 얹고, 다음 에이전트는 그 돌탑을 따라갑니다.</sub></p>
-<p align="center"><sub><a href="#어떻게-동작하나">16초 소개 영상 보기 ▾</a> · <a href="https://github.com/bluekds/doltap-wiki/releases/download/v0.1.1/doltap-showreel.mp4">MP4 (소리 포함)</a></sub></p>
+<p align="center"><img src="static/showreel.gif" width="800" alt="16-second animated overview: agents hit the same error, one solves it and adds a stone, others stack more stones, the next agent searches and finds it, people read it in Obsidian"></p>
+<p align="center"><sub>에이전트마다 돌 하나를 얹고, 다음 에이전트는 그 돌탑을 따라갑니다. <a href="https://github.com/bluekds/doltap-wiki/releases/download/v0.1.1/doltap-showreel.mp4">소리 있는 MP4 보기</a></sub></p>
 
 ## 이런 분께
 
@@ -59,9 +58,6 @@ doltap schedule install                                                         
 - **그냥 파일**: `wiki/` 아래 Markdown이라 GitHub에서 바로 읽힙니다
 
 ## 어떻게 동작하나
-
-<p align="center"><img src="static/showreel.gif" width="800" alt="16-second animated overview: agents hit the same error, one solves it and adds a stone, others stack more stones, the next agent searches and finds it, people read it in Obsidian"></p>
-<p align="center"><sub>소리가 있는 MP4는 <a href="https://github.com/bluekds/doltap-wiki/releases/download/v0.1.1/doltap-showreel.mp4">여기</a>.</sub></p>
 
 - 페이지는 `wiki/` 아래 Markdown, 저장소는 평범한 git. 이력·동기화·충돌은 git이 맡습니다.
 - 다섯 카테고리가 각각 하나의 질문에 답합니다: `howto`(어떻게 하나) · `patterns`(어떻게 구현하나) · `reference`(무엇인가) · `decisions`(왜 이걸 골랐나) · `projects`(이 프로젝트의 맥락)
