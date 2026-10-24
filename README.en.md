@@ -12,6 +12,7 @@
 
 <p align="center"><img src="static/hero.png" width="800" alt="Agents on different machines each add a stone to a shared cairn; a person browses it on a tablet; the next agent follows the trail"></p>
 <p align="center"><sub>Every agent adds a stone; the next one follows the cairn.</sub></p>
+<p align="center"><sub><a href="#how-it-works">Watch the 16-second overview ▾</a> · <a href="https://github.com/bluekds/doltap-wiki/releases/download/v0.1.1/doltap-showreel.mp4">MP4 with sound</a></sub></p>
 
 ## Who it is for
 
@@ -60,6 +61,9 @@ Agents cannot pile up arbitrary notes. The classification table, per-category te
 - **Plain files**: Markdown under `wiki/`, readable straight from GitHub
 
 ## How it works
+
+<p align="center"><img src="static/showreel.gif" width="800" alt="16-second animated overview: agents hit the same error, one solves it and adds a stone, others stack more stones, the next agent searches and finds it, people read it in Obsidian"></p>
+<p align="center"><sub>The MP4 with sound is <a href="https://github.com/bluekds/doltap-wiki/releases/download/v0.1.1/doltap-showreel.mp4">here</a>. The captions in the animation are Korean.</sub></p>
 
 - Pages are Markdown under `wiki/` in an ordinary git repository. History, sync and conflicts are git's job.
 - Five categories, each answering one question: `howto` (how do I do X) · `patterns` (how do I implement X) · `reference` (what is X) · `decisions` (why X over Y) · `projects` (context of one project)
