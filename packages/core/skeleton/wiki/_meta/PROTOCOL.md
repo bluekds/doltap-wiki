@@ -16,8 +16,8 @@ Check `confidence` on every result:
 | confidence | Meaning | Action |
 |---|---|---|
 | `verified` | Confirmed in real work | Trust it and follow it |
-| `draft` | Written once, not yet re-verified | Use as a hint, verify yourself. If it holds, promote to `verified` |
-| `deprecated` | No longer valid | Do not follow. Use the replacement link in the body |
+| `draft` | Written once, not yet re-verified | Use as a hint, verify yourself. If it holds, promote with `wiki_verify` and say what confirmed it |
+| `deprecated` | No longer valid | Do not follow. Use the page named in `replaced_by` (also linked at the top of the body) |
 
 ## 2. When to write
 
@@ -98,10 +98,11 @@ sources:
 - `title`: human-readable title
 - `category`: must match the directory (checked by lint)
 - `summary`: 1–2 sentences, max 200 characters. It is shown verbatim in search results and the index, so write it so that **a reader can decide whether to open the page from the summary alone**
-- `tags`: only values listed in `_meta/tags.yaml`. Add a new tag to tags.yaml first if needed
+- `tags`: only values listed in `_meta/tags.yaml`. Add a new tag first with `wiki_add_tag` (`doltap tags add`); lint suggests the closest existing tag on a typo
 - `confidence`: `draft` | `verified` | `deprecated`
 - `created`, `updated`: ISO dates
-- `sources`: URLs, SPEC ids, session ids — the evidence. May be empty, but required when promoting to `verified`
+- `sources`: URLs, SPEC ids, session ids — the evidence. May be empty on a draft; `wiki_verify` appends its evidence here
+- `replaced_by`, `verified_by`, `verified_on`: written by `wiki_deprecate` and `wiki_verify`; do not set them by hand
 
 ### Body
 
@@ -122,8 +123,8 @@ sources:
 - Every read returns a `rev`. Pass it back as `base_rev` on `wiki_patch_section`, `wiki_set_meta` or `wiki_upsert`: the write is refused as stale when the page changed in between, so nobody's edit is lost silently. Re-read and retry.
 - Set `updated` to today whenever the content changes. Typo fixes are exempt.
 - When you find wrong content, fix it rather than deleting it, and leave a one-line note in "Pitfalls" or "Changelog" saying what was wrong and why.
-- When a page is no longer valid, do not delete it. Set `confidence: deprecated` and put a link to the replacement at the top of the body.
-- Promotion `draft` → `verified` requires: another session or another machine followed the page and succeeded. Add the evidence to `sources` when promoting.
+- When a page is no longer valid, do not delete it. Create or pick the replacement, then `wiki_deprecate` (`doltap deprecate`): it sets `confidence: deprecated` and `replaced_by`, and puts a banner with the link at the top of the body. A deprecated page without a replacement fails lint.
+- Promotion `draft` → `verified` requires that another session or another machine followed the page and it worked. Use `wiki_verify` (`doltap verify`) with that evidence; the tool records it in `sources` plus `verified_by` / `verified_on`, and refuses the session that created the page.
 
 ## 6. Check before creating
 
@@ -143,4 +144,4 @@ wiki: <add|update|deprecate> <id>
 [host:<hostname>] [agent:<client>] [session:<id>]
 ```
 
-On a conflict, the losing version is preserved as `<id>.conflict-<hostname>.md` and a warning is returned. Whoever finds such a file merges the two versions and deletes the conflict file.
+On a conflict, the losing version is preserved as `<id>.conflict-<hostname>.md` and a warning is returned. Whoever finds such a file (`wiki_get` lists `conflict_copies`) merges the two versions and finishes with `wiki_resolve_conflict` (`doltap resolve`), which writes the merged body, deletes the copies and commits. `_meta/tags.yaml` merges automatically (union), so concurrent tag additions never conflict.

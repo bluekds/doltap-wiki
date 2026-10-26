@@ -141,13 +141,18 @@ doltap index                              # 페이지당 한 줄
 doltap template <category>
 doltap add <category>/<slug> --title .. --summary .. --tags a,b [--file body.md | --stdin] [--force] [--replace --base-rev <rev>]
 doltap patch <id> -s "Section" (--content .. | --file .. | --stdin) [--append] [--create] [--base-rev <rev>]
-doltap meta <id> [--confidence verified] [--add-source ..] [--add-tag ..]
+doltap meta <id> [--add-source ..] [--add-tag ..] [--title ..] [--summary ..]
+doltap verify <id> --evidence ".."           # draft -> verified; 만든 세션은 거부
+doltap deprecate <id> --replaced-by <id>     # replaced_by, 배너, 허브 항목
+doltap resolve <id> (--file merged.md | --stdin | --take conflict)   # *.conflict-<host>.md 정리
+doltap tags [list] | tags add <tag> <description> [--group g] | tags remove <tag>
 doltap lint [ids...]
 doltap sync                               # pull, 밀린 push, reindex, 읽기 통계 발행, 충돌 파일 목록
 doltap reindex [--full]
 doltap audit [--unreferenced-days 90] [--stale-days 90] [--draft-days 30]
 doltap schedule install|status|uninstall  # 주기적 sync
 doltap serve install [--show-url]|status|uninstall|token [--rotate] [--quiet]   # 상시 HTTP MCP 서비스
+doltap serve client add <name> [--read-only] | list | remove <name>   # 이름 붙은 토큰: commit에 이름이 남음
 doltap integrations install|uninstall claude [--remote [<url>]] [--dry-run]   # --remote에 값을 빼면 $DOLTAP_REMOTE_URL을 읽음
 ```
 
@@ -165,7 +170,9 @@ doltap integrations install|uninstall claude [--remote [<url>]] [--dry-run]   # 
 | `wiki_template` | 카테고리 템플릿 |
 | `wiki_upsert` | 페이지 생성 (중복 감지, lint); 전체 교체는 `replace` + `base_rev` |
 | `wiki_patch_section` | 한 섹션 교체 또는 추가; `base_rev`가 다르면 거부 |
-| `wiki_set_meta` | frontmatter 수정 (confidence 승격, 출처와 태그 추가) |
+| `wiki_set_meta` | frontmatter 수정 (출처, 태그, 제목, 요약) |
+| `wiki_verify`, `wiki_deprecate` | 증거와 함께 승격 (만든 세션은 불가); `replaced_by`로 폐기 |
+| `wiki_resolve_conflict`, `wiki_add_tag` | 충돌 사본 정리; 태그 어휘 추가 |
 | `wiki_lint`, `wiki_sync`, `wiki_audit` | 검사, 동기화, 상태 감사 |
 
 리소스: `wiki://protocol`, `wiki://index`, `wiki://tags`.
@@ -180,7 +187,7 @@ doltap integrations install|uninstall claude [--remote [<url>]] [--dry-run]   # 
 - 페이지 id는 모든 경로에서 검증되므로(`<category>/<slug>` 문자만 허용) 요청이 `wiki/` 밖의 파일을 가리킬 수 없습니다.
 - 서비스는 기본으로 127.0.0.1에만 바인딩합니다. 인터넷에 내는 것은 Tailscale Funnel 같은 바깥 계층의 선택입니다.
 - 위키 내용은 git 이력에 영구히 남고, 에이전트가 읽은 페이지는 그 에이전트의 모델 제공사로 전송됩니다. 비밀값을 적지 않는 이유입니다.
-- 원격으로 쓴 commit은 서버 머신 이름으로 기록됩니다. 클라이언트별 기록은 아직 없습니다.
+- 원격으로 쓴 commit은 서버 머신 이름과, 이름 붙은 토큰(`doltap serve client add <name>`)을 쓰면 그 이름으로 기록됩니다. `--read-only` 토큰은 검색과 읽기만 됩니다.
 
 </details>
 

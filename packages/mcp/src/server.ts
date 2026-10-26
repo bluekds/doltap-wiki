@@ -1,9 +1,14 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
+  addTag,
   CATEGORIES,
   CONFIDENCE,
+  conflictCopiesOf,
+  deprecatePage,
   get,
+  resolveConflict,
+  verifyPage,
   getTemplate,
   lintAll,
   list,
@@ -48,15 +53,21 @@ function errorText(e: unknown) {
   return { isError: true as const, ...text({ error: e instanceof Error ? e.message : String(e) }) };
 }
 
+export interface ServerOptions {
+  /** Write tools answer with an error. Used for read-only HTTP client tokens. */
+  readOnly?: boolean;
+}
+
 /** Build a fresh MCP server bound to one wiki config. stdio uses one; HTTP creates one per request (stateless). */
-export function createServer(cfg: WikiConfig): McpServer {
+export function createServer(cfg: WikiConfig, opts: ServerOptions = {}): McpServer {
+const readOnly = () => (opts.readOnly ? errorText(`this connection uses a read-only token (${cfg.agent}); writes need a full-access token`) : null);
 const INSTRUCTIONS = `Doltap is a shared wiki for agents (howto, patterns, reference, decisions, projects). Rules in short; the full protocol is the resource wiki://protocol.
 - Search first: call wiki_search before repetitive or cross-project work (deploy, build, release, auth, retry, config, library versions). Then wiki_get the page or one section.
-- confidence: verified = follow it; draft = use as a hint and verify, then promote with wiki_set_meta + add_sources; deprecated = do not follow.
+- confidence: verified = follow it; draft = use as a hint and verify, then promote with wiki_verify and evidence (the session that created a page cannot verify it); deprecated = do not follow, use replaced_by.
 - Edit by section (wiki_patch_section) rather than replacing pages. wiki_upsert refuses an existing id unless replace=true with the base_rev you read; a stale base_rev is refused so nobody's edit is lost silently.
 - Write when you solved something a second time, hit an undocumented pitfall, or made a choice whose rationale is not in the code. Not session logs, not things obvious from code or docs.
 - Never write secret values (tokens, keys, passwords, connector URLs); record where the secret lives and how to load it. Internal hosts are fine.
-- English only. Tags only from wiki://tags. Hub lists are generated; do not edit them.`;
+- English only. Tags only from wiki://tags (add one with wiki_add_tag). Hub lists are generated; do not edit them. Deprecate with wiki_deprecate, finish a conflict with wiki_resolve_conflict.`;
 
 const server = new McpServer({ name: "doltap", version: "0.2.0" }, { instructions: INSTRUCTIONS });
 
@@ -91,7 +102,7 @@ server.registerTool(
   async (a) => {
     try {
       const { hits, sync } = search(cfg, a.query, { category: a.category, tag: a.tag, confidence: a.confidence, limit: a.limit, includeDeprecated: a.include_deprecated, includeHubs: a.include_hubs });
-      return text({ hits: hits.map((h) => ({ id: h.id, title: h.title, confidence: h.confidence, tags: h.tags, summary: h.summary, updated: h.updated, matched: h.matched })), notes: sync.messages });
+      return text({ hits: hits.map((h) => ({ id: h.id, title: h.title, confidence: h.confidence, replaced_by: h.replaced_by ?? undefined, tags: h.tags, summary: h.summary, updated: h.updated, matched: h.matched })), notes: sync.messages });
     } catch (e) { return errorText(e); }
   },
 );
@@ -100,7 +111,7 @@ server.registerTool(
   "wiki_get",
   {
     title: "Read a wiki page",
-    description: "Return a page body (or a single ## section to save tokens) with its frontmatter, section list, and backlinks. Check `confidence`: verified = trust, draft = verify yourself and promote via wiki_set_meta if it holds, deprecated = do not follow.",
+    description: "Return a page body (or a single ## section to save tokens) with its frontmatter, rev, section list, and backlinks. Check `confidence`: verified = trust; draft = verify yourself and promote via wiki_verify if it holds; deprecated = do not follow, read `replaced_by` instead.",
     inputSchema: {
       id: PageId.describe("Page id, e.g. howto/deploy-pypi"),
       section: z.string().optional().describe("Heading of one ## section, e.g. Pitfalls"),
@@ -111,7 +122,7 @@ server.registerTool(
       const { result } = get(cfg, a.id, a.section);
       if (!result) return errorText(`page not found: ${a.id}`);
       const { page, text: body, backlinks } = result;
-      return text({ id: a.id, rev: page.rev, meta: page.meta, section: a.section ?? null, sections: page.sections.map((s) => s.heading), text: body, links: page.links, backlinks });
+      return text({ id: a.id, rev: page.rev, meta: page.meta, replaced_by: page.meta.replaced_by ?? undefined, conflict_copies: conflictCopiesOf(cfg, a.id), section: a.section ?? null, sections: page.sections.map((s) => s.heading), text: body, links: page.links, backlinks });
     } catch (e) { return errorText(e); }
   },
 );
@@ -162,8 +173,7 @@ Rules: body must follow the category template sections (get it with wiki_templat
       summary: z.string().max(200),
       tags: z.array(z.string()).min(1),
       body: z.string().describe("Markdown below the frontmatter, following the category template sections"),
-      confidence: z.enum(["draft", "verified"]).default("draft"),
-      sources: z.array(z.string()).default([]),
+      sources: z.array(z.string()).default([]).describe("Evidence: URLs, SPEC ids, session ids"),
       force: z.boolean().default(false).describe("Create even if similar pages exist"),
       replace: z.boolean().default(false).describe("Overwrite an existing page (whole body and frontmatter)"),
       base_rev: z.string().optional().describe("The rev returned by wiki_get for this page; the write is refused if the page changed since"),
@@ -171,7 +181,8 @@ Rules: body must follow the category template sections (get it with wiki_templat
   },
   async (a) => {
     try {
-      const r = upsertPage(cfg, { id: a.id, title: a.title, summary: a.summary, tags: a.tags, body: a.body, confidence: a.confidence, sources: a.sources, force: a.force, replace: a.replace, baseRev: a.base_rev });
+      const ro = readOnly(); if (ro) return ro;
+      const r = upsertPage(cfg, { id: a.id, title: a.title, summary: a.summary, tags: a.tags, body: a.body, confidence: "draft", sources: a.sources, force: a.force, replace: a.replace, baseRev: a.base_rev });
       if (r.refused) return { isError: true as const, ...text({ refused: r.refused, issues: r.issues, similar: r.similar?.map((s) => ({ id: s.id, summary: s.summary, overlap: s.snippet })) }) };
       return text({ id: r.id, created: r.created, rev: r.rev, warnings: r.issues, pushed: r.sync.pushed, notes: r.sync.messages, conflicts: r.sync.conflicts });
     } catch (e) { return errorText(e); }
@@ -195,6 +206,7 @@ server.registerTool(
   },
   async (a) => {
     try {
+      const ro = readOnly(); if (ro) return ro;
       const r = patchSection(cfg, { id: a.id, section: a.section, content: a.content, mode: a.mode, touch: a.touch, create: a.create, baseRev: a.base_rev });
       if (r.refused) return { isError: true as const, ...text({ refused: r.refused, issues: r.issues }) };
       return text({ id: r.id, rev: r.rev, warnings: r.issues, pushed: r.sync.pushed, notes: r.sync.messages, conflicts: r.sync.conflicts });
@@ -206,10 +218,10 @@ server.registerTool(
   "wiki_set_meta",
   {
     title: "Update page frontmatter",
-    description: "Promote (draft -> verified, add a source saying what confirmed it), deprecate (confidence=deprecated; first patch the body to link the replacement), add tags, or fix title/summary.",
+    description: "Add sources or tags, or fix title/summary. To promote use wiki_verify; to deprecate use wiki_deprecate (confidence here is limited to draft).",
     inputSchema: {
       id: PageId,
-      confidence: ConfidenceEnum.optional(),
+      confidence: z.enum(["draft"]).optional().describe("Only draft; verified and deprecated have dedicated tools"),
       add_sources: z.array(z.string()).default([]),
       add_tags: z.array(z.string()).default([]),
       title: z.string().optional(),
@@ -219,9 +231,77 @@ server.registerTool(
   },
   async (a) => {
     try {
+      const ro = readOnly(); if (ro) return ro;
       const r = patchMeta(cfg, { id: a.id, confidence: a.confidence, addSources: a.add_sources, addTags: a.add_tags, title: a.title, summary: a.summary, baseRev: a.base_rev });
       if (r.refused) return { isError: true as const, ...text({ refused: r.refused, issues: r.issues }) };
       return text({ id: r.id, rev: r.rev, warnings: r.issues, pushed: r.sync.pushed, notes: r.sync.messages });
+    } catch (e) { return errorText(e); }
+  },
+);
+
+server.registerTool(
+  "wiki_verify",
+  {
+    title: "Promote a page to verified",
+    description: "Mark a draft page verified after you followed it and it worked. Requires evidence (what you did, where, what confirmed it); it is appended to sources and verified_by/verified_on are recorded. The session that created the page cannot verify it.",
+    inputSchema: { id: PageId, evidence: z.string().min(10).describe("e.g. 'Followed on build-box 2026-10-27; release 1.4.2 published'"), base_rev: z.string().optional() },
+  },
+  async (a) => {
+    try {
+      const ro = readOnly(); if (ro) return ro;
+      const r = verifyPage(cfg, { id: a.id, evidence: a.evidence, baseRev: a.base_rev });
+      if (r.refused) return { isError: true as const, ...text({ refused: r.refused, issues: r.issues }) };
+      return text({ id: r.id, rev: r.rev, warnings: r.issues, pushed: r.sync.pushed, notes: r.sync.messages });
+    } catch (e) { return errorText(e); }
+  },
+);
+
+server.registerTool(
+  "wiki_deprecate",
+  {
+    title: "Deprecate a page",
+    description: "Mark a page deprecated and point to its replacement: sets confidence=deprecated and replaced_by, adds a banner at the top of the body, updates the hub list. The replacement must exist (create it first). Pages are never deleted.",
+    inputSchema: { id: PageId, replaced_by: PageId.describe("The page to use instead"), reason: z.string().optional(), base_rev: z.string().optional() },
+  },
+  async (a) => {
+    try {
+      const ro = readOnly(); if (ro) return ro;
+      const r = deprecatePage(cfg, { id: a.id, replacedBy: a.replaced_by, reason: a.reason, baseRev: a.base_rev });
+      if (r.refused) return { isError: true as const, ...text({ refused: r.refused, issues: r.issues }) };
+      return text({ id: r.id, rev: r.rev, warnings: r.issues, pushed: r.sync.pushed, notes: r.sync.messages });
+    } catch (e) { return errorText(e); }
+  },
+);
+
+server.registerTool(
+  "wiki_resolve_conflict",
+  {
+    title: "Resolve a conflict file",
+    description: "After a sync reported conflicts, read the page (wiki_get shows conflict_copies) and the copy, then write the merged body here; the conflict copies are deleted and the result committed. Pass take=conflict to keep the copy's body unchanged.",
+    inputSchema: { id: PageId, body: z.string().optional().describe("Merged markdown body (below the frontmatter)"), take: z.enum(["conflict"]).optional() },
+  },
+  async (a) => {
+    try {
+      const ro = readOnly(); if (ro) return ro;
+      const r = resolveConflict(cfg, { id: a.id, body: a.body, take: a.take });
+      if (r.refused) return { isError: true as const, ...text({ refused: r.refused, issues: r.issues }) };
+      return text({ id: r.id, rev: r.rev, warnings: r.issues, pushed: r.sync.pushed, notes: r.sync.messages });
+    } catch (e) { return errorText(e); }
+  },
+);
+
+server.registerTool(
+  "wiki_add_tag",
+  {
+    title: "Add a tag to the vocabulary",
+    description: "Add a new tag to wiki://tags (kebab-case, one-line description, optional group) so it can be used on pages. Check the existing tags first; prefer an existing one when it fits.",
+    inputSchema: { tag: z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/), description: z.string().min(3).max(120), group: z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/).optional().describe("Group heading in tags.yaml, e.g. language, platform, domain; default other") },
+  },
+  async (a) => {
+    try {
+      const ro = readOnly(); if (ro) return ro;
+      const r = addTag(cfg, { tag: a.tag, description: a.description, group: a.group });
+      return text({ tag: r.tag, group: r.group, pushed: r.sync.pushed, notes: r.sync.messages });
     } catch (e) { return errorText(e); }
   },
 );
@@ -238,6 +318,7 @@ server.registerTool(
   { title: "Sync with remote", description: "Pull, push pending commits, reindex, regenerate hub lists, and list conflict files (*.conflict-<host>.md) that need a manual merge and pages whose frontmatter does not parse.", inputSchema: {} },
   async () => {
     try {
+      const ro = readOnly(); if (ro) return ro;
       const report = syncAll(cfg);
       const hubs = refreshHubs(cfg);
       const db = new WikiDb(cfg);
@@ -254,7 +335,7 @@ server.registerTool(
   "wiki_audit",
   {
     title: "Audit the wiki",
-    description: "Maintenance report across all hosts: unreferenced pages (deprecate candidates), stale pages (re-verify), lingering drafts, orphans, deprecated pages still linked, conflict files, most-read pages. Use when asked to clean up or review the wiki.",
+    description: "Maintenance report across all hosts: unreferenced pages (deprecate candidates), stale pages (re-verify), lingering drafts, orphans, deprecated pages still linked, conflict files, unused tags, most-read pages. Use when asked to clean up or review the wiki.",
     inputSchema: { unreferenced_days: z.number().int().default(90), stale_days: z.number().int().default(90), draft_days: z.number().int().default(30) },
   },
   async (a) => { try { return text(audit(cfg, { unreferencedDays: a.unreferenced_days, staleDays: a.stale_days, draftDays: a.draft_days })); } catch (e) { return errorText(e); } },

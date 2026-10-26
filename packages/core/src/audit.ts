@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { isCategoryHub, type WikiConfig } from "./config.js";
 import { WikiDb, type PageRow } from "./db.js";
 import { commitAndPush, listConflictFiles, readSyncState, writeSyncState, type SyncReport } from "./git.js";
+import { loadTags } from "./tags.js";
 
 /** Per-host access counts shared through git: wiki/_meta/stats/<host>.json */
 export interface HostStats {
@@ -90,6 +91,8 @@ export interface AuditReport {
   orphans: string[];
   deprecatedStillLinked: { id: string; linkedFrom: string[] }[];
   conflictFiles: string[];
+  /** Tags in tags.yaml that no page uses. */
+  unusedTags: string[];
   mostRead: AuditEntry[];
 }
 
@@ -144,6 +147,7 @@ export function audit(cfg: WikiConfig, o: AuditOptions = {}): AuditReport {
       orphans,
       deprecatedStillLinked,
       conflictFiles: listConflictFiles(cfg),
+      unusedTags: loadTags(cfg).map((t) => t.tag).filter((t) => !rows.some((r) => r.tags.includes(t)) && t !== "wiki"),
       mostRead,
     };
   } finally {

@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- **`wiki_deprecate` / `doltap deprecate`**: sets `confidence: deprecated` and `replaced_by`, adds a banner at the top of the body, updates the hub. The replacement must exist. Lint now fails a deprecated page without a replacement; search and get return `replaced_by`
+- **`wiki_verify` / `doltap verify`**: promotion needs evidence (appended to `sources`), records `verified_by` and `verified_on`, and refuses the session that created the page. `wiki_set_meta` and `wiki_upsert` no longer accept `verified`
+- **`wiki_resolve_conflict` / `doltap resolve`**: write the merged body (or keep the conflict copy with `take: conflict`), delete the `*.conflict-<host>.md` copies and commit. `wiki_get` lists `conflict_copies`
+- **Tags**: `wiki_add_tag` / `doltap tags add|remove` edit `_meta/tags.yaml` (comments and groups kept); `tag-unknown` suggests the closest tag; `audit` reports unused tags; `tags.yaml` merges with `merge=union` so concurrent additions never conflict (add the line to `.gitattributes` of existing wikis)
+- **Named HTTP client tokens**: `doltap serve client add <name> [--read-only]` issues a token whose commits carry `[agent:<name>]`; read-only tokens get an error from every write tool. Stored in `.doltap/http-clients.json` (0600), picked up without restarting the service
+- Writes refuse a detached HEAD instead of orphaning the commit
+- Sync reports distinguish `offline` (network) from `remoteError` (authentication, permissions, wrong URL, missing repository), so a revoked token no longer looks like a flaky network
+
 ## 0.2.0 (2026-10-27)
 
 - **Optimistic concurrency.** Every page read carries a `rev` (`wiki_get`, `doltap get`). `wiki_upsert`, `wiki_patch_section` and `wiki_set_meta` (CLI `--base-rev`) refuse a write as `stale` when the page changed since that rev, instead of silently overwriting another machine's edit

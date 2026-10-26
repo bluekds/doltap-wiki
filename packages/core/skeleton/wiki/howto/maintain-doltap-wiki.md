@@ -29,7 +29,7 @@ sources: []
 ### Weekly
 
 1. Review pages added or changed in the last week: `git log --since="1 week ago" --format='%h %s' -- wiki/`, then `doltap get` each. Check category fit, a summary that stands on its own, sensible tags, links to related pages, no secrets, no session-log content. Fix with `doltap patch` / `doltap meta`
-2. `doltap audit`: for each lingering draft decide promote / leave / propose deprecation. Promote only with evidence (someone followed the page and it worked): `doltap meta <id> --confidence verified --add-source "<what confirmed it>"`
+2. `doltap audit`: for each lingering draft decide promote / leave / propose deprecation. Promote only with evidence (someone followed the page and it worked): `doltap verify <id> --evidence "<what confirmed it>"`; deprecate with `doltap deprecate <id> --replaced-by <new-id>`
 3. Check that every category hub's "Manual list" matches the pages on disk
 4. Spot-check search with 3 queries an agent would realistically type; note pages that should rank first but do not
 5. Look at `wiki/_meta/stats/*.json`: a machine that stopped reporting usually has a broken scheduler
@@ -39,11 +39,11 @@ sources: []
 1. Re-verify `reference/` pages about external services whose "Verified on" date is older than ~60 days; update or record what changed
 2. From `doltap audit`, propose deprecating pages nobody read or updated in 90 days (except rare-but-critical procedures)
 3. Update the tooling: `npm install -g doltap-wiki@latest`, then re-run `doltap schedule install` (and `doltap serve install` if used) so the services pick up the new binary
-4. Tag vocabulary: remove unused tags from `_meta/tags.yaml`, add the ones agents keep needing
+4. Tag vocabulary: `doltap audit` lists unused tags; `doltap tags remove <tag>` drops one, `doltap tags add <tag> <description> --group <g>` adds the ones agents keep needing
 
 ### Event-driven
 
-- A `*.conflict-<host>.md` file appears: merge both versions into the page, delete the conflict file, commit
+- A `*.conflict-<host>.md` file appears: merge both versions, then `doltap resolve <id> --file merged.md` (or `--take conflict` to keep the copy); it deletes the copy and commits
 - A machine reports a stuck repository: see [[howto/setup-wiki-on-new-machine#Pitfalls]]
 - The HTTP token was exposed (chat, log, screenshot): `doltap serve token --rotate --quiet && doltap serve install` (neither prints the token), then update every remote registration
 

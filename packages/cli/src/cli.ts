@@ -10,9 +10,15 @@ import { fileURLToPath } from "node:url";
 /** Read at runtime so `--version` always matches the installed package. */
 const PKG_VERSION: string = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
 import {
+  addTag,
   CATEGORIES,
   CONFIDENCE,
+  conflictCopiesOf,
+  deprecatePage,
   get,
+  removeTag,
+  resolveConflict,
+  verifyPage,
   getTemplate,
   lintAll,
   list,
@@ -211,11 +217,29 @@ program.command("protocol").description("print _meta/PROTOCOL.md").action(() => 
 program.command("template <category>").description("print the page template for a category with today's date filled in").action((c: string) => {
   try { process.stdout.write(getTemplate(cfgFrom().cfg, c)); } catch (e) { fail(e); }
 });
-program.command("tags").description("list allowed tags").action(() => {
+const tagsCmd = program.command("tags").description("tag vocabulary: list (default), add, remove");
+const listTags = () => {
   try {
     const { cfg, json } = cfgFrom();
     const tags = loadTags(cfg);
     out(json, tags, () => { for (const t of tags) console.log(`${t.tag.padEnd(14)} ${t.group.padEnd(9)} ${t.description}`); });
+  } catch (e) { fail(e); }
+};
+tagsCmd.action(listTags);
+tagsCmd.command("list").action(listTags);
+tagsCmd.command("add <tag> <description...>").description("add a tag to _meta/tags.yaml and commit").option("--group <group>", "group heading (default other)").action((tag: string, description: string[], o: { group?: string }) => {
+  try {
+    const { cfg, json } = cfgFrom();
+    const r = addTag(cfg, { tag, description: description.join(" "), group: o.group });
+    out(json, r, () => { console.log(`added tag ${r.tag} (${r.group})`); for (const n of syncNotes(r.sync)) console.log(`note: ${n}`); });
+  } catch (e) { fail(e); }
+});
+tagsCmd.command("remove <tag>").description("remove a tag that no page uses").action((tag: string) => {
+  try {
+    const { cfg, json } = cfgFrom();
+    const usedBy = list(cfg, { includeDeprecated: true, tag }).rows.map((r) => r.id);
+    const r = removeTag(cfg, tag, usedBy);
+    out(json, r, () => { console.log(`removed tag ${r.tag}`); for (const n of syncNotes(r.sync)) console.log(`note: ${n}`); });
   } catch (e) { fail(e); }
 });
 
@@ -286,8 +310,8 @@ program
 // ---------------------------------------------------------------- meta (promote / deprecate / retag)
 program
   .command("meta <id>")
-  .description("update frontmatter: --confidence, --add-source, --add-tag, --title, --summary")
-  .option("--confidence <level>", CONFIDENCE.join("|"))
+  .description("update frontmatter: --add-source, --add-tag, --title, --summary (promote with `doltap verify`, deprecate with `doltap deprecate`)")
+  .option("--confidence <level>", `${CONFIDENCE.join("|")} (prefer verify/deprecate, which record evidence and the replacement)`)
   .option("--add-source <s>", "repeatable", (v: string, acc: string[]) => [...acc, v], [] as string[])
   .option("--add-tag <t>", "repeatable", (v: string, acc: string[]) => [...acc, v], [] as string[])
   .option("--title <text>")
@@ -300,6 +324,65 @@ program
       out(json, r, () => {
         if (r.refused) { console.log(`refused: ${r.refused}`); printIssues(r.issues); process.exitCode = 2; return; }
         console.log(`updated ${r.id} frontmatter`);
+        printIssues(r.issues);
+        for (const n of syncNotes(r.sync)) console.log(`note: ${n}`);
+      });
+    } catch (e) { fail(e); }
+  });
+
+// ---------------------------------------------------------------- verify / deprecate / resolve
+program
+  .command("verify <id>")
+  .description("promote draft -> verified with evidence (the session that created the page cannot verify it)")
+  .requiredOption("--evidence <text>", "what you did, where, and what confirmed it; appended to sources")
+  .option("--base-rev <rev>")
+  .action((id: string, o: { evidence: string; baseRev?: string }) => {
+    try {
+      const { cfg, json } = cfgFrom();
+      const r = verifyPage(cfg, { id, evidence: o.evidence, baseRev: o.baseRev });
+      out(json, r, () => {
+        if (r.refused) { console.log(`refused: ${r.refused}`); printIssues(r.issues); process.exitCode = 2; return; }
+        console.log(`verified ${r.id}`);
+        printIssues(r.issues);
+        for (const n of syncNotes(r.sync)) console.log(`note: ${n}`);
+      });
+    } catch (e) { fail(e); }
+  });
+program
+  .command("deprecate <id>")
+  .description("mark a page deprecated and point to its replacement (sets replaced_by, adds a banner, updates the hub)")
+  .requiredOption("--replaced-by <id>", "the page to use instead (must exist)")
+  .option("--reason <text>")
+  .option("--base-rev <rev>")
+  .action((id: string, o: { replacedBy: string; reason?: string; baseRev?: string }) => {
+    try {
+      const { cfg, json } = cfgFrom();
+      const r = deprecatePage(cfg, { id, replacedBy: o.replacedBy, reason: o.reason, baseRev: o.baseRev });
+      out(json, r, () => {
+        if (r.refused) { console.log(`refused: ${r.refused}`); printIssues(r.issues); process.exitCode = 2; return; }
+        console.log(`deprecated ${r.id} -> ${o.replacedBy}`);
+        printIssues(r.issues);
+        for (const n of syncNotes(r.sync)) console.log(`note: ${n}`);
+      });
+    } catch (e) { fail(e); }
+  });
+program
+  .command("resolve <id>")
+  .description("finish a conflict: write the merged body (--file/--stdin) or keep the conflict copy (--take conflict), delete the copies, commit")
+  .option("-f, --file <path>", "merged body file")
+  .option("--stdin")
+  .option("--take <which>", "conflict: use the conflict copy's body as is")
+  .action((id: string, o: { file?: string; stdin?: boolean; take?: string }) => {
+    try {
+      const { cfg, json } = cfgFrom();
+      if (!o.take) {
+        const copies = conflictCopiesOf(cfg, id);
+        if (!copies.length) throw new Error(`no conflict copy for ${id}`);
+      }
+      const r = resolveConflict(cfg, { id, body: o.take ? undefined : readContent(o), take: o.take === "conflict" ? "conflict" : undefined });
+      out(json, r, () => {
+        if (r.refused) { console.log(`refused: ${r.refused}`); printIssues(r.issues); process.exitCode = 2; return; }
+        console.log(`resolved ${r.id}`);
         printIssues(r.issues);
         for (const n of syncNotes(r.sync)) console.log(`note: ${n}`);
       });
@@ -392,7 +475,8 @@ program
         section("lingering drafts -> verify or deprecate", r.lingeringDrafts);
         section("orphans -> link from a hub or page", r.orphans.map((id) => ({ id })));
         section("deprecated but still linked", r.deprecatedStillLinked.map((d) => ({ id: `${d.id} <- ${d.linkedFrom.join(", ")}` })));
-        section("conflict files -> merge", r.conflictFiles.map((id) => ({ id })));
+        section("conflict files -> merge (doltap resolve)", r.conflictFiles.map((id) => ({ id })));
+        section("unused tags -> doltap tags remove", r.unusedTags.map((id) => ({ id })));
         section("most read", r.mostRead);
       });
     } catch (e) { fail(e); }
@@ -450,6 +534,51 @@ serve.command("token").description("print the secret path token (rotate with --r
     const p = ensureToken(cfg, !!o.rotate);
     if (o.quiet) { if (o.rotate) console.error(`token rotated: ${p}`); return; }
     process.stdout.write(readFileSync(p, "utf8"));
+  } catch (e) { fail(e); }
+});
+
+// Named HTTP client tokens (.doltap/http-clients.json, read by doltap-mcp --http on each request).
+interface HttpClientRec { token: string; readOnly: boolean; created: string }
+function clientsFile(cfg: WikiConfig): string { return join(cfg.stateDir, "http-clients.json"); }
+function loadClientRecs(cfg: WikiConfig): Record<string, HttpClientRec> {
+  const p = clientsFile(cfg);
+  return existsSync(p) ? (JSON.parse(readFileSync(p, "utf8")) as Record<string, HttpClientRec>) : {};
+}
+function saveClientRecs(cfg: WikiConfig, recs: Record<string, HttpClientRec>): void {
+  const p = clientsFile(cfg);
+  writeFileSync(p, JSON.stringify(recs, null, 2) + "\n", { mode: 0o600 });
+  chmodSync(p, 0o600);
+}
+const client = serve.command("client").description("named tokens for remote clients: commits carry the name, --read-only tokens cannot write");
+client.command("add <name>").description("create a token for a client and print it (pipe it to the clipboard; it is not shown again)").option("--read-only").action((name: string, o: { readOnly?: boolean }) => {
+  try {
+    const { cfg } = cfgFrom();
+    if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(name)) throw new Error("client name must be kebab-case");
+    const recs = loadClientRecs(cfg);
+    if (recs[name]) throw new Error(`client ${name} exists; remove it first to issue a new token`);
+    const token = randomBytes(32).toString("hex");
+    recs[name] = { token, readOnly: !!o.readOnly, created: new Date().toISOString().slice(0, 10) };
+    saveClientRecs(cfg, recs);
+    console.error(`client ${name} added (${o.readOnly ? "read-only" : "full access"}); the token follows on stdout`);
+    process.stdout.write(token + "\n");
+  } catch (e) { fail(e); }
+});
+client.command("list").action(() => {
+  try {
+    const { cfg, json } = cfgFrom();
+    const recs = loadClientRecs(cfg);
+    const rows = Object.entries(recs).map(([name, r]) => ({ name, readOnly: r.readOnly, created: r.created }));
+    out(json, rows, () => { if (!rows.length) console.log("(no named clients; only the default token)"); for (const r of rows) console.log(`${r.name.padEnd(20)} ${r.readOnly ? "read-only" : "full     "} ${r.created}`); });
+  } catch (e) { fail(e); }
+});
+client.command("remove <name>").action((name: string) => {
+  try {
+    const { cfg } = cfgFrom();
+    const recs = loadClientRecs(cfg);
+    if (!recs[name]) throw new Error(`no client named ${name}`);
+    delete recs[name];
+    saveClientRecs(cfg, recs);
+    console.log(`removed client ${name}; its token stops working on the next request`);
   } catch (e) { fail(e); }
 });
 

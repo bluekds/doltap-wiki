@@ -20,7 +20,7 @@ const parse = (r: Awaited<ReturnType<Client["callTool"]>>) => JSON.parse((r.cont
 describe("mcp server", () => {
   it("exposes tools and resources", async () => {
     const tools = (await client.listTools()).tools.map((t) => t.name).sort();
-    expect(tools).toEqual(["wiki_audit", "wiki_get", "wiki_lint", "wiki_list", "wiki_patch_section", "wiki_related", "wiki_search", "wiki_set_meta", "wiki_sync", "wiki_template", "wiki_upsert"]);
+    expect(tools).toEqual(["wiki_add_tag", "wiki_audit", "wiki_deprecate", "wiki_get", "wiki_lint", "wiki_list", "wiki_patch_section", "wiki_related", "wiki_resolve_conflict", "wiki_search", "wiki_set_meta", "wiki_sync", "wiki_template", "wiki_upsert", "wiki_verify"]);
     const res = (await client.listResources()).resources.map((r) => r.uri).sort();
     expect(res).toEqual(["wiki://index", "wiki://protocol", "wiki://tags"]);
     const proto = await client.readResource({ uri: "wiki://protocol" });
@@ -45,10 +45,13 @@ describe("mcp server", () => {
     expect(parse(bad).issues.map((i: { rule: string }) => i.rule)).toContain("tag-unknown");
     const p = parse(await client.callTool({ name: "wiki_patch_section", arguments: { id: "patterns/retry-backoff", section: "Anti-patterns", content: "- retrying non-idempotent writes", mode: "append" } }));
     expect(p.id).toBe("patterns/retry-backoff");
-    const m = parse(await client.callTool({ name: "wiki_set_meta", arguments: { id: "patterns/retry-backoff", confidence: "verified", add_sources: ["used in project X"] } }));
+    const notAllowed = await client.callTool({ name: "wiki_set_meta", arguments: { id: "patterns/retry-backoff", confidence: "verified" } }).catch((e: Error) => e);
+    expect(String(notAllowed instanceof Error ? notAllowed.message : JSON.stringify(notAllowed))).toMatch(/draft|invalid/i);
+    const m = parse(await client.callTool({ name: "wiki_verify", arguments: { id: "patterns/retry-backoff", evidence: "Followed on machine-t 2026-10-27; worked" } }));
     expect(m.id).toBe("patterns/retry-backoff");
     const g = parse(await client.callTool({ name: "wiki_get", arguments: { id: "patterns/retry-backoff" } }));
     expect(g.meta.confidence).toBe("verified");
+    expect(g.meta.sources).toContain("Followed on machine-t 2026-10-27; worked");
     expect(g.text).toContain("retrying non-idempotent writes");
     const rel = parse(await client.callTool({ name: "wiki_related", arguments: { id: "patterns/retry-backoff" } }));
     expect(Array.isArray(rel.backlinks)).toBe(true);

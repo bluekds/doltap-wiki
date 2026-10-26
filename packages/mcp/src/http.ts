@@ -1,6 +1,6 @@
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { createServer as createHttpServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { join } from "node:path";
 import type { WikiConfig } from "@bluekds/doltap-core";
@@ -49,6 +49,43 @@ export function rotateToken(cfg: WikiConfig): string {
   return t;
 }
 
+/** Named client tokens besides the default one: `.doltap/http-clients.json` → { name: { token, readOnly, created } }. */
+export interface HttpClient {
+  token: string;
+  readOnly: boolean;
+  created: string;
+}
+
+export function clientsPath(cfg: WikiConfig): string {
+  return join(cfg.stateDir, "http-clients.json");
+}
+
+export function loadClients(cfg: WikiConfig): Record<string, HttpClient> {
+  const p = clientsPath(cfg);
+  if (!existsSync(p)) return {};
+  try { return JSON.parse(readFileSync(p, "utf8")) as Record<string, HttpClient>; } catch { return {}; }
+}
+
+export function saveClients(cfg: WikiConfig, clients: Record<string, HttpClient>): void {
+  const p = clientsPath(cfg);
+  writeFileSync(p, JSON.stringify(clients, null, 2) + "\n", { mode: 0o600 });
+  chmodSync(p, 0o600);
+}
+
+export interface ResolvedClient {
+  /** Agent name recorded in commits: the client name, or "mcp-http" for the default token. */
+  agent: string;
+  readOnly: boolean;
+}
+
+/** Which client a path token belongs to (constant-time compare against every token); null when none. */
+export function resolveClient(given: string, defaultToken: string, clients: Record<string, HttpClient>): ResolvedClient | null {
+  let found: ResolvedClient | null = null;
+  if (tokenMatches(given, defaultToken)) found = { agent: "mcp-http", readOnly: false };
+  for (const [name, c] of Object.entries(clients)) if (tokenMatches(given, c.token)) found = { agent: name, readOnly: !!c.readOnly };
+  return found;
+}
+
 function sha256(s: string): Buffer {
   return createHash("sha256").update(s).digest();
 }
@@ -94,6 +131,16 @@ export interface RunningHttpServer {
 export async function startHttpServer(cfg: WikiConfig, o: HttpOptions): Promise<RunningHttpServer> {
   const token = o.token ?? loadOrCreateToken(cfg);
   const maxBody = o.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
+  const clientsFile = clientsPath(cfg);
+  let clientsMtime = -1;
+  let clients: Record<string, HttpClient> = {};
+  const currentClients = () => {
+    // Re-read when the file changes so `doltap serve client add` takes effect without a restart.
+    let mtime = -1;
+    try { mtime = statSync(clientsFile).mtimeMs; } catch { /* no file */ }
+    if (mtime !== clientsMtime) { clients = loadClients(cfg); clientsMtime = mtime; }
+    return clients;
+  };
   const allowed = new Set(
     ["127.0.0.1", "localhost", "::1", "[::1]", o.host, ...(o.allowedHosts ?? (process.env.DOLTAP_HTTP_ALLOWED_HOSTS ?? "").split(","))]
       .map((h) => h.trim().toLowerCase())
@@ -107,7 +154,8 @@ export async function startHttpServer(cfg: WikiConfig, o: HttpOptions): Promise<
       return;
     }
     const m = /^\/([^/]+)\/mcp$/.exec(url.pathname);
-    if (!m || !tokenMatches(m[1], token)) {
+    const client = m ? resolveClient(m[1], token, currentClients()) : null;
+    if (!client) {
       res.writeHead(404, { "content-type": "text/plain" }).end("not found\n");
       return;
     }
@@ -132,7 +180,7 @@ export async function startHttpServer(cfg: WikiConfig, o: HttpOptions): Promise<
       } else res.writeHead(400, { "content-type": "text/plain" }).end("bad request\n");
       return;
     }
-    const server = createServer(cfg);
+    const server = createServer({ ...cfg, agent: client.agent }, { readOnly: client.readOnly });
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     res.on("close", () => {
       transport.close().catch(() => {});

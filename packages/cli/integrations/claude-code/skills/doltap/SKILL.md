@@ -11,10 +11,10 @@ A knowledge base shared by every agent on every machine. Pages are Markdown unde
 
 1. At the start of a task that is repetitive (deploy, build, release, environment setup) or cross-project (auth, retry, caching, logging, CLI scaffolding), call `wiki_search` with 2–4 keywords. Also search when you need a library's version-specific behavior or limits, or when you wonder "why is it done this way".
 2. Read the `summary` and `confidence` of each hit. Open a page with `wiki_get`; pass `section` (e.g. `Pitfalls`, `Steps`, `Solution`) when you only need part of it.
-3. Treat `confidence` as instructions: `verified` = follow it; `draft` = use as a hint and verify; `deprecated` = do not follow, use the replacement linked at the top.
+3. Treat `confidence` as instructions: `verified` = follow it; `draft` = use as a hint and verify; `deprecated` = do not follow, open the page in `replaced_by` instead.
 4. Use `wiki_related` to move from one hit to adjacent pages when the first page is close but not exact.
 
-If a `draft` page turned out to be correct, promote it: `wiki_set_meta` with `confidence: verified` and an `add_sources` entry saying what confirmed it.
+If a `draft` page turned out to be correct, promote it with `wiki_verify` and `evidence` saying what you did and what confirmed it. The session that created the page cannot verify it; that is expected.
 
 ## Write when it will save the next agent time
 
@@ -34,10 +34,10 @@ Procedure:
 2. Prefer editing: if `wiki_search` finds the topic, use `wiki_patch_section` (mode `append` for a new pitfall, `replace` to correct a section; `create: true` only for a genuinely new heading). Pass the `rev` from `wiki_get` as `base_rev`; a `stale` refusal means someone else changed the page, so read it again. Only create when nothing fits.
 3. To create: `wiki_template` for the category, fill every section (write `N/A` if one does not apply), then `wiki_upsert` with a `summary` under 200 characters that lets a reader decide without opening the page, 1–3 `tags` from `wiki://tags`, and `[[id]]` links to related pages. Default `confidence` is `draft`.
 4. If `wiki_upsert` is refused with `similar`, edit the listed page instead, or pass `force: true` only when the topic is genuinely different. An existing id is refused too; rewriting a whole page needs `replace: true` plus `base_rev`.
-5. If the result reports `conflicts`, tell the user: a `*.conflict-<host>.md` file needs a manual merge.
+5. If the result reports `conflicts`, read the page and its copy (`wiki_get` lists `conflict_copies`), merge them, and call `wiki_resolve_conflict` with the merged body (or `take: conflict`). To retire a page, `wiki_deprecate` with its replacement; to use a tag that does not exist yet, `wiki_add_tag` first.
 
 All content is English. Writes are linted, committed, and pushed automatically.
 
 ## CLI fallback
 
-When MCP tools are not available, the same operations exist as a CLI: `doltap search <q>`, `doltap get <id> [-s Section]`, `doltap template <cat>`, `doltap add <id> --title .. --summary .. --tags a,b --stdin`, `doltap patch <id> -s Section --content ..`, `doltap meta <id> --confidence verified`. Add `--json` for structured output. Set `DOLTAP_AGENT=claude-code` so commits record the client.
+When MCP tools are not available, the same operations exist as a CLI: `doltap search <q>`, `doltap get <id> [-s Section]`, `doltap template <cat>`, `doltap add <id> --title .. --summary .. --tags a,b --stdin`, `doltap patch <id> -s Section --content ..`, `doltap verify <id> --evidence ..`, `doltap deprecate <id> --replaced-by <id>`, `doltap resolve <id> --file merged.md`, `doltap tags add <tag> <description>`. Add `--json` for structured output. Set `DOLTAP_AGENT=claude-code` so commits record the client.

@@ -1,7 +1,7 @@
 import { CATEGORIES, CONFIDENCE, isCategoryHub, isProjectOverview, type WikiConfig } from "./config.js";
 import type { Page } from "./page.js";
 import { requiredSections } from "./template.js";
-import { allowedTagSet } from "./tags.js";
+import { allowedTagSet, suggestTags } from "./tags.js";
 
 export interface LintIssue {
   id: string;
@@ -81,7 +81,11 @@ export function lintPage(page: Page, ctx: LintContext): LintIssue[] {
 
   // Tags
   if (m.tags.length === 0 && !isHub) warn("tags-empty", "no tags; add at least one from _meta/tags.yaml");
-  for (const t of m.tags) if (!ctx.allowedTags.has(t)) err("tag-unknown", `tag "${t}" is not in _meta/tags.yaml`);
+  for (const t of m.tags) {
+    if (ctx.allowedTags.has(t)) continue;
+    const near = suggestTags(t, ctx.allowedTags);
+    err("tag-unknown", `tag "${t}" is not in _meta/tags.yaml${near.length ? `; did you mean ${near.map((n) => `"${n}"`).join(", ")}?` : " (add it with wiki_add_tag / doltap tags add)"}`);
+  }
 
   // Required sections (from the template). Under projects/ only the overview page follows the template;
   // topic pages (projects/<name>/<topic>) are free-form.
@@ -104,8 +108,12 @@ export function lintPage(page: Page, ctx: LintContext): LintIssue[] {
   }
   if (!isHub && (ctx.inbound.get(page.id) ?? 0) === 0) warn("orphan", "no inbound links; add it to the nearest _index manual list");
 
-  // Deprecated pages must point somewhere
-  if (m.confidence === "deprecated" && page.links.filter((l) => !l.endsWith("/_index")).length === 0) warn("deprecated-no-replacement", "deprecated page should link to its replacement");
+  // Deprecated pages must point somewhere: `replaced_by` (set by wiki_deprecate) or at least a link in the body.
+  if (m.confidence === "deprecated") {
+    const rb = typeof m.replaced_by === "string" ? m.replaced_by : "";
+    if (rb && !ctx.allIds.has(rb)) err("replaced-by-missing", `replaced_by "${rb}" is not an existing page`);
+    else if (!rb && page.links.filter((l) => !l.endsWith("/_index")).length === 0) err("deprecated-no-replacement", "deprecated page must name its replacement (wiki_deprecate sets replaced_by)");
+  } else if (m.replaced_by) warn("replaced-by-on-active", "replaced_by is set but the page is not deprecated");
 
   // Secrets
   for (const [name, re] of SECRET_PATTERNS) if (re.test(page.raw)) err("secret", `possible secret detected (${name})`);

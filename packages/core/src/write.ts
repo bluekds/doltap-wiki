@@ -1,8 +1,8 @@
-import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, writeFileSync, readFileSync, unlinkSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { CATEGORIES, isCategoryHub, today, type WikiConfig } from "./config.js";
 import { WikiDb, type SearchHit } from "./db.js";
-import { commitAndPush, commitMessage, emptyReport, pull, type SyncReport } from "./git.js";
+import { assertOnBranch, commitAndPush, commitMessage, emptyReport, git, pull, type SyncReport } from "./git.js";
 import { buildLintContext, hasErrors, lintPage, type LintIssue } from "./lint.js";
 import { withWriteLock } from "./lock.js";
 import { parsePage, readPage, relPathFromId, replaceSection, serializePage, type Page, type PageMeta } from "./page.js";
@@ -134,6 +134,7 @@ export function upsertPage(cfg: WikiConfig, input: UpsertInput): WriteResult {
     throw new Error(`id must start with a category (${CATEGORIES.join(", ")}): ${input.id}`);
   }
   return withWriteLock(cfg, () => {
+  assertOnBranch(cfg);
   const sync = emptyReport();
   pull(cfg, sync);
   const db = new WikiDb(cfg);
@@ -207,6 +208,7 @@ export interface PatchInput {
 export function patchSection(cfg: WikiConfig, input: PatchInput): WriteResult {
   relPathFromId(input.id);
   return withWriteLock(cfg, () => {
+  assertOnBranch(cfg);
   const sync = emptyReport();
   pull(cfg, sync);
   const db = new WikiDb(cfg);
@@ -246,6 +248,7 @@ export interface MetaPatch {
 export function patchMeta(cfg: WikiConfig, input: MetaPatch): WriteResult {
   relPathFromId(input.id);
   return withWriteLock(cfg, () => {
+  assertOnBranch(cfg);
   const sync = emptyReport();
   pull(cfg, sync);
   const db = new WikiDb(cfg);
@@ -274,6 +277,174 @@ export function patchMeta(cfg: WikiConfig, input: MetaPatch): WriteResult {
   } finally {
     db.close();
   }
+  });
+}
+
+export interface DeprecateInput {
+  id: string;
+  /** The page to use instead. Must exist and not be deprecated itself. */
+  replacedBy: string;
+  reason?: string;
+  baseRev?: string;
+}
+
+/**
+ * Mark a page deprecated: `confidence: deprecated`, `replaced_by: <id>` in the frontmatter, and a banner as
+ * the first line of the body so readers of the raw page see it too. Hub lists mark it; search returns
+ * `replaced_by`.
+ */
+export function deprecatePage(cfg: WikiConfig, input: DeprecateInput): WriteResult {
+  relPathFromId(input.id);
+  relPathFromId(input.replacedBy);
+  if (input.replacedBy === input.id) throw new Error("a page cannot replace itself");
+  return withWriteLock(cfg, () => {
+    assertOnBranch(cfg);
+    const sync = emptyReport();
+    pull(cfg, sync);
+    const db = new WikiDb(cfg);
+    try {
+      db.reindex();
+      const page = readPage(cfg, input.id);
+      if (!page) throw new Error(`page not found: ${input.id}`);
+      const target = readPage(cfg, input.replacedBy);
+      if (!target) throw new Error(`replacement ${input.replacedBy} does not exist; create it first`);
+      if (target.meta.confidence === "deprecated") throw new Error(`replacement ${input.replacedBy} is deprecated itself`);
+      const stale = staleRefusal(page.rev, input.baseRev);
+      if (stale) return { id: input.id, path: page.relPath, created: false, issues: [], sync, refused: stale };
+      const banner = `> **Deprecated.** Use [[${input.replacedBy}]] instead.${input.reason ? ` ${input.reason.replace(/\s+/g, " ").trim()}` : ""}`;
+      const body = `${banner}\n\n${page.body.replace(/^> \*\*Deprecated\.\*\*[^\n]*\n+/, "")}`;
+      const meta: PageMeta = { ...page.meta, confidence: "deprecated", replaced_by: input.replacedBy, updated: today() };
+      const raw = serializePage(meta, body);
+      const next = parsePage(cfg, page.relPath, raw);
+      const issues = lintOne(cfg, db, next).filter((i) => i.rule !== "orphan");
+      if (hasErrors(issues)) return { id: input.id, path: page.relPath, created: false, issues, sync, refused: "lint errors" };
+      writeFileSync(page.absPath, raw);
+      db.reindex();
+      const touched = [join("wiki", page.relPath), ...regenerateHubLists(cfg, db).map((rel) => join("wiki", rel))];
+      commitAndPush(cfg, touched, commitMessage(cfg, "deprecate", input.id, `replaced by ${input.replacedBy}`), sync);
+      return { id: input.id, path: page.relPath, created: false, issues, sync, rev: next.rev };
+    } finally {
+      db.close();
+    }
+  });
+}
+
+export interface VerifyInput {
+  id: string;
+  /** What confirmed the page: where it was followed, what happened. Recorded in `sources`. */
+  evidence: string;
+  baseRev?: string;
+}
+
+/** `[session:x]` of the commit that created the page, from git history (null when unknown). */
+function creatingSession(cfg: WikiConfig, relPath: string): string | null {
+  const log = git(cfg, ["log", "--diff-filter=A", "--format=%B", "--", `wiki/${relPath}`], { allowFail: true });
+  const m = /\[session:([^\]]+)\]/.exec(log.stdout);
+  return m ? m[1] : null;
+}
+
+/**
+ * Promote draft → verified with evidence. The session that created the page cannot verify it: promotion
+ * means someone else followed the page and it worked. Records `verified_by` (host/agent) and `verified_on`.
+ */
+export function verifyPage(cfg: WikiConfig, input: VerifyInput): WriteResult {
+  relPathFromId(input.id);
+  const evidence = input.evidence.replace(/\s+/g, " ").trim();
+  if (!evidence) throw new Error("evidence is required: say where the page was followed and what confirmed it");
+  return withWriteLock(cfg, () => {
+    assertOnBranch(cfg);
+    const sync = emptyReport();
+    pull(cfg, sync);
+    const db = new WikiDb(cfg);
+    try {
+      db.reindex();
+      const page = readPage(cfg, input.id);
+      if (!page) throw new Error(`page not found: ${input.id}`);
+      const refuse = (why: string): WriteResult => ({ id: input.id, path: page.relPath, created: false, issues: [], sync, refused: why });
+      const stale = staleRefusal(page.rev, input.baseRev);
+      if (stale) return refuse(stale);
+      if (page.meta.confidence === "verified") return refuse(`${input.id} is already verified (by ${String(page.meta.verified_by ?? "unknown")}); add evidence with set_meta add_sources instead`);
+      if (page.meta.confidence === "deprecated") return refuse(`${input.id} is deprecated; nothing to verify`);
+      const creator = creatingSession(cfg, page.relPath);
+      if (creator && cfg.session && creator === cfg.session) return refuse(`refusing self-promotion: ${input.id} was created in this same session (${cfg.session}); another session or machine must follow the page first`);
+      const meta: PageMeta = {
+        ...page.meta,
+        confidence: "verified",
+        sources: [...new Set([...page.meta.sources, evidence])],
+        verified_by: `${cfg.hostname}/${cfg.agent}`,
+        verified_on: today(),
+        updated: today(),
+      };
+      const raw = serializePage(meta, page.body);
+      const next = parsePage(cfg, page.relPath, raw);
+      const issues = lintOne(cfg, db, next).filter((i) => i.rule !== "orphan");
+      if (hasErrors(issues)) return { ...refuse("lint errors"), issues };
+      writeFileSync(page.absPath, raw);
+      db.reindex();
+      commitAndPush(cfg, [join("wiki", page.relPath)], commitMessage(cfg, "verify", input.id, `evidence: ${evidence}`), sync);
+      return { id: input.id, path: page.relPath, created: false, issues, sync, rev: next.rev };
+    } finally {
+      db.close();
+    }
+  });
+}
+
+export interface ResolveInput {
+  id: string;
+  /** The merged body. Omit with `take: "conflict"` to keep the conflict copy's body as is. */
+  body?: string;
+  take?: "conflict";
+}
+
+/** Conflict copies of a page in this clone: `<id>.conflict-<host>.md`, wiki-relative. */
+export function conflictCopiesOf(cfg: WikiConfig, id: string): string[] {
+  const dir = dirname(join(cfg.wikiDir, relPathFromId(id)));
+  if (!existsSync(dir)) return [];
+  const slug = id.split("/").pop()!;
+  const re = new RegExp(`^${slug.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.conflict-[^./]+\\.md$`);
+  return readdirSyncSafe(dir).filter((f) => re.test(f)).map((f) => join(dirname(relPathFromId(id)), f).split("\\").join("/"));
+}
+
+function readdirSyncSafe(dir: string): string[] {
+  try { return readdirSync(dir); } catch { return []; }
+}
+
+/**
+ * Finish a conflict: write the merged body to the page (frontmatter kept, `updated` bumped), delete every
+ * `<id>.conflict-<host>.md` copy, commit and push. MCP-only agents could not do this before.
+ */
+export function resolveConflict(cfg: WikiConfig, input: ResolveInput): WriteResult {
+  relPathFromId(input.id);
+  return withWriteLock(cfg, () => {
+    assertOnBranch(cfg);
+    const sync = emptyReport();
+    pull(cfg, sync);
+    const db = new WikiDb(cfg);
+    try {
+      db.reindex();
+      const page = readPage(cfg, input.id);
+      if (!page) throw new Error(`page not found: ${input.id}`);
+      const copies = conflictCopiesOf(cfg, input.id);
+      let body = input.body;
+      if (input.take === "conflict") {
+        if (!copies.length) throw new Error(`no conflict copy for ${input.id}`);
+        body = parsePage(cfg, copies[0], readFileSync(join(cfg.wikiDir, copies[0]), "utf8")).body;
+      }
+      if (body === undefined) throw new Error("pass the merged body, or take: \"conflict\" to keep the conflict copy");
+      const meta: PageMeta = { ...page.meta, updated: today() };
+      const raw = serializePage(meta, body);
+      const next = parsePage(cfg, page.relPath, raw);
+      const issues = lintOne(cfg, db, next).filter((i) => i.rule !== "orphan");
+      if (hasErrors(issues)) return { id: input.id, path: page.relPath, created: false, issues, sync, refused: "lint errors" };
+      writeFileSync(page.absPath, raw);
+      for (const c of copies) unlinkSync(join(cfg.wikiDir, c));
+      db.reindex();
+      const touched = [join("wiki", page.relPath), ...copies.map((c) => `wiki/${c}`), ...regenerateHubLists(cfg, db).map((rel) => join("wiki", rel))];
+      commitAndPush(cfg, touched, commitMessage(cfg, "resolve conflict", input.id, copies.length ? `removed: ${copies.join(", ")}` : undefined), sync);
+      return { id: input.id, path: page.relPath, created: false, issues, sync, rev: next.rev };
+    } finally {
+      db.close();
+    }
   });
 }
 
