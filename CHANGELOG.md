@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.2 (2026-10-26)
 
 Security fixes for the remote endpoint; update and re-run `doltap serve install` (and `doltap schedule install`).
 
