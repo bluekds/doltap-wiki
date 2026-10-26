@@ -125,8 +125,10 @@ export async function startHttpServer(cfg: WikiConfig, o: HttpOptions): Promise<
       body = await readJsonBody(req, maxBody);
     } catch (e) {
       if (e instanceof BodyTooLarge) {
+        // Answer, then discard the rest of the body instead of destroying the socket: a reset before the
+        // client has read the response surfaces as ECONNRESET (Windows) rather than as a 413.
         res.writeHead(413, { "content-type": "text/plain", connection: "close" }).end("payload too large\n");
-        req.destroy();
+        req.resume();
       } else res.writeHead(400, { "content-type": "text/plain" }).end("bad request\n");
       return;
     }
