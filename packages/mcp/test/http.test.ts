@@ -1,52 +1,66 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { spawn, type ChildProcess } from "node:child_process";
+import { cpSync, mkdtempSync, rmSync } from "node:fs";
+import { request } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { makeWikiCopy, type Fixture } from "../../core/test/helpers.js";
+import { resolveConfig, type WikiConfig } from "@bluekds/doltap-core";
+import { startHttpServer } from "../src/http.js";
 
-let fx: Fixture;
-let proc: ChildProcess;
-const port = 18765 + Math.floor(Math.random() * 1000);
-const token = "t".repeat(40);
-const base = `http://127.0.0.1:${port}`;
+const TOKEN = "ab".repeat(32);
+let dir: string;
+let cfg: WikiConfig;
+let srv: Awaited<ReturnType<typeof startHttpServer>>;
+let base: string;
 
 beforeAll(async () => {
-  fx = makeWikiCopy();
-  const server = fileURLToPath(new URL("../dist/main.js", import.meta.url));
-  proc = spawn(process.execPath, [server, "--http", "--port", String(port), "--token", token], {
-    env: { ...process.env, DOLTAP_ROOT: fx.dir, DOLTAP_NO_SYNC: "1", DOLTAP_AGENT: "test-http" },
-    stdio: ["ignore", "ignore", "pipe"],
-  });
-  await new Promise<void>((resolve, reject) => {
-    proc.stderr!.on("data", (d: Buffer) => { if (d.toString().includes("listening")) resolve(); });
-    proc.on("exit", (c) => reject(new Error(`server exited ${c}`)));
-  });
+  dir = mkdtempSync(join(tmpdir(), "doltap-http-"));
+  cpSync(fileURLToPath(new URL("../../core/test/fixtures/wiki/", import.meta.url)), join(dir, "wiki"), { recursive: true });
+  cfg = resolveConfig({ root: dir, noSync: true, agent: "test" });
+  srv = await startHttpServer(cfg, { port: 0, host: "127.0.0.1", token: TOKEN, maxBodyBytes: 64 * 1024 });
+  base = `http://127.0.0.1:${srv.port}`;
 });
-afterAll(() => { proc.kill(); fx.cleanup(); });
+afterAll(async () => {
+  await srv.close();
+  rmSync(dir, { recursive: true, force: true });
+});
 
-describe("mcp over streamable http", () => {
-  it("rejects wrong paths and non-POST, answers healthz", async () => {
+const init = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "t", version: "0" } } });
+const headers = { "content-type": "application/json", accept: "application/json, text/event-stream" };
+
+describe("http transport", () => {
+  it("answers initialize with the right token and 404 otherwise", async () => {
+    const ok = await fetch(`${base}/${TOKEN}/mcp`, { method: "POST", headers, body: init });
+    expect(ok.status).toBe(200);
+    expect(await ok.text()).toContain("doltap");
+    const wrong = await fetch(`${base}/${"cd".repeat(32)}/mcp`, { method: "POST", headers, body: init });
+    expect(wrong.status).toBe(404);
+    const short = await fetch(`${base}/x/mcp`, { method: "POST", headers, body: init });
+    expect(short.status).toBe(404);
     expect((await fetch(`${base}/healthz`)).status).toBe(200);
-    expect((await fetch(`${base}/wrong/mcp`, { method: "POST" })).status).toBe(404);
-    expect((await fetch(`${base}/${token}/mcp`)).status).toBe(405);
   });
 
-  it("serves tools to an SDK client and handles a write", async () => {
-    const client = new Client({ name: "http-test", version: "0" });
-    await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/${token}/mcp`)));
-    expect((await client.listTools()).tools.length).toBe(11);
-    const s = await client.callTool({ name: "wiki_search", arguments: { query: "obsidian" } });
-    expect(JSON.parse((s.content as { text: string }[])[0].text).hits[0].id).toBe("reference/obsidian-conventions");
-    const p = await client.callTool({ name: "wiki_patch_section", arguments: { id: "reference/obsidian-conventions", section: "Details", content: "- added over http", mode: "append" } });
-    expect(p.isError).toBeFalsy();
-    const g = await client.callTool({ name: "wiki_get", arguments: { id: "reference/obsidian-conventions", section: "Details" } });
-    expect(JSON.parse((g.content as { text: string }[])[0].text).text).toContain("added over http");
-    // A second, independent client works too (stateless mode).
-    const c2 = new Client({ name: "http-test-2", version: "0" });
-    await c2.connect(new StreamableHTTPClientTransport(new URL(`${base}/${token}/mcp`)));
-    expect((await c2.readResource({ uri: "wiki://protocol" })).contents[0].text).toContain("Doltap Protocol");
-    await c2.close();
-    await client.close();
+  it("rejects oversized bodies with 413 before parsing", async () => {
+    const big = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "wiki_search", arguments: { query: "x".repeat(200 * 1024) } } });
+    const r = await fetch(`${base}/${TOKEN}/mcp`, { method: "POST", headers, body: big });
+    expect(r.status).toBe(413);
+  });
+
+  // fetch drops a caller-set Host header (forbidden header), so use node:http with setHost=false.
+  const postWithHost = (host: string) =>
+    new Promise<number>((resolve, reject) => {
+      const req = request({ host: "127.0.0.1", port: srv.port, path: `/${TOKEN}/mcp`, method: "POST", setHost: false, headers: { ...headers, host } }, (res) => {
+        res.resume();
+        res.on("end", () => resolve(res.statusCode ?? 0));
+      });
+      req.on("error", reject);
+      req.end(init);
+    });
+
+  it("rejects requests whose Host header is not allowed (DNS rebinding)", async () => {
+    expect(await postWithHost("evil.example")).toBe(421);
+    expect(await postWithHost("evil.example:8765")).toBe(421);
+    expect(await postWithHost("box.tail1234.ts.net")).toBe(200);
+    expect(await postWithHost("localhost:1234")).toBe(200);
   });
 });

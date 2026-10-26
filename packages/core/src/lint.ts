@@ -24,17 +24,31 @@ export function buildLintContext(cfg: WikiConfig, allIds: Set<string>, inbound: 
   return { allowedTags: allowedTagSet(cfg), allIds, inbound, requiredSections: req };
 }
 
+/**
+ * Known secret formats. This is a regex net for common token shapes, not a guarantee: the protocol still
+ * says to record where a secret lives and how to load it, never the value. Names are reported to the writer.
+ */
 const SECRET_PATTERNS: [string, RegExp][] = [
   ["aws-access-key", /\bAKIA[0-9A-Z]{16}\b/],
-  ["github-token", /\bgh[pousr]_[A-Za-z0-9]{30,}\b/],
-  ["openai-key", /\bsk-[A-Za-z0-9_-]{20,}\b/],
+  ["github-token", /\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,})\b/],
   ["anthropic-key", /\bsk-ant-[A-Za-z0-9_-]{20,}\b/],
+  ["openai-key", /\bsk-(?!ant-)[A-Za-z0-9_-]{20,}\b/],
+  ["google-api-key", /\bAIza[0-9A-Za-z_-]{35,}\b/],
+  ["gitlab-token", /\bglpat-[A-Za-z0-9_-]{20,}/],
+  ["stripe-key", /\b[sr]k_(?:live|test)_[A-Za-z0-9]{20,}\b/],
+  ["npm-token", /\bnpm_[A-Za-z0-9]{30,}\b/],
+  ["huggingface-token", /\bhf_[A-Za-z0-9]{30,}\b/],
   ["slack-token", /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/],
   ["private-key", /-----BEGIN [A-Z ]*PRIVATE KEY-----/],
   ["jwt", /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/],
+  ["bearer-token", /\bBearer\s+[A-Za-z0-9._~+/=-]{20,}/],
+  // Doltap's own remote endpoint: /<64 hex>/mcp. The URL is the credential.
+  ["connector-url", /\/[0-9a-f]{64}\/mcp\b/],
   ["url-credentials", /\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/@]{6,}@/i],
   ["telegram-bot-token", /(?<![0-9])\d{8,10}:[A-Za-z0-9_-]{35}(?![A-Za-z0-9_-])/],
-  ["password-assignment", /\b(password|passwd|secret|api[_-]?key|token)\s*[:=]\s*['"][^'"\s]{8,}['"]/i],
+  // `password = "..."` style, quoted (8+ chars) or unquoted (16+ chars that mix letters and digits).
+  // Values starting with $ ( < { [ ` are placeholders or shell/env expressions ("where it lives", not the secret).
+  ["credential-assignment", /(?:password|passwd|secret|api[_-]?key|access[_-]?key|token)\s*[:=]\s*(?:['"][^'"\s]{8,}['"]|(?=[^\s'"`]*\d)(?=[^\s'"`]*[A-Za-z])[^\s'"$<{[`(][^\s'"`]{15,})/i],
 ];
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;

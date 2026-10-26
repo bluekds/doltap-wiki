@@ -76,6 +76,8 @@ export class WikiDb {
   readonly db: DatabaseSync;
   constructor(readonly cfg: WikiConfig, path = cfg.dbPath) {
     this.db = new DatabaseSync(path);
+    // Readers also write (incremental reindex), so a concurrent process must wait instead of failing with "database is locked".
+    this.db.exec("PRAGMA busy_timeout=5000");
     this.db.exec("PRAGMA journal_mode=WAL");
     this.db.exec(SCHEMA);
   }
@@ -135,7 +137,8 @@ export class WikiDb {
     const seen = new Set<string>();
     const pages: Page[] = [];
     let indexed = 0;
-    const tx = this.db.prepare("BEGIN");
+    // IMMEDIATE takes the write lock up front; a deferred transaction that upgrades later can fail with SQLITE_BUSY despite busy_timeout.
+    const tx = this.db.prepare("BEGIN IMMEDIATE");
     tx.run();
     try {
       for (const abs of files) {

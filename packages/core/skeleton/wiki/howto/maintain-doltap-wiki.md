@@ -45,7 +45,7 @@ sources: []
 
 - A `*.conflict-<host>.md` file appears: merge both versions into the page, delete the conflict file, commit
 - A machine reports a stuck repository: see [[howto/setup-wiki-on-new-machine#Pitfalls]]
-- The HTTP token was exposed (chat, log, screenshot): `doltap serve token --rotate && doltap serve install`, then update every remote registration
+- The HTTP token was exposed (chat, log, screenshot): `doltap serve token --rotate --quiet && doltap serve install` (neither prints the token), then update every remote registration
 
 ### Running it from a scheduled agent session
 
@@ -65,7 +65,7 @@ Session-scheduled jobs live only while that session is open; if it ends, open a 
 
 ## Pitfalls
 
-- The scheduler entries record the absolute Node binary. After a Node upgrade (Homebrew, nvm) that path may disappear and the scheduled sync and HTTP service stop silently: re-run `doltap schedule install` (and `doltap serve install` if used), then check `.doltap/logs/sync.err`
+- The scheduler entries record a Node binary path. Homebrew installs get a stable alias (`/opt/homebrew/opt/node@<major>/bin/node`), but a switch to another major version or an nvm keg still changes it, and then the scheduled sync and HTTP service stop silently: re-run `doltap schedule install` (and `doltap serve install` if used), then check `.doltap/logs/sync.err`
 - The maintainer does not run on its own. Without a scheduled session or a user request, the weekly and monthly passes never happen
 - Do not promote a draft because it looks right; promotion needs evidence that someone followed it and it worked
 - Never paste the HTTP token or full connector URL into chat or a page while debugging the remote endpoint

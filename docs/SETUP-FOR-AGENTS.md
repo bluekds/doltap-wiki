@@ -65,7 +65,7 @@ git -C ~/.doltap config user.email "<email>"
 The user gives you an HTTPS URL that ends in `/mcp` and contains a secret token. Never print it back into the conversation or into any file other than the client configuration. Run:
 
 ```sh
-doltap integrations install claude --remote '<URL>'
+DOLTAP_REMOTE_URL='<URL>' doltap integrations install claude --remote
 ```
 
 Then skip to step 7. Steps 4 to 6 do not apply (there is no local clone, no sync schedule, nothing to lint).

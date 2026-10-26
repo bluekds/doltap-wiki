@@ -149,11 +149,11 @@ doltap sync                               # pull, push pending, reindex, publish
 doltap reindex [--full]
 doltap audit [--unreferenced-days 90] [--stale-days 90] [--draft-days 30]
 doltap schedule install|status|uninstall  # periodic sync
-doltap serve install|status|uninstall|token [--rotate]   # always-on HTTP MCP service
-doltap integrations install|uninstall claude [--remote <url>] [--dry-run]
+doltap serve install [--show-url]|status|uninstall|token [--rotate] [--quiet]   # always-on HTTP MCP service
+doltap integrations install|uninstall claude [--remote [<url>]] [--dry-run]   # --remote without a value reads $DOLTAP_REMOTE_URL
 ```
 
-Global flags `--root`, `--agent`, `--session`, `--no-sync`, `--json`. Environment: `DOLTAP_ROOT`, `DOLTAP_AGENT`, `DOLTAP_SESSION`, `DOLTAP_NO_SYNC=1`, `DOLTAP_AUTO_PULL_MINUTES` (default 10).
+Global flags `--root`, `--agent`, `--session`, `--no-sync`, `--json`. Environment: `DOLTAP_ROOT`, `DOLTAP_AGENT`, `DOLTAP_SESSION`, `DOLTAP_NO_SYNC=1`, `DOLTAP_AUTO_PULL_MINUTES` (default 10), `DOLTAP_REMOTE_URL`, `DOLTAP_HTTP_ALLOWED_HOSTS`.
 
 `doltap audit` merges read counts from every machine (`wiki/_meta/stats/<host>.json`, published by sync at most every 6 hours) and reports unreferenced pages, stale pages, lingering drafts, orphans, deprecated pages still linked, and conflict files.
 
@@ -177,7 +177,9 @@ Resources: `wiki://protocol`, `wiki://index`, `wiki://tags`.
 <details>
 <summary><b>Security</b></summary>
 
-- Remote access is protected by **one 64-character random token in the URL path**. There is no OAuth yet. Anyone with the URL can read and write the whole wiki, so read the token only with `doltap serve token`, never paste it into chats or documents, and rotate it with `doltap serve token --rotate` (then restart the service) if it leaks.
+- Remote access is protected by **one 64-character random token in the URL path**. There is no OAuth yet. Anyone with the URL can read and write the whole wiki, so read the token only with `doltap serve token`, never paste it into chats or documents, and rotate it with `doltap serve token --rotate --quiet && doltap serve install` if it leaks. CLI output masks the token (`serve install` prints `<token>` unless `--show-url`), `integrations install --remote` can take the URL from `DOLTAP_REMOTE_URL` so it stays out of shell history, and lint refuses a page containing a connector URL.
+- The server accepts only loopback, the bind host and `*.ts.net` as `Host` (add others with `DOLTAP_HTTP_ALLOWED_HOSTS`), caps request bodies at 2 MiB, and returns generic errors; details go to the service log.
+- Page ids are validated everywhere (`<category>/<slug>` characters only), so a request cannot name a file outside `wiki/`.
 - The service binds to 127.0.0.1 by default. Exposing it to the internet is a deliberate step in an outer layer such as Tailscale Funnel.
 - Wiki content lives forever in git history, and every page an agent reads is sent to that agent's model provider. That is why secret values never go in.
 - Commits made through the remote server carry the server's hostname; per-client attribution over HTTP is not available yet.

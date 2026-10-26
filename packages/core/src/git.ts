@@ -2,6 +2,12 @@ import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, sep } from "node:path";
 import type { WikiConfig } from "./config.js";
+import { withWriteLock } from "./lock.js";
+
+/** Mask `user:password@` in URLs so git errors can be shown to callers (remote URLs may embed credentials). */
+export function redactCredentials(text: string): string {
+  return text.replace(/(\b[a-z][a-z0-9+.-]*:\/\/)[^\s/@]+(?::[^\s/@]*)?@/gi, "$1***@");
+}
 
 export interface GitResult {
   ok: boolean;
@@ -33,7 +39,7 @@ export function git(cfg: WikiConfig, args: string[], opts: { timeoutMs?: number;
     const err = e as { stdout?: string | Buffer; stderr?: string | Buffer; message: string };
     const res = { ok: false, stdout: String(err.stdout ?? "").trim(), stderr: String(err.stderr ?? err.message).trim() };
     if (opts.allowFail) return res;
-    throw new Error(`git ${args.join(" ")} failed: ${res.stderr || res.stdout}`);
+    throw new Error(redactCredentials(`git ${args.join(" ")} failed: ${res.stderr || res.stdout}`));
   }
 }
 
@@ -49,8 +55,11 @@ export function isDirty(cfg: WikiConfig, pathspec = "wiki"): boolean {
   return git(cfg, ["status", "--porcelain", "--", pathspec]).stdout.length > 0;
 }
 
-interface SyncState {
+export interface SyncState {
+  /** Last successful pull. */
   lastPull?: string;
+  /** Last pull attempt, successful or not; auto-pull backs off from this so a dead remote is not retried on every read. */
+  lastPullAttempt?: string;
   pendingPush?: boolean;
 }
 
@@ -132,6 +141,7 @@ function resolveRebaseConflicts(cfg: WikiConfig): string[] {
 /** git pull --rebase --autostash. Returns a report; never throws on network failure. */
 export function pull(cfg: WikiConfig, report: SyncReport = emptyReport()): SyncReport {
   if (cfg.noSync || !isRepo(cfg) || !hasRemote(cfg)) return report;
+  writeSyncState(cfg, { lastPullAttempt: new Date().toISOString() });
   const res = git(cfg, ["pull", "--rebase", "--autostash", "--quiet"], { allowFail: true, timeoutMs: 20000 });
   // A failed autostash re-apply exits 0 and only prints to stderr, so look at the index instead.
   const unmerged = git(cfg, ["diff", "--name-only", "--diff-filter=U"], { allowFail: true }).stdout.split("\n").filter(Boolean);
@@ -160,7 +170,7 @@ export function pull(cfg: WikiConfig, report: SyncReport = emptyReport()): SyncR
     writeSyncState(cfg, { lastPull: new Date().toISOString() });
     return report;
   }
-  report.messages.push(`pull failed: ${res.stderr}`);
+  report.messages.push(redactCredentials(`pull failed: ${res.stderr}`));
   return report;
 }
 
@@ -216,25 +226,28 @@ export function pushPending(cfg: WikiConfig, report: SyncReport = emptyReport())
     report.pushed = true;
     writeSyncState(cfg, { pendingPush: false });
   } else if (looksOffline(res.stderr)) report.offline = true;
-  else report.messages.push(`push failed: ${res.stderr}`);
+  else report.messages.push(redactCredentials(`push failed: ${res.stderr}`));
   return report;
 }
 
 /** Full sync: pull (resolving conflicts) then push anything pending. */
 export function syncAll(cfg: WikiConfig): SyncReport {
-  const report = emptyReport();
-  pull(cfg, report);
-  pushPending(cfg, report);
-  return report;
+  return withWriteLock(cfg, () => {
+    const report = emptyReport();
+    pull(cfg, report);
+    pushPending(cfg, report);
+    return report;
+  });
 }
 
 /** Pull if the last pull is older than cfg.autoPullMinutes. Cheap no-op otherwise. */
 export function maybeAutoPull(cfg: WikiConfig): SyncReport {
   const report = emptyReport();
   if (cfg.noSync || cfg.autoPullMinutes <= 0) return report;
-  const last = readSyncState(cfg).lastPull;
-  const ageMin = last ? (Date.now() - Date.parse(last)) / 60000 : Infinity;
-  if (ageMin < cfg.autoPullMinutes) return report;
+  const st = readSyncState(cfg);
+  const ageMin = (iso?: string) => (iso ? (Date.now() - Date.parse(iso)) / 60000 : Infinity);
+  // Back off from the last attempt, not only the last success: a hanging or dead remote costs one timeout per interval, not one per read.
+  if (ageMin(st.lastPull) < cfg.autoPullMinutes || ageMin(st.lastPullAttempt) < cfg.autoPullMinutes) return report;
   return pull(cfg, report);
 }
 

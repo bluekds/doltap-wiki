@@ -4,7 +4,8 @@ import { CATEGORIES, isCategoryHub, today, type WikiConfig } from "./config.js";
 import { WikiDb, type SearchHit } from "./db.js";
 import { commitAndPush, commitMessage, emptyReport, pull, type SyncReport } from "./git.js";
 import { buildLintContext, hasErrors, lintPage, type LintIssue } from "./lint.js";
-import { parsePage, readPage, replaceSection, serializePage, type Page, type PageMeta } from "./page.js";
+import { withWriteLock } from "./lock.js";
+import { parsePage, readPage, relPathFromId, replaceSection, serializePage, type Page, type PageMeta } from "./page.js";
 import { getTemplate } from "./template.js";
 
 export interface WriteResult {
@@ -73,16 +74,17 @@ function addToHub(cfg: WikiConfig, id: string, summary: string): string | null {
  * Lint errors abort the write (file is restored) and are returned in `issues`.
  */
 export function upsertPage(cfg: WikiConfig, input: UpsertInput): WriteResult {
+  const relPath = relPathFromId(input.id);
+  const category = input.id.split("/")[0];
+  if (!(CATEGORIES as readonly string[]).includes(category)) {
+    throw new Error(`id must start with a category (${CATEGORIES.join(", ")}): ${input.id}`);
+  }
+  return withWriteLock(cfg, () => {
   const sync = emptyReport();
   pull(cfg, sync);
   const db = new WikiDb(cfg);
   try {
     db.reindex();
-    const category = input.id.split("/")[0];
-    if (!(CATEGORIES as readonly string[]).includes(category)) {
-      throw new Error(`id must start with a category (${CATEGORIES.join(", ")}): ${input.id}`);
-    }
-    const relPath = `${input.id}.md`;
     const abs = join(cfg.wikiDir, relPath);
     const existing = existsSync(abs) ? readPage(cfg, input.id) : null;
 
@@ -129,6 +131,7 @@ export function upsertPage(cfg: WikiConfig, input: UpsertInput): WriteResult {
   } finally {
     db.close();
   }
+  });
 }
 
 export interface PatchInput {
@@ -142,6 +145,8 @@ export interface PatchInput {
 
 /** Replace or append one `## section` of an existing page. */
 export function patchSection(cfg: WikiConfig, input: PatchInput): WriteResult {
+  relPathFromId(input.id);
+  return withWriteLock(cfg, () => {
   const sync = emptyReport();
   pull(cfg, sync);
   const db = new WikiDb(cfg);
@@ -162,6 +167,7 @@ export function patchSection(cfg: WikiConfig, input: PatchInput): WriteResult {
   } finally {
     db.close();
   }
+  });
 }
 
 export interface MetaPatch {
@@ -175,6 +181,8 @@ export interface MetaPatch {
 
 /** Update frontmatter only (promotion, deprecation, retagging). */
 export function patchMeta(cfg: WikiConfig, input: MetaPatch): WriteResult {
+  relPathFromId(input.id);
+  return withWriteLock(cfg, () => {
   const sync = emptyReport();
   pull(cfg, sync);
   const db = new WikiDb(cfg);
@@ -200,6 +208,7 @@ export function patchMeta(cfg: WikiConfig, input: MetaPatch): WriteResult {
   } finally {
     db.close();
   }
+  });
 }
 
 /** Lint every page. Orphan warnings are computed from the link graph. */

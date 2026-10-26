@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+Security fixes for the remote endpoint; update and re-run `doltap serve install` (and `doltap schedule install`).
+
+- **Page ids are validated before any file access** (`PAGE_ID_RE`: `/`-separated segments of letters, digits, `-`, `_`). Previously an id such as `howto/../../x` could read or write files outside `wiki/`, through the CLI and every MCP tool. MCP schemas now reject such ids up front as well
+- **Writes are serialized** with a lock file in `.doltap/` (CLI, MCP server and scheduler on the same clone wait for each other) and SQLite opens with a busy timeout. Concurrent writers used to fail with "database is locked", drop hub entries and interleave commits
+- **The HTTP server** caps request bodies at 2 MiB (413), accepts only loopback, the bind host and `*.ts.net` as `Host` (421; extend with `DOLTAP_HTTP_ALLOWED_HOSTS`), compares the path token in constant time, and returns generic error messages (details go to the service log)
+- **The CLI no longer prints the HTTP token**: `serve install` shows `<token>` unless `--show-url`; `serve token --rotate --quiet` rotates silently; `integrations install claude --remote` masks the URL in its output and reads it from `DOLTAP_REMOTE_URL` when the value is omitted; the token file is chmod 600 on every write and created before the service is installed
+- `DOLTAP_NO_SYNC=1` is honoured by the CLI again (it was overridden by the default of `--no-sync`, so "local only" writes were pushed)
+- Lint catches more secret formats: Doltap's own connector URL (`/<64 hex>/mcp`), `github_pat_`, Google `AIza`, GitLab `glpat-`, Stripe `sk_live_`, `npm_`, `hf_`, `Authorization: Bearer …`, and unquoted `KEY=value` assignments; `sk-ant-` keys are reported as anthropic-key
+- A failed auto-pull is not retried on every read any more; reads back off for `DOLTAP_AUTO_PULL_MINUTES` after an attempt, and git error messages mask `user:password@` in remote URLs
+- launchd entries use a stable Node path when one resolves to the running binary (`/opt/homebrew/opt/node@<major>/bin/node` instead of the Cellar path that `brew upgrade` removes), XML-escape every value, and the HTTP service gets a `ThrottleInterval`; crontab lines quote their paths
+- Skeleton `PROTOCOL.md`: the classification table lists every required section (`Used in`, `Details`), and the secrets rule now says to record where a secret lives and how to load it, matching the skill and the MCP tool descriptions
 - Projects are directories: `projects/<name>/_index` is the overview (template sections required) and `projects/<name>/<topic>` pages are free-form; new pages are listed in the nearest `_index` (topic pages in the project hub, project hubs in `projects/_index`); project hubs now appear in `list`, `audit` and the generated index
 - The projects template no longer contains placeholder wikilinks, which made `doltap add projects/<id>` without a body fail lint
 - `doltap --version` reads the version from package.json instead of a hardcoded string (0.1.1 reports 0.1.0)

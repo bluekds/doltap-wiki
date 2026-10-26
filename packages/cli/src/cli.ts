@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
@@ -66,7 +66,8 @@ interface GlobalOpts {
 
 function cfgFrom(): { cfg: WikiConfig; json: boolean } {
   const g = program.opts<GlobalOpts>();
-  const o: ConfigOverrides = { root: g.root, agent: g.agent, session: g.session, noSync: !g.sync };
+  // Only an explicit --no-sync overrides $DOLTAP_NO_SYNC; commander defaults `sync` to true.
+  const o: ConfigOverrides = { root: g.root, agent: g.agent, session: g.session, noSync: g.sync === false ? true : undefined };
   return { cfg: resolveConfig(o), json: !!g.json };
 }
 
@@ -401,26 +402,41 @@ schedule.command("status").action(() => { try { const r = scheduleStatus(); out(
 
 // ---------------------------------------------------------------- serve (always-on HTTP MCP)
 const serve = program.command("serve").description("always-on HTTP MCP server for remote clients (claude.ai connectors, other machines)");
-serve.command("install").option("--port <n>", "listen port", "8765").option("--host <h>", "bind address", "127.0.0.1").action((o: { port: string; host: string }) => {
+/** Mask the 64-hex path token in a connector URL for anything that is printed. */
+function maskToken(url: string): string {
+  return url.replace(/\/[0-9a-f]{32,}\/mcp\b/g, "/<token>/mcp");
+}
+
+/** Create the HTTP path token if missing and keep the file private, before any service reads it. */
+function ensureToken(cfg: WikiConfig, rotate = false): string {
+  const p = join(cfg.stateDir, "http-token");
+  if (rotate || !existsSync(p)) writeFileSync(p, randomBytes(32).toString("hex") + "\n", { mode: 0o600 });
+  chmodSync(p, 0o600);
+  return p;
+}
+
+serve.command("install").option("--port <n>", "listen port", "8765").option("--host <h>", "bind address", "127.0.0.1").option("--show-url", "print the local URL including the secret token").action((o: { port: string; host: string; showUrl?: boolean }) => {
   try {
     const { cfg, json } = cfgFrom();
     const binDir = resolve(process.argv[1], "..");
     const mcpBin = existsSync(join(binDir, "doltap-mcp")) ? join(binDir, "doltap-mcp") : "doltap-mcp";
+    const tokenFile = ensureToken(cfg);
     const r = installHttpService(cfg, mcpBin, Number(o.port), o.host);
-    const token = readFileSync(join(cfg.stateDir, "http-token"), "utf8").trim();
-    out(json, { ...r, url: `http://${o.host}:${o.port}/${token}/mcp` }, () => {
+    const token = readFileSync(tokenFile, "utf8").trim();
+    const url = `http://${o.host}:${o.port}/${token}/mcp`;
+    out(json, { ...r, url: o.showUrl ? url : maskToken(url), tokenFile }, () => {
       console.log(`${r.platform}: ${r.detail}`);
-      console.log(`local MCP URL: http://${o.host}:${o.port}/${token}/mcp`);
+      console.log(`local MCP URL: ${o.showUrl ? url : `${maskToken(url)}  (token: doltap serve token, or --show-url)`}`);
     });
   } catch (e) { fail(e); }
 });
 serve.command("uninstall").action(() => { try { const r = uninstallHttpService(); out(!!program.opts<GlobalOpts>().json, r, () => console.log(`${r.platform}: ${r.detail}`)); } catch (e) { fail(e); } });
 serve.command("status").action(() => { try { const r = httpServiceStatus(); out(!!program.opts<GlobalOpts>().json, r, () => console.log(`${r.platform}: ${r.detail}`)); } catch (e) { fail(e); } });
-serve.command("token").description("print the secret path token (rotate with --rotate; restart the service afterwards)").option("--rotate").action((o: { rotate?: boolean }) => {
+serve.command("token").description("print the secret path token (rotate with --rotate, then re-run serve install)").option("--rotate").option("--quiet", "do not print the token (use with --rotate in scripts and agent sessions)").action((o: { rotate?: boolean; quiet?: boolean }) => {
   try {
     const { cfg } = cfgFrom();
-    const p = join(cfg.stateDir, "http-token");
-    if (o.rotate || !existsSync(p)) writeFileSync(p, randomBytes(32).toString("hex") + "\n", { mode: 0o600 });
+    const p = ensureToken(cfg, !!o.rotate);
+    if (o.quiet) { if (o.rotate) console.error(`token rotated: ${p}`); return; }
     process.stdout.write(readFileSync(p, "utf8"));
   } catch (e) { fail(e); }
 });
@@ -443,11 +459,15 @@ const integrations = program.command("integrations").description("install the sk
 integrations
   .command("install <client>")
   .description("supported clients: claude (Claude Code, user scope: every project on this machine)")
-  .option("--remote <url>", "register the always-on HTTPS endpoint instead of the local stdio server")
+  .option("--remote [url]", "register the always-on HTTPS endpoint instead of the local stdio server; omit the value to read it from $DOLTAP_REMOTE_URL (keeps the token out of shell history)")
   .option("--dry-run", "print what would change without writing anything")
-  .action((client: string, o: { remote?: string; dryRun?: boolean }) => {
+  .action((client: string, o: { remote?: string | true; dryRun?: boolean }) => {
     try {
       if (client !== "claude") throw new Error(`unsupported client: ${client} (supported: claude)`);
+      if (o.remote === true) {
+        o.remote = process.env.DOLTAP_REMOTE_URL;
+        if (!o.remote) throw new Error("--remote given without a URL and $DOLTAP_REMOTE_URL is not set");
+      }
       const json = !!program.opts<GlobalOpts>().json;
       const src = join(INTEGRATIONS_DIR, "claude-code");
       const skillDir = join(homedir(), ".claude", "skills", "doltap");
@@ -476,17 +496,21 @@ integrations
       const addArgs = o.remote
         ? ["mcp", "add", "-s", "user", "--transport", "http", "doltap", o.remote]
         : ["mcp", "add", "-s", "user", "doltap", "-e", `DOLTAP_ROOT=${root}`, "-e", "DOLTAP_AGENT=claude-code", "--", ...stdioMcpCommand()];
-      const shown = `claude ${addArgs.map((a) => (/\s/.test(a) ? JSON.stringify(a) : a)).join(" ")}`;
+      // Never echo the token: the shown command carries the masked URL (the real one is in $DOLTAP_REMOTE_URL or the argument).
+      const shown = maskToken(`claude ${addArgs.map((a) => (/\s/.test(a) ? JSON.stringify(a) : a)).join(" ")}`);
+      let registered = false;
       if (o.dryRun) actions.push("run: claude mcp remove -s user doltap (replaces an existing registration, if any)", `run: ${shown}`);
       else if (claudeCli(["--version"], true) === null) actions.push(`claude CLI not found on PATH; run manually: ${shown}`);
       else {
         claudeCli(["mcp", "remove", "-s", "user", "doltap"], true);
         claudeCli(addArgs);
+        registered = true;
         actions.push(`registered MCP server doltap (${o.remote ? "http" : "stdio"}, user scope)`);
       }
-      out(json, { client, dryRun: !!o.dryRun, actions }, () => {
+      out(json, { client, dryRun: !!o.dryRun, registered, actions }, () => {
         for (const a of actions) console.log(a.startsWith("wiki root:") || a.startsWith("remote endpoint") ? a : `${o.dryRun ? "would " : ""}${a}`);
-        if (!o.dryRun) console.log("done: new Claude Code sessions will see the doltap server and skill");
+        if (registered) console.log("done: new Claude Code sessions will see the doltap server and skill");
+        else if (!o.dryRun) console.log("skill and instruction installed; register the MCP server with the command above");
       });
     } catch (e) { fail(e); }
   });

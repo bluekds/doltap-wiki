@@ -4,6 +4,7 @@ export * from "./template.js";
 export * from "./tags.js";
 export * from "./db.js";
 export * from "./git.js";
+export * from "./lock.js";
 export * from "./lint.js";
 export * from "./write.js";
 export * from "./query.js";

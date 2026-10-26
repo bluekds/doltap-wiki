@@ -22,11 +22,14 @@ import {
   audit,
   isCategoryHub,
   publishHostStats,
+  PAGE_ID_RE,
   type WikiConfig,
 } from "@bluekds/doltap-core";
 
 const CategoryEnum = z.enum(CATEGORIES);
 const ConfidenceEnum = z.enum(CONFIDENCE);
+/** Any existing page id (`howto/x`, `projects/p/_index`, `Home`). Core re-checks it before touching the filesystem. */
+const PageId = z.string().max(200).regex(PAGE_ID_RE, "page id: letters, digits, - and _ in /-separated segments");
 
 const CLASSIFICATION = `Choose the category by the question the page answers:
 - howto: "How do I do X" (reproducible procedure; sections Prerequisites/Steps/Verification/Pitfalls)
@@ -89,7 +92,7 @@ server.registerTool(
     title: "Read a wiki page",
     description: "Return a page body (or a single ## section to save tokens) with its frontmatter, section list, and backlinks. Check `confidence`: verified = trust, draft = verify yourself and promote via wiki_set_meta if it holds, deprecated = do not follow.",
     inputSchema: {
-      id: z.string().describe("Page id, e.g. howto/deploy-pypi"),
+      id: PageId.describe("Page id, e.g. howto/deploy-pypi"),
       section: z.string().optional().describe("Heading of one ## section, e.g. Pitfalls"),
     },
   },
@@ -120,7 +123,7 @@ server.registerTool(
 
 server.registerTool(
   "wiki_related",
-  { title: "Related pages", description: "Pages linked from, linking to, or sharing tags with the given page. Use to expand from one hit to adjacent knowledge.", inputSchema: { id: z.string() } },
+  { title: "Related pages", description: "Pages linked from, linking to, or sharing tags with the given page. Use to expand from one hit to adjacent knowledge.", inputSchema: { id: PageId } },
   async (a) => {
     try {
       const { result } = related(cfg, a.id);
@@ -169,7 +172,7 @@ server.registerTool(
     title: "Edit one section of a page",
     description: "Replace or append the content of one ## section. Preferred way to update existing pages (minimizes conflicts with other machines). Use mode=append to add a pitfall or note without rewriting the section. Bumps `updated` unless touch=false.",
     inputSchema: {
-      id: z.string(),
+      id: PageId,
       section: z.string().describe("Existing heading such as Pitfalls; a missing heading is appended as a new ## section"),
       content: z.string(),
       mode: z.enum(["replace", "append"]).default("replace"),
@@ -191,7 +194,7 @@ server.registerTool(
     title: "Update page frontmatter",
     description: "Promote (draft -> verified, add a source saying what confirmed it), deprecate (confidence=deprecated; first patch the body to link the replacement), add tags, or fix title/summary.",
     inputSchema: {
-      id: z.string(),
+      id: PageId,
       confidence: ConfidenceEnum.optional(),
       add_sources: z.array(z.string()).default([]),
       add_tags: z.array(z.string()).default([]),
@@ -211,7 +214,7 @@ server.registerTool(
 // ------------------------------------------------------------------ maintenance tools
 server.registerTool(
   "wiki_lint",
-  { title: "Lint pages", description: "Validate all pages (or the given ids) against the protocol: frontmatter, tags, required sections, links, orphans, secrets.", inputSchema: { ids: z.array(z.string()).default([]) } },
+  { title: "Lint pages", description: "Validate all pages (or the given ids) against the protocol: frontmatter, tags, required sections, links, orphans, secrets.", inputSchema: { ids: z.array(PageId).default([]) } },
   async (a) => { try { return text(lintAll(cfg, a.ids.length ? a.ids : undefined)); } catch (e) { return errorText(e); } },
 );
 

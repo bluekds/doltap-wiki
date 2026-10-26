@@ -34,8 +34,23 @@ Do **not** write:
 - Session logs, work journals, one-off debugging narratives
 - Anything that is obvious from reading the code or official docs
 - Source layout of a specific project (that belongs in the project's CLAUDE.md/README; exception: a one-line summary plus link under `projects/`)
-- Secrets, tokens, keys, internal URLs (lint blocks these)
+- Secret values: tokens, API keys, passwords, private keys, credentials inside URLs (lint blocks common formats). Record where the secret lives instead; see below
 - Unverified guesses (if you must, mark `confidence: draft` and state what is uncertain)
+
+### Private information and secrets
+
+This wiki is private to its owner and the owner's agents. Internal hostnames, internal URLs and IPs, service architecture and account names may be written. Keep in mind that every page an agent reads is sent to its model provider and stays in session transcripts.
+
+Secret values never go in a page: git history keeps them forever and one leaked page or connector URL would expose all of them. Write the **location** and the **load command** instead, so an agent can use the secret without it entering the wiki:
+
+```md
+- Billing API key: macOS Keychain, service `billing-api` (on the build machine)
+  load: `export BILLING_API_KEY=$(security find-generic-password -s billing-api -w)`
+- Router admin password: 1Password item "Office router"
+- Bot token: `.env` of the bot repo, key `BOT_TOKEN`
+```
+
+Lint catches common token formats and Doltap's own connector URL, but it is a safety net, not a guarantee. If a secret value was written by mistake, rotate the secret at its issuer; deleting the line does not remove it from history.
 
 ## 3. Classification table
 
@@ -44,8 +59,8 @@ Decide the category before creating a page. Each category has its own template a
 | Core question | Category | Required sections | Examples |
 |---|---|---|---|
 | **How do I do X** (reproducible procedure) | `howto/` | Prerequisites, Steps, Verification, Pitfalls | PyPI release, Docker multi-stage build |
-| **How do I implement X** (code is the deliverable) | `patterns/` | Problem, Solution, Variations, Anti-patterns | FastAPI JWT refresh, exponential backoff |
-| **What is X** (summary of external facts) | `reference/` | Key facts, Verified on | Node 22 `node:sqlite` feature coverage |
+| **How do I implement X** (code is the deliverable) | `patterns/` | Problem, Solution, Variations, Anti-patterns, Used in | FastAPI JWT refresh, exponential backoff |
+| **What is X** (summary of external facts) | `reference/` | Key facts, Details, Verified on | Node 22 `node:sqlite` feature coverage |
 | **Why X instead of Y** (rationale for a choice) | `decisions/` | Context, Options, Decision, Consequences | Why better-sqlite3 over node:sqlite |
 | Context specific to one project | `projects/<name>/` | Overview page `_index`: Overview, Environment, Wiki pages used by this project, Project-only notes. Topic pages: free-form | A project's deployment environment |
 

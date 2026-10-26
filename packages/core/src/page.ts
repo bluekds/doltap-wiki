@@ -44,8 +44,20 @@ export function idFromRelPath(relPath: string): string {
   return toPosix(relPath).replace(/\.md$/, "");
 }
 
+/** One or more `/`-separated segments of `[A-Za-z0-9_-]`, no dots: an id can never name a path outside wiki/. */
+export const PAGE_ID_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]*(\/[A-Za-z0-9_][A-Za-z0-9_-]*)*$/;
+const PAGE_ID_MAX = 200;
+
+/** Throw unless `id` is a safe page id. Every file access by id goes through this. */
+export function assertPageId(id: string): string {
+  if (typeof id !== "string" || id.length > PAGE_ID_MAX || !PAGE_ID_RE.test(id)) {
+    throw new Error(`invalid page id: ${JSON.stringify(String(id).slice(0, 80))} (expected <category>/<kebab-slug>, letters, digits, - and _ only)`);
+  }
+  return id;
+}
+
 export function relPathFromId(id: string): string {
-  return `${id}.md`;
+  return `${assertPageId(id)}.md`;
 }
 
 export function isPageId(id: string): boolean {
