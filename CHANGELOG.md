@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 (2026-10-27)
 
 - **Optimistic concurrency.** Every page read carries a `rev` (`wiki_get`, `doltap get`). `wiki_upsert`, `wiki_patch_section` and `wiki_set_meta` (CLI `--base-rev`) refuse a write as `stale` when the page changed since that rev, instead of silently overwriting another machine's edit
 - **`wiki_upsert` no longer replaces an existing page by accident.** An existing id is refused unless `replace: true` (CLI `--replace`); edits go through patch/set_meta
