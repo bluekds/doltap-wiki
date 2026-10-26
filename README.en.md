@@ -141,11 +141,11 @@ doltap list [-c category] [-t tag]
 doltap related <id>
 doltap index                              # one line per page
 doltap template <category>
-doltap add <category>/<slug> --title .. --summary .. --tags a,b [--file body.md | --stdin] [--force]
-doltap patch <id> -s "Section" (--content .. | --file .. | --stdin) [--append]
+doltap add <category>/<slug> --title .. --summary .. --tags a,b [--file body.md | --stdin] [--force] [--replace --base-rev <rev>]
+doltap patch <id> -s "Section" (--content .. | --file .. | --stdin) [--append] [--create] [--base-rev <rev>]
 doltap meta <id> [--confidence verified] [--add-source ..] [--add-tag ..]
 doltap lint [ids...]
-doltap sync                               # pull, push pending, reindex, publish read stats, list conflict files
+doltap sync                               # pull, push pending, reindex, refresh hub lists, publish read stats, list conflict files
 doltap reindex [--full]
 doltap audit [--unreferenced-days 90] [--stale-days 90] [--draft-days 30]
 doltap schedule install|status|uninstall  # periodic sync
@@ -162,11 +162,11 @@ Global flags `--root`, `--agent`, `--session`, `--no-sync`, `--json`. Environmen
 | Tool | Purpose |
 |---|---|
 | `wiki_search` | Full-text search with category, tag and limit filters |
-| `wiki_get` | A whole page or one section |
+| `wiki_get` | A whole page or one section, with its `rev` |
 | `wiki_list`, `wiki_related` | Listing; outlinks, backlinks and shared tags |
 | `wiki_template` | Category template |
-| `wiki_upsert` | Create or replace a page (duplicate detection, lint) |
-| `wiki_patch_section` | Replace or append one section |
+| `wiki_upsert` | Create a page (duplicate detection, lint); `replace` + `base_rev` to rewrite one |
+| `wiki_patch_section` | Replace or append one section; `base_rev` refuses a stale edit |
 | `wiki_set_meta` | Frontmatter changes: promote confidence, add sources and tags |
 | `wiki_lint`, `wiki_sync`, `wiki_audit` | Validation, sync, health report |
 

@@ -139,8 +139,8 @@ doltap list [-c category] [-t tag]
 doltap related <id>
 doltap index                              # 페이지당 한 줄
 doltap template <category>
-doltap add <category>/<slug> --title .. --summary .. --tags a,b [--file body.md | --stdin] [--force]
-doltap patch <id> -s "Section" (--content .. | --file .. | --stdin) [--append]
+doltap add <category>/<slug> --title .. --summary .. --tags a,b [--file body.md | --stdin] [--force] [--replace --base-rev <rev>]
+doltap patch <id> -s "Section" (--content .. | --file .. | --stdin) [--append] [--create] [--base-rev <rev>]
 doltap meta <id> [--confidence verified] [--add-source ..] [--add-tag ..]
 doltap lint [ids...]
 doltap sync                               # pull, 밀린 push, reindex, 읽기 통계 발행, 충돌 파일 목록
@@ -160,11 +160,11 @@ doltap integrations install|uninstall claude [--remote [<url>]] [--dry-run]   # 
 | 도구 | 역할 |
 |---|---|
 | `wiki_search` | 전문 검색 (카테고리, 태그, 개수 필터) |
-| `wiki_get` | 페이지 전체 또는 한 섹션 |
+| `wiki_get` | 페이지 전체 또는 한 섹션, `rev` 포함 |
 | `wiki_list`, `wiki_related` | 목록, 연결된 페이지(링크, 백링크, 공유 태그) |
 | `wiki_template` | 카테고리 템플릿 |
-| `wiki_upsert` | 페이지 생성 또는 전체 교체 (중복 감지, lint) |
-| `wiki_patch_section` | 한 섹션 교체 또는 추가 |
+| `wiki_upsert` | 페이지 생성 (중복 감지, lint); 전체 교체는 `replace` + `base_rev` |
+| `wiki_patch_section` | 한 섹션 교체 또는 추가; `base_rev`가 다르면 거부 |
 | `wiki_set_meta` | frontmatter 수정 (confidence 승격, 출처와 태그 추가) |
 | `wiki_lint`, `wiki_sync`, `wiki_audit` | 검사, 동기화, 상태 감사 |
 

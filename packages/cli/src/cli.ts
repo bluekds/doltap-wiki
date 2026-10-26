@@ -23,6 +23,7 @@ import {
   protocolText,
   syncAll,
   readIndexMd,
+  refreshHubs,
   related,
   resolveConfig,
   search,
@@ -140,14 +141,15 @@ program
   .option("--confidence <level>", CONFIDENCE.join("|"))
   .option("-n, --limit <n>", "max results", "10")
   .option("--include-deprecated")
-  .action((q: string[], o: { category?: string; tag?: string; confidence?: string; limit: string; includeDeprecated?: boolean }) => {
+  .option("--include-hubs", "also return Home and <category>/_index pages")
+  .action((q: string[], o: { category?: string; tag?: string; confidence?: string; limit: string; includeDeprecated?: boolean; includeHubs?: boolean }) => {
     try {
       const { cfg, json } = cfgFrom();
       const { hits, sync } = search(cfg, q.join(" "), { ...o, limit: Number(o.limit) });
       out(json, { hits, sync }, () => {
         if (!hits.length) console.log("no results");
         for (const h of hits) {
-          console.log(`${h.id}  [${h.confidence}]  ${h.tags.join(",")}`);
+          console.log(`${h.id}  [${h.confidence}]  ${h.tags.join(",")}${h.matched.length < WikiDb.queryTokens(q.join(" ")).length ? `  (matched: ${h.matched.join(", ")})` : ""}`);
           console.log(`    ${h.summary}`);
           if (h.snippet && !h.summary.includes(h.snippet.replace(/[\[\]]/g, ""))) console.log(`    … ${h.snippet.replace(/\n/g, " ")}`);
         }
@@ -168,10 +170,10 @@ program
       const { result, sync } = get(cfg, id, o.section);
       if (!result) throw new Error(`page not found: ${id}`);
       const { page, text, backlinks } = result;
-      out(json, { id, meta: page.meta, section: o.section ?? null, text, links: page.links, backlinks, sections: page.sections.map((s) => s.heading), sync }, () => {
+      out(json, { id, rev: page.rev, meta: page.meta, section: o.section ?? null, text, links: page.links, backlinks, sections: page.sections.map((s) => s.heading), sync }, () => {
         if (o.meta || !o.section) {
           console.log(`# ${page.meta.title}`);
-          console.log(`id: ${id} | confidence: ${page.meta.confidence} | tags: ${page.meta.tags.join(", ")} | updated: ${page.meta.updated}`);
+          console.log(`id: ${id} | confidence: ${page.meta.confidence} | tags: ${page.meta.tags.join(", ")} | updated: ${page.meta.updated} | rev: ${page.rev}`);
           console.log(`summary: ${page.meta.summary}\n`);
         }
         console.log(text);
@@ -229,12 +231,14 @@ program
   .option("-f, --file <path>", "markdown body file")
   .option("--stdin", "read body from stdin")
   .option("--force", "create even if similar pages exist")
-  .action((id: string, o: { title: string; summary: string; tags?: string; confidence: string; sources?: string; file?: string; stdin?: boolean; force?: boolean }) => {
+  .option("--replace", "overwrite an existing page (otherwise an existing id is refused; use patch/meta to edit)")
+  .option("--base-rev <rev>", "rev shown by `doltap get`; refused if the page changed since")
+  .action((id: string, o: { title: string; summary: string; tags?: string; confidence: string; sources?: string; file?: string; stdin?: boolean; force?: boolean; replace?: boolean; baseRev?: string }) => {
     try {
       const { cfg, json } = cfgFrom();
       const body = o.file || o.stdin ? readContent(o) : undefined;
       const r = upsertPage(cfg, {
-        id, title: o.title, summary: o.summary, confidence: o.confidence, body, force: o.force,
+        id, title: o.title, summary: o.summary, confidence: o.confidence, body, force: o.force, replace: o.replace, baseRev: o.baseRev,
         tags: o.tags ? o.tags.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
         sources: o.sources ? o.sources.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
       });
@@ -264,10 +268,12 @@ program
   .option("--stdin")
   .option("--append", "append to the section instead of replacing")
   .option("--no-touch", "do not bump the updated date (typo fixes)")
-  .action((id: string, o: { section: string; content?: string; file?: string; stdin?: boolean; append?: boolean; touch: boolean }) => {
+  .option("--create", "add the section when the heading does not exist")
+  .option("--base-rev <rev>", "rev shown by `doltap get`; refused if the page changed since")
+  .action((id: string, o: { section: string; content?: string; file?: string; stdin?: boolean; append?: boolean; touch: boolean; create?: boolean; baseRev?: string }) => {
     try {
       const { cfg, json } = cfgFrom();
-      const r = patchSection(cfg, { id, section: o.section, content: readContent(o), mode: o.append ? "append" : "replace", touch: o.touch });
+      const r = patchSection(cfg, { id, section: o.section, content: readContent(o), mode: o.append ? "append" : "replace", touch: o.touch, create: o.create, baseRev: o.baseRev });
       out(json, r, () => {
         if (r.refused) { console.log(`refused: ${r.refused}`); printIssues(r.issues); process.exitCode = 2; return; }
         console.log(`updated ${r.id} ## ${o.section}`);
@@ -286,10 +292,11 @@ program
   .option("--add-tag <t>", "repeatable", (v: string, acc: string[]) => [...acc, v], [] as string[])
   .option("--title <text>")
   .option("--summary <text>")
-  .action((id: string, o: { confidence?: string; addSource: string[]; addTag: string[]; title?: string; summary?: string }) => {
+  .option("--base-rev <rev>", "rev shown by `doltap get`; refused if the page changed since")
+  .action((id: string, o: { confidence?: string; addSource: string[]; addTag: string[]; title?: string; summary?: string; baseRev?: string }) => {
     try {
       const { cfg, json } = cfgFrom();
-      const r = patchMeta(cfg, { id, confidence: o.confidence, addSources: o.addSource, addTags: o.addTag, title: o.title, summary: o.summary });
+      const r = patchMeta(cfg, { id, confidence: o.confidence, addSources: o.addSource, addTags: o.addTag, title: o.title, summary: o.summary, baseRev: o.baseRev });
       out(json, r, () => {
         if (r.refused) { console.log(`refused: ${r.refused}`); printIssues(r.issues); process.exitCode = 2; return; }
         console.log(`updated ${r.id} frontmatter`);
@@ -330,19 +337,21 @@ program.command("lint [ids...]").description("validate pages (exit 1 on errors)"
 });
 
 // ---------------------------------------------------------------- sync / reindex
-program.command("sync").description("pull, push pending commits, reindex, report conflict files").action(() => {
+program.command("sync").description("pull, push pending commits, reindex, refresh hub lists, report conflict files and broken pages").action(() => {
   try {
     const { cfg, json } = cfgFrom();
     const report = syncAll(cfg);
+    const hubs = refreshHubs(cfg);
     const db = new WikiDb(cfg);
     const r = db.reindex();
     const published = publishHostStats(cfg, db, report);
     db.close();
     writeIndexMd(cfg);
     const conflicts = listConflictFiles(cfg);
-    out(json, { ...report, reindexed: r.indexed, removed: r.removed, total: r.total, statsPublished: published, conflictFiles: conflicts }, () => {
-      console.log(`pulled: ${report.pulled} pushed: ${report.pushed} offline: ${report.offline} | pages: ${r.total} (reindexed ${r.indexed}, removed ${r.removed})${published ? " | stats published" : ""}`);
+    out(json, { ...report, reindexed: r.indexed, removed: r.removed, total: r.total, hubListsRefreshed: hubs, brokenPages: r.broken, statsPublished: published, conflictFiles: conflicts }, () => {
+      console.log(`pulled: ${report.pulled} pushed: ${report.pushed} offline: ${report.offline} | pages: ${r.total} (reindexed ${r.indexed}, removed ${r.removed})${hubs.length ? ` | hub lists refreshed: ${hubs.join(", ")}` : ""}${published ? " | stats published" : ""}`);
       for (const n of syncNotes(report)) console.log(`note: ${n}`);
+      for (const b of r.broken) console.log(`BROKEN ${b.relPath}: ${b.error}`);
       if (conflicts.length) console.log(`conflict files needing manual merge:\n  ${conflicts.join("\n  ")}`);
     });
   } catch (e) { fail(e); }
@@ -354,7 +363,10 @@ program.command("reindex").description("rebuild the local search index and _meta
     const r = db.reindex(!!o.full);
     db.close();
     const p = writeIndexMd(cfg);
-    out(json, { ...r, pages: undefined, indexMd: p }, () => console.log(`indexed ${r.indexed}/${r.total} pages, removed ${r.removed}; wrote ${p}`));
+    out(json, { ...r, pages: undefined, indexMd: p }, () => {
+      console.log(`indexed ${r.indexed}/${r.total} pages, removed ${r.removed}; wrote ${p}`);
+      for (const b of r.broken) console.log(`BROKEN ${b.relPath}: ${b.error}`);
+    });
   } catch (e) { fail(e); }
 });
 

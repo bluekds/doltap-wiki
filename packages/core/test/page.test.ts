@@ -67,7 +67,8 @@ describe("page parsing", () => {
   it("appends to a section and creates missing sections", () => {
     const appended = replaceSection(body, "Pitfalls", "- second", "append");
     expect(appended).toContain("- none\n\n- second");
-    const created = replaceSection(body, "Changelog", "- 2026-10-18 fixed");
+    expect(() => replaceSection(body, "Changelog", "- 2026-10-18 fixed")).toThrow(/not found/);
+    const created = replaceSection(body, "Changelog", "- 2026-10-18 fixed", "replace", { create: true });
     expect(created.trimEnd().endsWith("## Changelog\n\n- 2026-10-18 fixed")).toBe(true);
   });
 

@@ -32,7 +32,10 @@ describe("http transport", () => {
   it("answers initialize with the right token and 404 otherwise", async () => {
     const ok = await fetch(`${base}/${TOKEN}/mcp`, { method: "POST", headers, body: init });
     expect(ok.status).toBe(200);
-    expect(await ok.text()).toContain("doltap");
+    const text = await ok.text();
+    expect(text).toContain("doltap");
+    expect(text).toContain("instructions");
+    expect(text).toContain("wiki_search");
     const wrong = await fetch(`${base}/${"cd".repeat(32)}/mcp`, { method: "POST", headers, body: init });
     expect(wrong.status).toBe(404);
     const short = await fetch(`${base}/x/mcp`, { method: "POST", headers, body: init });

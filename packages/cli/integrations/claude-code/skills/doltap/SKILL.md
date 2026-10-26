@@ -31,9 +31,9 @@ Do not write session logs, one-off debugging, anything obvious from code or docs
 Procedure:
 
 1. Pick the category by the question the page answers: how do I do X → `howto`; how do I implement X → `patterns`; what is X → `reference`; why X instead of Y → `decisions`; one project's context → `projects/<name>`.
-2. Prefer editing: if `wiki_search` finds the topic, use `wiki_patch_section` (mode `append` for a new pitfall, `replace` to correct a section). Only create when nothing fits.
+2. Prefer editing: if `wiki_search` finds the topic, use `wiki_patch_section` (mode `append` for a new pitfall, `replace` to correct a section; `create: true` only for a genuinely new heading). Pass the `rev` from `wiki_get` as `base_rev`; a `stale` refusal means someone else changed the page, so read it again. Only create when nothing fits.
 3. To create: `wiki_template` for the category, fill every section (write `N/A` if one does not apply), then `wiki_upsert` with a `summary` under 200 characters that lets a reader decide without opening the page, 1–3 `tags` from `wiki://tags`, and `[[id]]` links to related pages. Default `confidence` is `draft`.
-4. If `wiki_upsert` is refused with `similar`, edit the listed page instead, or pass `force: true` only when the topic is genuinely different.
+4. If `wiki_upsert` is refused with `similar`, edit the listed page instead, or pass `force: true` only when the topic is genuinely different. An existing id is refused too; rewriting a whole page needs `replace: true` plus `base_rev`.
 5. If the result reports `conflicts`, tell the user: a `*.conflict-<host>.md` file needs a manual merge.
 
 All content is English. Writes are linted, committed, and pushed automatically.

@@ -1,4 +1,5 @@
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { createHash } from "node:crypto";
 import { readFileSync, existsSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import type { Category, Confidence, WikiConfig } from "./config.js";
@@ -36,6 +37,8 @@ export interface Page {
   sections: Section[];
   links: string[];
   raw: string;
+  /** Content revision (sha1 of the normalized file, 12 hex chars). Pass it back as base_rev on a write to detect concurrent edits. */
+  rev: string;
 }
 
 const LINK_RE = /\[\[([^\]|#]+)(?:#([^\]|]+))?(?:\|[^\]]+)?\]\]/g;
@@ -92,29 +95,46 @@ export function splitSections(body: string): Section[] {
   return sections;
 }
 
+/**
+ * Find a section by heading (case-insensitive). A `##` section wins over a deeper heading with the same
+ * text (`### Verification` inside Steps must not shadow `## Verification`). Two candidates at the chosen
+ * level are an error rather than a silent first match.
+ */
 export function findSection(sections: Section[], heading: string): Section | undefined {
   const want = heading.trim().toLowerCase();
-  return sections.find((s) => s.heading.toLowerCase() === want);
+  const all = sections.filter((s) => s.heading.toLowerCase() === want);
+  const level2 = all.filter((s) => s.level === 2);
+  const pick = level2.length ? level2 : all;
+  if (pick.length > 1) throw new Error(`section "${heading}" is ambiguous: ${pick.length} headings match (lines ${pick.map((s) => s.start + 1).join(", ")})`);
+  return pick[0];
+}
+
+export interface ReplaceOptions {
+  /** Append a new `## heading` when the section does not exist. Without it an unknown heading is an error. */
+  create?: boolean;
 }
 
 /**
- * Replace (or append to) the content of a `## heading` section. If the section does not exist it is
- * appended at the end of the body with level 2.
+ * Replace (or append to) the content of one section. Only the section itself is rewritten: blank lines
+ * elsewhere in the body (inside code blocks, between other sections) are left exactly as they were.
+ * Leading indentation of the new content is preserved; only surrounding blank lines are trimmed.
  */
-export function replaceSection(body: string, heading: string, content: string, mode: "replace" | "append" = "replace"): string {
+export function replaceSection(body: string, heading: string, content: string, mode: "replace" | "append" = "replace", o: ReplaceOptions = {}): string {
   const lines = body.split("\n");
   const sections = splitSections(body);
   const sec = findSection(sections, heading);
-  const text = content.trim();
+  const text = content.replace(/^\n+/, "").trimEnd();
   if (!sec) {
+    if (!o.create) throw new Error(`section "${heading}" not found. Sections: ${sections.map((s) => s.heading).join(", ")} (pass create=true to add it)`);
     const trimmed = body.replace(/\s+$/, "");
     return `${trimmed}\n\n## ${heading.trim()}\n\n${text}\n`;
   }
-  const newContent = mode === "append" && sec.content ? `${sec.content}\n\n${text}` : text;
+  const existing = lines.slice(sec.start + 1, sec.end).join("\n").replace(/^\n+/, "").trimEnd();
+  const newContent = mode === "append" && existing ? `${existing}\n\n${text}` : text;
   const before = lines.slice(0, sec.start + 1);
   const after = lines.slice(sec.end);
   const rebuilt = [...before, "", newContent, "", ...after].join("\n");
-  return rebuilt.replace(/\n{3,}/g, "\n\n").replace(/\s+$/, "") + "\n";
+  return rebuilt.replace(/\s+$/, "") + "\n";
 }
 
 function toStringArray(v: unknown): string[] {
@@ -148,20 +168,30 @@ export function toPosix(p: string): string {
 
 const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---\n?/;
 
-/** Split `---` frontmatter from the body. Pages without frontmatter get empty data. */
+/**
+ * Split `---` frontmatter from the body. Pages without frontmatter get empty data. The YAML is read with the
+ * failsafe schema (everything is a string): `title: 1.10` stays "1.10" and `created: 2026-10-18` stays a
+ * date string, so a patch never rewrites a value the author did not touch.
+ */
 export function splitFrontmatter(raw: string): { data: Record<string, unknown>; content: string } {
   const m = FRONTMATTER_RE.exec(raw);
   if (!m) return { data: {}, content: raw };
-  const parsed = parseYaml(m[1]) as unknown;
+  const parsed = parseYaml(m[1], { schema: "failsafe" }) as unknown;
   const data = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
   return { data, content: raw.slice(m[0].length) };
 }
 
 export function parsePage(cfg: WikiConfig, relPath: string, rawInput: string): Page {
   const posix = toPosix(relPath);
-  // Windows checkouts with autocrlf may hand us CRLF; the wiki is LF everywhere.
-  const raw = rawInput.replace(/\r\n?/g, "\n");
-  const { data, content } = splitFrontmatter(raw);
+  // Windows checkouts with autocrlf may hand us CRLF; the wiki is LF everywhere. Editors may add a BOM.
+  const raw = rawInput.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
+  let split: ReturnType<typeof splitFrontmatter>;
+  try {
+    split = splitFrontmatter(raw);
+  } catch (e) {
+    throw new Error(`invalid frontmatter in ${posix}: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  const { data, content } = split;
   const meta = normalizeMeta(data as Record<string, unknown>);
   const body = content.replace(/^\n+/, "");
   return {
@@ -173,6 +203,7 @@ export function parsePage(cfg: WikiConfig, relPath: string, rawInput: string): P
     sections: splitSections(body),
     links: extractLinks(body),
     raw,
+    rev: createHash("sha1").update(raw).digest("hex").slice(0, 12),
   };
 }
 

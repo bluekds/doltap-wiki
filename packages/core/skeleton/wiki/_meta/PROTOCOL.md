@@ -114,11 +114,12 @@ sources:
 
 - Link between pages with `[[howto/deploy-pypi]]`. Link to a section with `[[howto/deploy-pypi#Pitfalls]]`.
 - Put related pages in the body's "Related" section as links, not in frontmatter. Backlinks are computed automatically.
-- A page with zero inbound links (orphan) triggers a lint warning. At minimum, link it from the category hub (`<category>/_index.md`).
+- A page with zero inbound links (orphan) triggers a lint warning. The tools list every page in the "Manual list" of its nearest `_index` automatically (regenerated from the page summaries on every write and sync), so a page is never an orphan by accident; do not edit those lists by hand.
 
 ## 5. Update rules
 
-- Edit existing pages **by section** (`wiki_patch_section`), not by overwriting the whole page. This minimizes conflicts with concurrent edits from other machines.
+- Edit existing pages **by section** (`wiki_patch_section`), not by overwriting the whole page. This minimizes conflicts with concurrent edits from other machines. An unknown heading is refused (the existing headings are listed) unless you pass `create: true`.
+- Every read returns a `rev`. Pass it back as `base_rev` on `wiki_patch_section`, `wiki_set_meta` or `wiki_upsert`: the write is refused as stale when the page changed in between, so nobody's edit is lost silently. Re-read and retry.
 - Set `updated` to today whenever the content changes. Typo fixes are exempt.
 - When you find wrong content, fix it rather than deleting it, and leave a one-line note in "Pitfalls" or "Changelog" saying what was wrong and why.
 - When a page is no longer valid, do not delete it. Set `confidence: deprecated` and put a link to the replacement at the top of the body.
@@ -126,10 +127,10 @@ sources:
 
 ## 6. Check before creating
 
-`wiki_upsert` searches for similar pages before saving. If a similar page exists:
+`wiki_upsert` creates pages. An existing id is refused: edit it with `wiki_patch_section` / `wiki_set_meta`, or rewrite it entirely with `replace: true` and the `base_rev` you read. Before creating, it searches for similar pages. If a similar page exists:
 
 1. Same topic → do not create; add or edit a section of the existing page instead
-2. Different but related topic → create the new page and link both ways
+2. Different but related topic → create the new page with `force: true` and link both ways
 3. Genuinely separate → save with `force: true`
 
 ## 7. Commits

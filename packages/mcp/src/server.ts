@@ -13,6 +13,7 @@ import {
   patchSection,
   protocolText,
   readIndexMd,
+  refreshHubs,
   related,
   search,
   syncAll,
@@ -49,7 +50,15 @@ function errorText(e: unknown) {
 
 /** Build a fresh MCP server bound to one wiki config. stdio uses one; HTTP creates one per request (stateless). */
 export function createServer(cfg: WikiConfig): McpServer {
-const server = new McpServer({ name: "doltap", version: "0.1.2" });
+const INSTRUCTIONS = `Doltap is a shared wiki for agents (howto, patterns, reference, decisions, projects). Rules in short; the full protocol is the resource wiki://protocol.
+- Search first: call wiki_search before repetitive or cross-project work (deploy, build, release, auth, retry, config, library versions). Then wiki_get the page or one section.
+- confidence: verified = follow it; draft = use as a hint and verify, then promote with wiki_set_meta + add_sources; deprecated = do not follow.
+- Edit by section (wiki_patch_section) rather than replacing pages. wiki_upsert refuses an existing id unless replace=true with the base_rev you read; a stale base_rev is refused so nobody's edit is lost silently.
+- Write when you solved something a second time, hit an undocumented pitfall, or made a choice whose rationale is not in the code. Not session logs, not things obvious from code or docs.
+- Never write secret values (tokens, keys, passwords, connector URLs); record where the secret lives and how to load it. Internal hosts are fine.
+- English only. Tags only from wiki://tags. Hub lists are generated; do not edit them.`;
+
+const server = new McpServer({ name: "doltap", version: "0.1.2" }, { instructions: INSTRUCTIONS });
 
 // ------------------------------------------------------------------ resources
 server.registerResource("protocol", "wiki://protocol", { title: "Doltap protocol", description: "Rules for reading, writing, and classifying wiki pages. Read before writing.", mimeType: "text/markdown" }, async (uri) => ({
@@ -76,12 +85,13 @@ server.registerTool(
       confidence: ConfidenceEnum.optional(),
       limit: z.number().int().min(1).max(50).default(10),
       include_deprecated: z.boolean().default(false),
+      include_hubs: z.boolean().default(false).describe("Also return category hub pages (Home, <category>/_index)"),
     },
   },
   async (a) => {
     try {
-      const { hits, sync } = search(cfg, a.query, { category: a.category, tag: a.tag, confidence: a.confidence, limit: a.limit, includeDeprecated: a.include_deprecated });
-      return text({ hits: hits.map((h) => ({ id: h.id, title: h.title, confidence: h.confidence, tags: h.tags, summary: h.summary, updated: h.updated })), notes: sync.messages });
+      const { hits, sync } = search(cfg, a.query, { category: a.category, tag: a.tag, confidence: a.confidence, limit: a.limit, includeDeprecated: a.include_deprecated, includeHubs: a.include_hubs });
+      return text({ hits: hits.map((h) => ({ id: h.id, title: h.title, confidence: h.confidence, tags: h.tags, summary: h.summary, updated: h.updated, matched: h.matched })), notes: sync.messages });
     } catch (e) { return errorText(e); }
   },
 );
@@ -101,7 +111,7 @@ server.registerTool(
       const { result } = get(cfg, a.id, a.section);
       if (!result) return errorText(`page not found: ${a.id}`);
       const { page, text: body, backlinks } = result;
-      return text({ id: a.id, meta: page.meta, section: a.section ?? null, sections: page.sections.map((s) => s.heading), text: body, links: page.links, backlinks });
+      return text({ id: a.id, rev: page.rev, meta: page.meta, section: a.section ?? null, sections: page.sections.map((s) => s.heading), text: body, links: page.links, backlinks });
     } catch (e) { return errorText(e); }
   },
 );
@@ -143,9 +153,9 @@ server.registerTool(
 server.registerTool(
   "wiki_upsert",
   {
-    title: "Create or replace a wiki page",
-    description: `Create a page (or replace an existing one entirely; prefer wiki_patch_section for edits). Write when: solving the same problem a second time, a pitfall not in the docs, reusable cross-project code, or a decision whose rationale is not visible in code. ${CLASSIFICATION}
-Rules: body must follow the category template sections (get it with wiki_template); summary <= 200 chars and self-sufficient; tags only from wiki://tags; link related pages with [[id]]. The page is linted, similar pages are checked (refused unless force=true), then committed and pushed.`,
+    title: "Create a wiki page",
+    description: `Create a page. An existing id is refused unless replace=true (prefer wiki_patch_section / wiki_set_meta for edits); with replace, pass base_rev from wiki_get so a page changed by someone else in the meantime is not overwritten. Write when: solving the same problem a second time, a pitfall not in the docs, reusable cross-project code, or a decision whose rationale is not visible in code. ${CLASSIFICATION}
+Rules: body must follow the category template sections (get it with wiki_template); summary <= 200 chars and self-sufficient; tags only from wiki://tags; link related pages with [[id]]. The page is linted, similar pages are checked (refused unless force=true), then committed and pushed. Hub lists are updated automatically.`,
     inputSchema: {
       id: z.string().regex(/^(howto|patterns|reference|decisions|projects)\/[a-z0-9]+(-[a-z0-9]+)*(\/[a-z0-9]+(-[a-z0-9]+)*)?$/).describe("<category>/<kebab-slug>, e.g. patterns/retry-backoff"),
       title: z.string(),
@@ -155,13 +165,15 @@ Rules: body must follow the category template sections (get it with wiki_templat
       confidence: z.enum(["draft", "verified"]).default("draft"),
       sources: z.array(z.string()).default([]),
       force: z.boolean().default(false).describe("Create even if similar pages exist"),
+      replace: z.boolean().default(false).describe("Overwrite an existing page (whole body and frontmatter)"),
+      base_rev: z.string().optional().describe("The rev returned by wiki_get for this page; the write is refused if the page changed since"),
     },
   },
   async (a) => {
     try {
-      const r = upsertPage(cfg, { id: a.id, title: a.title, summary: a.summary, tags: a.tags, body: a.body, confidence: a.confidence, sources: a.sources, force: a.force });
+      const r = upsertPage(cfg, { id: a.id, title: a.title, summary: a.summary, tags: a.tags, body: a.body, confidence: a.confidence, sources: a.sources, force: a.force, replace: a.replace, baseRev: a.base_rev });
       if (r.refused) return { isError: true as const, ...text({ refused: r.refused, issues: r.issues, similar: r.similar?.map((s) => ({ id: s.id, summary: s.summary, overlap: s.snippet })) }) };
-      return text({ id: r.id, created: r.created, warnings: r.issues, pushed: r.sync.pushed, notes: r.sync.messages, conflicts: r.sync.conflicts });
+      return text({ id: r.id, created: r.created, rev: r.rev, warnings: r.issues, pushed: r.sync.pushed, notes: r.sync.messages, conflicts: r.sync.conflicts });
     } catch (e) { return errorText(e); }
   },
 );
@@ -170,20 +182,22 @@ server.registerTool(
   "wiki_patch_section",
   {
     title: "Edit one section of a page",
-    description: "Replace or append the content of one ## section. Preferred way to update existing pages (minimizes conflicts with other machines). Use mode=append to add a pitfall or note without rewriting the section. Bumps `updated` unless touch=false.",
+    description: "Replace or append the content of one ## section. Preferred way to update existing pages (minimizes conflicts with other machines). Use mode=append to add a pitfall or note without rewriting the section. An unknown heading is an error (the existing headings are listed) unless create=true. Bumps `updated` unless touch=false.",
     inputSchema: {
       id: PageId,
-      section: z.string().describe("Existing heading such as Pitfalls; a missing heading is appended as a new ## section"),
+      section: z.string().describe("Existing ## heading such as Pitfalls (case-insensitive)"),
       content: z.string(),
       mode: z.enum(["replace", "append"]).default("replace"),
       touch: z.boolean().default(true),
+      create: z.boolean().default(false).describe("Add the section as a new ## heading when it does not exist"),
+      base_rev: z.string().optional().describe("rev from wiki_get; refused if the page changed since"),
     },
   },
   async (a) => {
     try {
-      const r = patchSection(cfg, { id: a.id, section: a.section, content: a.content, mode: a.mode, touch: a.touch });
+      const r = patchSection(cfg, { id: a.id, section: a.section, content: a.content, mode: a.mode, touch: a.touch, create: a.create, baseRev: a.base_rev });
       if (r.refused) return { isError: true as const, ...text({ refused: r.refused, issues: r.issues }) };
-      return text({ id: r.id, warnings: r.issues, pushed: r.sync.pushed, notes: r.sync.messages, conflicts: r.sync.conflicts });
+      return text({ id: r.id, rev: r.rev, warnings: r.issues, pushed: r.sync.pushed, notes: r.sync.messages, conflicts: r.sync.conflicts });
     } catch (e) { return errorText(e); }
   },
 );
@@ -200,13 +214,14 @@ server.registerTool(
       add_tags: z.array(z.string()).default([]),
       title: z.string().optional(),
       summary: z.string().max(200).optional(),
+      base_rev: z.string().optional().describe("rev from wiki_get; refused if the page changed since"),
     },
   },
   async (a) => {
     try {
-      const r = patchMeta(cfg, { id: a.id, confidence: a.confidence, addSources: a.add_sources, addTags: a.add_tags, title: a.title, summary: a.summary });
+      const r = patchMeta(cfg, { id: a.id, confidence: a.confidence, addSources: a.add_sources, addTags: a.add_tags, title: a.title, summary: a.summary, baseRev: a.base_rev });
       if (r.refused) return { isError: true as const, ...text({ refused: r.refused, issues: r.issues }) };
-      return text({ id: r.id, warnings: r.issues, pushed: r.sync.pushed, notes: r.sync.messages });
+      return text({ id: r.id, rev: r.rev, warnings: r.issues, pushed: r.sync.pushed, notes: r.sync.messages });
     } catch (e) { return errorText(e); }
   },
 );
@@ -220,16 +235,17 @@ server.registerTool(
 
 server.registerTool(
   "wiki_sync",
-  { title: "Sync with remote", description: "Pull, push pending commits, reindex, and list conflict files (*.conflict-<host>.md) that need a manual merge.", inputSchema: {} },
+  { title: "Sync with remote", description: "Pull, push pending commits, reindex, regenerate hub lists, and list conflict files (*.conflict-<host>.md) that need a manual merge and pages whose frontmatter does not parse.", inputSchema: {} },
   async () => {
     try {
       const report = syncAll(cfg);
+      const hubs = refreshHubs(cfg);
       const db = new WikiDb(cfg);
       const r = db.reindex();
       publishHostStats(cfg, db, report);
       db.close();
       writeIndexMd(cfg);
-      return text({ ...report, pages: r.total, reindexed: r.indexed, removed: r.removed, conflict_files: listConflictFiles(cfg) });
+      return text({ ...report, pages: r.total, reindexed: r.indexed, removed: r.removed, hub_lists_refreshed: hubs, broken_pages: r.broken, conflict_files: listConflictFiles(cfg) });
     } catch (e) { return errorText(e); }
   },
 );

@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- **Optimistic concurrency.** Every page read carries a `rev` (`wiki_get`, `doltap get`). `wiki_upsert`, `wiki_patch_section` and `wiki_set_meta` (CLI `--base-rev`) refuse a write as `stale` when the page changed since that rev, instead of silently overwriting another machine's edit
+- **`wiki_upsert` no longer replaces an existing page by accident.** An existing id is refused unless `replace: true` (CLI `--replace`); edits go through patch/set_meta
+- **Search falls back gracefully.** Stopwords are dropped, non-ASCII words are kept, every-term matches come first, and when they are scarce pages matching at least half of the terms follow, ranked by how many they contain (`matched` in the result). Category hubs are excluded unless `include_hubs`; the tag filter is applied in SQL so filtered searches no longer miss hits
+- **One malformed page no longer breaks every command.** Reindex skips it and reports it (`frontmatter-invalid` in lint, `broken_pages` in sync). A UTF-8 BOM is tolerated, and frontmatter is read with the failsafe YAML schema so `title: 1.10` is no longer rewritten as `1.1` by the next patch
+- **Hub "Manual list" sections are generated** from the index on every write and sync (sorted by id, deprecated pages marked, summary changes reflected). Hand edits are overwritten; the hub intro text is kept
+- **`wiki_patch_section` targets the `##` heading** even when a `###` with the same name comes first, leaves blank lines elsewhere in the page (code blocks) untouched, keeps leading indentation, refuses an unknown heading with the list of existing ones unless `create: true` (CLI `--create`), and errors on ambiguous headings
+- The MCP server sends `instructions` (search first, confidence semantics, edit by section with base_rev, no secrets, English), so claude.ai connectors that never read `wiki://protocol` still get the rules
+- Skeleton protocol and hubs describe the generated lists and the replace/base_rev rules
+
 ## 0.1.2 (2026-10-26)
 
 Security fixes for the remote endpoint; update and re-run `doltap serve install` (and `doltap schedule install`).

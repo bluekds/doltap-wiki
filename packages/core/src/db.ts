@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { CATEGORIES, isCategoryHub, type WikiConfig } from "./config.js";
-import { parsePage, type Page } from "./page.js";
+import { idFromRelPath, parsePage, toPosix, type Page } from "./page.js";
 
 export interface PageRow {
   id: string;
@@ -19,6 +19,8 @@ export interface PageRow {
 export interface SearchHit extends PageRow {
   score: number;
   snippet: string;
+  /** Query terms found in the page (title, summary, tags or body). All of them for an exact match; fewer for a fallback hit. */
+  matched: string[];
 }
 
 export interface SearchOptions {
@@ -27,6 +29,14 @@ export interface SearchOptions {
   confidence?: string;
   limit?: number;
   includeDeprecated?: boolean;
+  /** Also return `Home` and `<category>/_index` pages. Off by default: their summaries only repeat other pages. */
+  includeHubs?: boolean;
+}
+
+export interface BrokenPage {
+  id: string;
+  relPath: string;
+  error: string;
 }
 
 const SCHEMA = `
@@ -63,10 +73,12 @@ const STOPWORDS = new Set(
   "the a an and or of to in on for with without from by at as is are was be this that it its into via when how what why use using used one two new set get".split(" "),
 );
 
+const WORD_SPLIT = /[^\p{L}\p{N}_]+/u;
+
 /** Lowercased alphanumeric tokens, length > 2, minus stopwords and category names. */
 export function meaningfulTokens(text: string): Set<string> {
   const out = new Set<string>();
-  for (const t of text.toLowerCase().split(/[^a-z0-9_]+/)) {
+  for (const t of text.toLowerCase().split(WORD_SPLIT)) {
     if (t.length > 2 && !STOPWORDS.has(t) && !(CATEGORIES as readonly string[]).includes(t)) out.add(t);
   }
   return out;
@@ -128,7 +140,7 @@ export class WikiDb {
    * Incremental reindex: re-parse files whose mtime/size changed, drop rows for deleted files.
    * Returns counts. `full` forces re-parsing everything.
    */
-  reindex(full = false): { indexed: number; removed: number; total: number; pages: Page[] } {
+  reindex(full = false): { indexed: number; removed: number; total: number; pages: Page[]; broken: BrokenPage[] } {
     const files = this.listFiles();
     const known = new Map<string, { mtime: number; size: number }>();
     for (const r of this.db.prepare("SELECT id, mtime, size FROM pages").all() as { id: string; mtime: number; size: number }[]) {
@@ -136,6 +148,7 @@ export class WikiDb {
     }
     const seen = new Set<string>();
     const pages: Page[] = [];
+    const broken: BrokenPage[] = [];
     let indexed = 0;
     // IMMEDIATE takes the write lock up front; a deferred transaction that upgrades later can fail with SQLITE_BUSY despite busy_timeout.
     const tx = this.db.prepare("BEGIN IMMEDIATE");
@@ -145,7 +158,14 @@ export class WikiDb {
         const rel = relative(this.cfg.wikiDir, abs);
         const st = statSync(abs);
         const mtime = Math.floor(st.mtimeMs);
-        const page = parsePage(this.cfg, rel, readFileSync(abs, "utf8"));
+        let page: Page;
+        try {
+          page = parsePage(this.cfg, rel, readFileSync(abs, "utf8"));
+        } catch (e) {
+          // One malformed page must not take search, get and lint down with it: drop its row and report it.
+          broken.push({ id: idFromRelPath(rel), relPath: toPosix(rel), error: e instanceof Error ? e.message : String(e) });
+          continue;
+        }
         seen.add(page.id);
         pages.push(page);
         const prev = known.get(page.id);
@@ -161,7 +181,7 @@ export class WikiDb {
         }
       }
       this.db.prepare("COMMIT").run();
-      return { indexed, removed, total: files.length, pages };
+      return { indexed, removed, total: files.length - broken.length, pages, broken };
     } catch (e) {
       this.db.prepare("ROLLBACK").run();
       throw e;
@@ -205,40 +225,67 @@ export class WikiDb {
     return out;
   }
 
-  /** Turn free text into an FTS5 query: each token becomes a prefix term, joined by implicit AND. */
-  static toFtsQuery(q: string): string {
-    const tokens = q
-      .toLowerCase()
-      .split(/[^a-z0-9_]+/)
-      .filter((t) => t.length > 1);
-    if (!tokens.length) return "";
-    return tokens.map((t) => `"${t}"*`).join(" ");
+  /** Query tokens: lowercased words (any script), length > 1, stopwords removed unless nothing else is left. */
+  static queryTokens(q: string): string[] {
+    const all = q.toLowerCase().split(WORD_SPLIT).filter((t) => t.length > 1);
+    const kept = all.filter((t) => !STOPWORDS.has(t));
+    return [...new Set(kept.length ? kept : all)];
   }
 
-  search(query: string, o: SearchOptions = {}): SearchHit[] {
-    const fts = WikiDb.toFtsQuery(query);
-    if (!fts) return [];
-    const limit = o.limit ?? 10;
+  /** Turn free text into an FTS5 query: each token becomes a prefix term, joined by implicit AND. */
+  static toFtsQuery(q: string, op: "AND" | "OR" = "AND"): string {
+    const tokens = WikiDb.queryTokens(q);
+    if (!tokens.length) return "";
+    return tokens.map((t) => `"${t.replace(/"/g, "")}"*`).join(op === "OR" ? " OR " : " ");
+  }
+
+  private searchOnce(fts: string, o: SearchOptions, limit: number): (SearchHit & { text: string })[] {
     const where: string[] = ["pages_fts MATCH ?"];
     const args: (string | number)[] = [fts];
     if (o.category) { where.push("p.category = ?"); args.push(o.category); }
     if (o.confidence) { where.push("p.confidence = ?"); args.push(o.confidence); }
     else if (!o.includeDeprecated) where.push("p.confidence != 'deprecated'");
+    if (o.tag) { where.push("p.tags LIKE ?"); args.push(`%${JSON.stringify(o.tag)}%`); }
+    // Category hubs are `<category>/_index` (one slash); project hubs `projects/<name>/_index` are content and stay.
+    if (!o.includeHubs) where.push("p.id != 'Home' AND NOT (p.id GLOB '*/_index' AND p.id NOT GLOB '*/*/_index')");
     // Weight title and summary and tags above body.
     const sql = `
       SELECT p.*, bm25(pages_fts, 0, 10.0, 6.0, 4.0, 1.0) AS score,
-             snippet(pages_fts, 4, '**', '**', ' … ', 12) AS snippet
+             snippet(pages_fts, 4, '**', '**', ' … ', 12) AS snippet,
+             pages_fts.body AS body
       FROM pages_fts JOIN pages p ON p.id = pages_fts.id
       WHERE ${where.join(" AND ")}
       ORDER BY score LIMIT ?`;
-    args.push(limit * 3);
-    let rows = (this.db.prepare(sql).all(...args) as Record<string, unknown>[]).map((r) => ({
-      ...this.rowToPage(r),
-      score: Number(r.score),
-      snippet: String(r.snippet),
-    }));
-    if (o.tag) rows = rows.filter((p) => p.tags.includes(o.tag!));
-    return rows.slice(0, limit);
+    args.push(limit);
+    return (this.db.prepare(sql).all(...args) as Record<string, unknown>[]).map((r) => {
+      const row = this.rowToPage(r);
+      return { ...row, score: Number(r.score), snippet: String(r.snippet), matched: [], text: `${row.title} ${row.summary} ${row.tags.join(" ")} ${String(r.body)}`.toLowerCase() };
+    });
+  }
+
+  /**
+   * Full-text search. Every term must match first (precise); when that yields fewer than `limit` hits,
+   * pages matching some of the terms are appended, ranked by how many terms they contain and then bm25.
+   * A natural-language query with one word the wiki never uses therefore still finds the right page.
+   */
+  search(query: string, o: SearchOptions = {}): SearchHit[] {
+    const tokens = WikiDb.queryTokens(query);
+    if (!tokens.length) return [];
+    const limit = o.limit ?? 10;
+    const hits = new Map<string, SearchHit & { text: string; exact: boolean }>();
+    for (const h of this.searchOnce(WikiDb.toFtsQuery(query, "AND"), o, limit)) hits.set(h.id, { ...h, exact: true });
+    // Fallback hits must still contain at least half of the terms (and at least two), so a single common word never drags in noise.
+    const minMatched = Math.max(2, Math.ceil(tokens.length / 2));
+    if (hits.size < limit && tokens.length > 2) {
+      for (const h of this.searchOnce(WikiDb.toFtsQuery(query, "OR"), o, limit * 3)) if (!hits.has(h.id)) hits.set(h.id, { ...h, exact: false });
+    }
+    const matchedIn = (text: string) => tokens.filter((t) => new RegExp(`(^|[^\\p{L}\\p{N}_])${t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "u").test(text));
+    return [...hits.values()]
+      .map((h) => ({ ...h, matched: h.exact ? tokens : matchedIn(h.text) }))
+      .filter((h) => h.exact || h.matched.length >= minMatched)
+      .sort((a, b) => Number(b.exact) - Number(a.exact) || b.matched.length - a.matched.length || a.score - b.score)
+      .slice(0, limit)
+      .map(({ text: _t, exact: _e, ...hit }) => hit);
   }
 
   /**
@@ -264,12 +311,12 @@ export class WikiDb {
       .filter((r) => !isCategoryHub(r.id))
       .map((r) => {
         const own = meaningfulTokens(`${r.title} ${r.summary} ${r.id.replace(/[/-]/g, " ")}`);
-        const shared = [...probe].filter((t) => own.has(t)).length;
-        return { hit: r, shared, overlap: shared / probe.size };
+        const matched = [...probe].filter((t) => own.has(t));
+        return { hit: r, matched, shared: matched.length, overlap: matched.length / probe.size };
       })
       .filter((x) => x.shared >= minShared && x.overlap >= minOverlap)
       .sort((a, b) => b.overlap - a.overlap);
-    return scored.slice(0, limit).map((x) => ({ ...x.hit, score: -x.overlap, snippet: `${x.shared}/${probe.size} tokens shared` }));
+    return scored.slice(0, limit).map((x) => ({ ...x.hit, score: -x.overlap, snippet: `${x.shared}/${probe.size} tokens shared`, matched: x.matched }));
   }
 
   outlinks(id: string): string[] {
