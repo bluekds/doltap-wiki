@@ -105,3 +105,21 @@ describe("multi-machine sync", () => {
     expect(sh(m.a, "git", ["log", "-1", "--format=%s"])).toBe("wiki: add patterns/retry-backoff");
   });
 });
+
+describe("projects/<name>/ hubs", () => {
+  const overview = (n: string) => `## Overview\n\n${n}\n\n## Environment\n\nNode 24.\n\n## Wiki pages used by this project\n\nN/A\n\n## Project-only notes\n\nN/A\n\n## Related\n\n- [[projects/_index]]\n`;
+  it("a project _index lands in the root hub and topic pages land in the project _index", () => {
+    const idx = upsertPage(A, { id: "projects/demo/_index", title: "Demo", summary: "Demo project.", tags: ["wiki"], body: overview("Demo."), force: true });
+    expect(idx.refused).toBeUndefined();
+    expect(readPage(A, "projects/_index")?.body).toContain("- [[projects/demo/_index]] — Demo project.");
+    const env = upsertPage(A, { id: "projects/demo/environment", title: "Demo environment", summary: "Runtime facts.", tags: ["wiki"], body: "## Environment\n\nNode 24.\n\n## Related\n\n- [[projects/demo/_index]]\n", force: true });
+    expect(env.refused).toBeUndefined();
+    expect(readPage(A, "projects/demo/_index")?.body).toContain("- [[projects/demo/environment]] — Runtime facts.");
+    expect(readPage(A, "projects/_index")?.body).not.toContain("[[projects/demo/environment]]");
+  });
+  it("a topic page without a project _index falls back to the root hub", () => {
+    const r = upsertPage(A, { id: "projects/solo/notes", title: "Solo notes", summary: "Notes.", tags: ["wiki"], body: "## Notes\n\nx\n\n## Related\n\n- [[projects/_index]]\n", force: true });
+    expect(r.refused).toBeUndefined();
+    expect(readPage(A, "projects/_index")?.body).toContain("- [[projects/solo/notes]] — Notes.");
+  });
+});

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Projects are directories: `projects/<name>/_index` is the overview (template sections required) and `projects/<name>/<topic>` pages are free-form; new pages are listed in the nearest `_index` (topic pages in the project hub, project hubs in `projects/_index`); project hubs now appear in `list`, `audit` and the generated index
+- The projects template no longer contains placeholder wikilinks, which made `doltap add projects/<id>` without a body fail lint
 - `doltap --version` reads the version from package.json instead of a hardcoded string (0.1.1 reports 0.1.0)
 
 ## 0.1.1 (2026-10-22)

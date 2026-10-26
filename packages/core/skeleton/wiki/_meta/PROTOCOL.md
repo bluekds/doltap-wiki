@@ -47,13 +47,14 @@ Decide the category before creating a page. Each category has its own template a
 | **How do I implement X** (code is the deliverable) | `patterns/` | Problem, Solution, Variations, Anti-patterns | FastAPI JWT refresh, exponential backoff |
 | **What is X** (summary of external facts) | `reference/` | Key facts, Verified on | Node 22 `node:sqlite` feature coverage |
 | **Why X instead of Y** (rationale for a choice) | `decisions/` | Context, Options, Decision, Consequences | Why better-sqlite3 over node:sqlite |
-| Context specific to one project | `projects/<name>/` | Overview, Environment, Links | A project's deployment environment |
+| Context specific to one project | `projects/<name>/` | Overview page `_index`: Overview, Environment, Wiki pages used by this project, Project-only notes. Topic pages: free-form | A project's deployment environment |
 
 When it is ambiguous:
 
 - A procedure that contains code snippets is `howto`. When the code itself is the result, it is `patterns`.
 - When a fact and a choice based on that fact appear together, split them into `reference` and `decisions` and link both ways.
 - A pattern used by only one project goes under `projects/<name>/`. The moment a second project uses it, move it to `patterns/` and leave a link at the old location.
+- Each project is a directory: `projects/<name>/_index` is the overview (follows the projects template) and `projects/<name>/<topic>` pages hold one topic each (environment, deployment, maintenance, …) with any sections plus `## Related`. The tools list the overview in `projects/_index` and topic pages in the project's `_index`.
 
 ## 4. Page format
 

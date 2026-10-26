@@ -20,6 +20,7 @@ import {
   WikiDb,
   writeIndexMd,
   audit,
+  isCategoryHub,
   publishHostStats,
   type WikiConfig,
 } from "@bluekds/doltap-core";
@@ -112,7 +113,7 @@ server.registerTool(
   async (a) => {
     try {
       const { rows } = list(cfg, { category: a.category, tag: a.tag, confidence: a.confidence, includeDeprecated: a.include_deprecated });
-      return text(rows.filter((r) => !r.id.endsWith("/_index") && r.id !== "Home").map((r) => ({ id: r.id, confidence: r.confidence, tags: r.tags, summary: r.summary })));
+      return text(rows.filter((r) => !isCategoryHub(r.id)).map((r) => ({ id: r.id, confidence: r.confidence, tags: r.tags, summary: r.summary })));
     } catch (e) { return errorText(e); }
   },
 );

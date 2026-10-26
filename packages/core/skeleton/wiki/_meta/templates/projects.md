@@ -19,8 +19,7 @@ Runtime/deployment environment, main tools and versions. No secrets.
 
 ## Wiki pages used by this project
 
-- [[howto/...]]
-- [[patterns/...]]
+One wikilink per line, e.g. `[[howto/deploy-service]]`. Write N/A if none yet.
 
 ## Project-only notes
 

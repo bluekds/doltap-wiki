@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { WikiConfig } from "./config.js";
+import { isCategoryHub, type WikiConfig } from "./config.js";
 import { WikiDb, type PageRow } from "./db.js";
 import { commitAndPush, listConflictFiles, readSyncState, writeSyncState, type SyncReport } from "./git.js";
 
@@ -106,7 +106,7 @@ export function audit(cfg: WikiConfig, o: AuditOptions = {}): AuditReport {
     const all = loadAllStats(cfg).filter((s) => s.host !== cfg.hostname);
     all.push(collectHostStats(cfg, db, thresholds.unreferencedDays));
     const reads = new Map<string, AuditEntry>();
-    const rows = db.list({ includeDeprecated: true }).filter((r) => !r.id.endsWith("/_index") && r.id !== "Home");
+    const rows = db.list({ includeDeprecated: true }).filter((r) => !isCategoryHub(r.id));
     const entry = (r: PageRow): AuditEntry => reads.get(r.id) ?? { id: r.id, confidence: r.confidence, updated: r.updated, reads: 0, lastRead: null, hosts: [] };
     for (const r of rows) reads.set(r.id, entry(r));
     for (const s of all) {

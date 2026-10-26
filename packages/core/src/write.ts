@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
-import { CATEGORIES, today, type WikiConfig } from "./config.js";
+import { CATEGORIES, isCategoryHub, today, type WikiConfig } from "./config.js";
 import { WikiDb, type SearchHit } from "./db.js";
 import { commitAndPush, commitMessage, emptyReport, pull, type SyncReport } from "./git.js";
 import { buildLintContext, hasErrors, lintPage, type LintIssue } from "./lint.js";
@@ -43,17 +43,22 @@ export function lintOne(cfg: WikiConfig, db: WikiDb, page: Page): LintIssue[] {
   return lintPage(page, buildLintContext(cfg, ids, inbound));
 }
 
-function hubFor(id: string): string | null {
-  const cat = id.split("/")[0];
-  if (!(CATEGORIES as readonly string[]).includes(cat) || id.endsWith("/_index")) return null;
-  return `${cat}/_index`;
+/** The nearest existing `_index` above the page: `projects/demo/_index` for `projects/demo/environment`,
+ *  the category hub for `projects/demo/_index` and for flat pages; null for category hubs themselves. */
+function hubFor(cfg: WikiConfig, id: string): Page | null {
+  const parts = id.split("/");
+  if (!(CATEGORIES as readonly string[]).includes(parts[0]) || isCategoryHub(id)) return null;
+  const top = parts.length - 1 - (parts[parts.length - 1] === "_index" ? 1 : 0);
+  for (let depth = top; depth >= 1; depth--) {
+    const hub = readPage(cfg, `${parts.slice(0, depth).join("/")}/_index`);
+    if (hub) return hub;
+  }
+  return null;
 }
 
-/** Append `- [[id]] — summary` to the hub's "Manual list" section when the page is not yet listed. */
+/** Append `- [[id]] — summary` to the nearest hub's "Manual list" section when the page is not yet listed. */
 function addToHub(cfg: WikiConfig, id: string, summary: string): string | null {
-  const hub = hubFor(id);
-  if (!hub) return null;
-  const page = readPage(cfg, hub);
+  const page = hubFor(cfg, id);
   if (!page) return null;
   if (page.body.includes(`[[${id}]]`)) return null;
   const sec = page.sections.find((s) => s.heading === "Manual list");
@@ -219,7 +224,7 @@ export function writeIndexMd(cfg: WikiConfig): string {
     const rows = db.list({ includeDeprecated: true });
     const lines: string[] = ["# Index", "", `Generated ${new Date().toISOString()} on ${cfg.hostname}. Do not edit; run \`doltap reindex\`.`, ""];
     for (const cat of CATEGORIES) {
-      const inCat = rows.filter((r) => r.category === cat && !r.id.endsWith("/_index"));
+      const inCat = rows.filter((r) => r.category === cat && !isCategoryHub(r.id));
       if (!inCat.length) continue;
       lines.push(`## ${cat}`, "");
       for (const r of inCat) lines.push(`- \`${r.id}\` [${r.confidence}] ${r.summary}`);

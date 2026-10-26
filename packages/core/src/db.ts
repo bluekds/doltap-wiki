@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
-import { CATEGORIES, type WikiConfig } from "./config.js";
+import { CATEGORIES, isCategoryHub, type WikiConfig } from "./config.js";
 import { parsePage, type Page } from "./page.js";
 
 export interface PageRow {
@@ -258,7 +258,7 @@ export class WikiDb {
       snippet: String(r.snippet),
     }));
     const scored = rows
-      .filter((r) => !r.id.endsWith("/_index"))
+      .filter((r) => !isCategoryHub(r.id))
       .map((r) => {
         const own = meaningfulTokens(`${r.title} ${r.summary} ${r.id.replace(/[/-]/g, " ")}`);
         const shared = [...probe].filter((t) => own.has(t)).length;

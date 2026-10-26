@@ -11,7 +11,7 @@ sources: []
 
 # Projects
 
-Per-project context — environment, pages used, project-only notes. Create new pages from `_meta/templates/projects.md` and add a link to the list below.
+Per-project context — environment, pages used, project-only notes. Each project is a directory: create `projects/<name>/_index` from `_meta/templates/projects.md` (it is listed below automatically) and add topic pages as `projects/<name>/<topic>` (listed in the project's `_index`).
 
 ## Pages
 

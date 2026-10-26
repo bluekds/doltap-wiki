@@ -30,6 +30,7 @@ import {
   WikiDb,
   writeIndexMd,
   audit,
+  isCategoryHub,
   installSchedule,
   installHttpService,
   httpServiceStatus,
@@ -190,7 +191,7 @@ program
     try {
       const { cfg, json } = cfgFrom();
       const { rows, sync } = list(cfg, o);
-      const pages = rows.filter((r) => !r.id.endsWith("/_index") && r.id !== "Home");
+      const pages = rows.filter((r) => !isCategoryHub(r.id));
       out(json, { pages, sync }, () => {
         for (const r of pages) console.log(`${r.id.padEnd(44)} [${r.confidence}] ${r.summary}`);
       });

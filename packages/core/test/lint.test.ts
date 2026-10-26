@@ -71,3 +71,37 @@ describe("lint rules", () => {
     expect(lint(good, "howto/Rotate_JWT.md")).toContain("slug-format");
   });
 });
+
+describe("projects/<name>/ layout", () => {
+  const fm = (id: string, title: string) => `---
+title: ${title}
+category: projects
+summary: ${title} summary.
+tags: [wiki]
+confidence: draft
+created: 2026-10-26
+updated: 2026-10-26
+sources: []
+---
+`;
+  function lintProjects(raw: string, relPath: string) {
+    const cfg = cfgFor(fx.dir);
+    const page = parsePage(cfg, relPath, raw);
+    const ids = new Set(["projects/_index", "projects/demo/_index", page.id]);
+    return lintPage(page, buildLintContext(cfg, ids, new Map([[page.id, 1]]))).map((i) => i.rule);
+  }
+  it("a topic page under a project needs no overview sections", () => {
+    const raw = `${fm("projects/demo/environment", "Demo environment")}\n## Environment\n\nNode 24.\n\n## Related\n\n- [[projects/demo/_index]]\n`;
+    expect(lintProjects(raw, "projects/demo/environment.md")).toEqual([]);
+  });
+  it("the project _index is the overview and keeps the required sections", () => {
+    const raw = `${fm("projects/demo/_index", "Demo")}\n## Environment\n\nNode 24.\n\n## Related\n\n- [[projects/_index]]\n`;
+    const rules = lintProjects(raw, "projects/demo/_index.md");
+    expect(rules).toContain("section-missing");
+    expect(rules).not.toContain("tags-empty");
+  });
+  it("a flat projects page still requires the overview sections", () => {
+    const raw = `${fm("projects/demo", "Demo")}\n## Environment\n\nNode 24.\n\n## Related\n\n- [[projects/_index]]\n`;
+    expect(lintProjects(raw, "projects/demo.md")).toContain("section-missing");
+  });
+});

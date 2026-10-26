@@ -21,6 +21,17 @@ export interface WikiConfig {
 }
 
 export const CATEGORIES = ["howto", "patterns", "reference", "decisions", "projects"] as const;
+
+/** Structural pages: `Home` and the category hubs (`<category>/_index`). Project hubs (`projects/<name>/_index`) are content. */
+export function isCategoryHub(id: string): boolean {
+  return id === "Home" || /^[^/]+\/_index$/.test(id);
+}
+
+/** A project overview page: `projects/<name>/_index`, or the legacy flat `projects/<name>`. Topic pages below a project are free-form. */
+export function isProjectOverview(id: string): boolean {
+  return /^projects\/[^/]+(\/_index)?$/.test(id);
+}
+
 export type Category = (typeof CATEGORIES)[number];
 export const CONFIDENCE = ["draft", "verified", "deprecated"] as const;
 export type Confidence = (typeof CONFIDENCE)[number];

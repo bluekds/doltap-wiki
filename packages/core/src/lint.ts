@@ -1,4 +1,4 @@
-import { CATEGORIES, CONFIDENCE, type WikiConfig } from "./config.js";
+import { CATEGORIES, CONFIDENCE, isCategoryHub, isProjectOverview, type WikiConfig } from "./config.js";
 import type { Page } from "./page.js";
 import { requiredSections } from "./template.js";
 import { allowedTagSet } from "./tags.js";
@@ -45,7 +45,7 @@ export function lintPage(page: Page, ctx: LintContext): LintIssue[] {
   const err = (rule: string, message: string) => issues.push({ id: page.id, level: "error", rule, message });
   const warn = (rule: string, message: string) => issues.push({ id: page.id, level: "warning", rule, message });
   const m = page.meta;
-  const isHub = page.id.endsWith("/_index") || page.id === "Home";
+  const isHub = isCategoryHub(page.id);
   const category = page.id.split("/")[0];
 
   // Frontmatter
@@ -69,10 +69,12 @@ export function lintPage(page: Page, ctx: LintContext): LintIssue[] {
   if (m.tags.length === 0 && !isHub) warn("tags-empty", "no tags; add at least one from _meta/tags.yaml");
   for (const t of m.tags) if (!ctx.allowedTags.has(t)) err("tag-unknown", `tag "${t}" is not in _meta/tags.yaml`);
 
-  // Required sections (from the template)
+  // Required sections (from the template). Under projects/ only the overview page follows the template;
+  // topic pages (projects/<name>/<topic>) are free-form.
   if (!isHub && (CATEGORIES as readonly string[]).includes(category)) {
     const have = new Set(page.sections.filter((s) => s.level === 2).map((s) => s.heading.toLowerCase()));
-    for (const req of ctx.requiredSections.get(category) ?? []) {
+    const followsTemplate = category !== "projects" || isProjectOverview(page.id);
+    for (const req of followsTemplate ? ctx.requiredSections.get(category) ?? [] : []) {
       if (!have.has(req.toLowerCase())) err("section-missing", `required section "## ${req}" is missing`);
     }
     page.sections.forEach((s, i) => {
@@ -86,7 +88,7 @@ export function lintPage(page: Page, ctx: LintContext): LintIssue[] {
   for (const l of page.links) {
     if (!ctx.allIds.has(l) && l !== "_meta/PROTOCOL") err("link-broken", `link [[${l}]] points to a missing page`);
   }
-  if (!isHub && (ctx.inbound.get(page.id) ?? 0) === 0) warn("orphan", "no inbound links; add it to the category _index manual list");
+  if (!isHub && (ctx.inbound.get(page.id) ?? 0) === 0) warn("orphan", "no inbound links; add it to the nearest _index manual list");
 
   // Deprecated pages must point somewhere
   if (m.confidence === "deprecated" && page.links.filter((l) => !l.endsWith("/_index")).length === 0) warn("deprecated-no-replacement", "deprecated page should link to its replacement");
