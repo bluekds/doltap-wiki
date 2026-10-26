@@ -111,7 +111,7 @@ export function refreshHubs(cfg: WikiConfig): string[] {
     const db = new WikiDb(cfg);
     try {
       db.reindex();
-      const changed = regenerateHubLists(cfg, db).map((rel) => join("wiki", rel));
+      const changed = regenerateHubLists(cfg, db).map((rel) => `wiki/${rel}`); // posix, like git pathspecs and SyncReport paths
       if (changed.length) {
         db.reindex();
         commitAndPush(cfg, changed, commitMessage(cfg, "refresh", "hub lists"));
