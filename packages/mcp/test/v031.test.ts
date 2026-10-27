@@ -74,3 +74,14 @@ describe("client names", () => {
     expect(r.status).toBe(404);
   });
 });
+
+describe("wiki_history (0.4)", () => {
+  it("returns the commits of a page with trailers and refuses unknown pages", async () => {
+    const raw = await call(LAPTOP, "wiki_history", { id: "howto/http-self", limit: 5 });
+    const data = raw.split("\n").find((l) => l.startsWith("data:"))?.slice(5) ?? raw;
+    const entries = JSON.parse(JSON.parse(data).result.content[0].text).entries;
+    expect(entries[0]).toMatchObject({ action: "add", agent: "laptop", host: expect.any(String) });
+    expect(entries[0].session).toMatch(/^laptop@\d{4}-\d{2}-\d{2}$/);
+    expect(await call(LAPTOP, "wiki_history", { id: "howto/does-not-exist" })).toContain("isError");
+  });
+});

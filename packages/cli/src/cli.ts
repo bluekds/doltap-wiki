@@ -51,7 +51,10 @@ import {
   type SyncReport,
   type WikiConfig,
   scaffoldWiki,
+  applyUpgrade,
   doctor,
+  pageHistory,
+  planUpgrade,
   rotateLogs,
   type DoctorCheck,
 } from "@bluekds/doltap-core";
@@ -402,6 +405,20 @@ program
   });
 
 // ---------------------------------------------------------------- related
+program.command("history <id>").description("commits that changed a page, newest first (who, when, which action, note)").option("-n, --limit <n>", "entries", "20").action((id: string, o: { limit: string }) => {
+  try {
+    const { cfg, json } = cfgFrom();
+    const entries = pageHistory(cfg, id, Number(o.limit));
+    if (!entries.length) throw new Error(`no history for ${id} (unknown page or not committed yet)`);
+    out(json, { id, entries }, () => {
+      for (const e of entries) {
+        console.log(`${e.rev}  ${e.date.slice(0, 16).replace("T", " ")}  ${e.action.padEnd(16)} ${[e.agent, e.host, e.session ? `session ${e.session}` : ""].filter(Boolean).join(" @ ")}`);
+        if (e.note) console.log(`    ${e.note.replace(/\n/g, "\n    ")}`);
+      }
+    });
+  } catch (e) { fail(e); }
+});
+
 program.command("related <id>").description("outlinks, backlinks, and pages sharing tags").action((id: string) => {
   try {
     const { cfg, json } = cfgFrom();
@@ -512,6 +529,35 @@ program
         console.log(`${r.failures} failure(s), ${r.warnings} warning(s) on ${r.host} (${r.root})`);
       });
       if (!r.ok) process.exitCode = 1;
+    } catch (e) { fail(e); }
+  });
+
+// ---------------------------------------------------------------- upgrade
+program
+  .command("upgrade")
+  .description("compare this wiki with the skeleton shipped in this version; --apply merges .gitignore/.gitattributes lines and replaces Obsidian config and templates, PROTOCOL changes are shown for manual merge")
+  .option("--diff", "print unified diffs for differing files")
+  .option("--apply", "write the applicable changes and commit them")
+  .action((o: { diff?: boolean; apply?: boolean }) => {
+    try {
+      const { cfg, json } = cfgFrom();
+      const plan = planUpgrade(cfg, { diff: !!o.diff });
+      const result = o.apply ? applyUpgrade(cfg, plan) : null;
+      out(json, { ...plan, result }, () => {
+        console.log(`skeleton ${plan.skeletonVersion}`);
+        for (const i of plan.items) {
+          if (i.status === "same") continue;
+          const what = i.class === "page" ? (i.status === "missing" ? "example page not in this wiki (optional)" : "example page differs (yours wins)") : i.class === "review" ? "differs; merge by hand (doltap upgrade --diff)" : i.status === "missing" ? "missing; --apply adds it" : i.class === "merge" ? `--apply appends: ${i.addLines?.join(" | ")}` : "differs; --apply replaces it";
+          console.log(`${i.status.padEnd(8)} ${i.path.padEnd(44)} ${what}`);
+          if (i.diff) console.log(i.diff.trimEnd());
+        }
+        if (!plan.applicable.length && !plan.review.length) console.log("up to date with the shipped skeleton");
+        if (result) {
+          console.log(result.applied.length ? `applied: ${result.applied.join(", ")}` : "nothing applied");
+          for (const n of syncNotes(result.sync)) console.log(`note: ${n}`);
+          if (result.skipped.length) console.log(`left for manual merge: ${result.skipped.join(", ")}`);
+        }
+      });
     } catch (e) { fail(e); }
   });
 

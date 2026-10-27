@@ -29,6 +29,7 @@ import {
   isCategoryHub,
   publishHostStats,
   PAGE_ID_RE,
+  pageHistory,
   type WikiConfig,
 } from "@bluekds/doltap-core";
 
@@ -150,6 +151,18 @@ server.registerTool(
       const { result } = related(cfg, a.id);
       const slim = (rows: { id: string; summary: string; confidence: string }[]) => rows.map((r) => ({ id: r.id, confidence: r.confidence, summary: r.summary }));
       return text({ outlinks: slim(result.outlinks), backlinks: slim(result.backlinks), shared_tags: slim(result.sharedTags) });
+    } catch (e) { return errorText(e); }
+  },
+);
+
+server.registerTool(
+  "wiki_history",
+  { title: "Page history", description: "Commits that changed a page, newest first: rev, date, action (add/update/verify/deprecate/…), host, agent, session and the note (verify evidence, deprecate reason). Use to see who changed what and when before trusting or editing a page.", inputSchema: { id: PageId, limit: z.number().int().min(1).max(200).optional() } },
+  async (a) => {
+    try {
+      const entries = pageHistory(cfg, a.id, a.limit ?? 20);
+      if (!entries.length) return errorText(new Error(`no history for ${a.id} (unknown page or not committed yet)`));
+      return text({ id: a.id, entries });
     } catch (e) { return errorText(e); }
   },
 );
