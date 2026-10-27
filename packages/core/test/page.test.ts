@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from "vitest";
-import { extractLinks, replaceSection, serializePage, splitSections, normalizeMeta, parsePage, idFromRelPath } from "../src/page.js";
+import { extractLinks, findSection, replaceSection, serializePage, splitSections, normalizeMeta, parsePage, idFromRelPath } from "../src/page.js";
 import { cfgFor, makeWikiCopy } from "./helpers.js";
 
 const fx = makeWikiCopy();
@@ -76,5 +76,25 @@ describe("page parsing", () => {
     const meta = normalizeMeta({ updated: "2026-10-18", title: "T", category: "howto", summary: "S", tags: ["git"], confidence: "draft", created: new Date("2026-10-18"), sources: [] });
     const raw = serializePage(meta, "## Steps\n\n1. x\n");
     expect(raw.startsWith("---\ntitle: T\ncategory: howto\nsummary: S\ntags:\n  - git\nconfidence: draft\ncreated: 2026-10-18\nupdated: 2026-10-18\nsources: []\n---\n")).toBe(true);
+  });
+});
+
+describe("sections with sub-headings (0.4.1)", () => {
+  const body = "## Prerequisites\n\nnone\n\n## Steps\n\n### Daily\n\n1. a\n\n### Weekly\n\n2. b\n\n## Verification\n\nok\n";
+  it("a ## section runs until the next heading of the same or a higher level, not until the first ###", () => {
+    const steps = findSection(splitSections(body), "Steps")!;
+    expect(steps.content).toContain("### Daily");
+    expect(steps.content).toContain("2. b");
+    expect(steps.content).not.toContain("## Verification");
+    const daily = findSection(splitSections(body), "Daily")!;
+    expect(daily.content).toBe("1. a");
+    expect(findSection(splitSections(body), "Verification")!.content).toBe("ok");
+  });
+  it("replacing a ## section replaces its sub-sections too, and a ### can still be patched alone", () => {
+    const whole = replaceSection(body, "Steps", "1. flat");
+    expect(whole).toBe("## Prerequisites\n\nnone\n\n## Steps\n\n1. flat\n\n## Verification\n\nok\n");
+    const sub = replaceSection(body, "Weekly", "2. c");
+    expect(sub).toContain("### Weekly\n\n2. c\n\n## Verification");
+    expect(sub).toContain("### Daily\n\n1. a");
   });
 });

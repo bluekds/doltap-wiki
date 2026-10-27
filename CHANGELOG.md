@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1 (2026-10-28)
+
+- **Fix: a `##` section now includes its `###` sub-sections.** `wiki_get` / `doltap get -s <heading>` returned an empty string for a section whose body started with a sub-heading, and `wiki_patch_section` only replaced the text before the first sub-heading. A section runs until the next heading at its own level or higher; a `###` heading can still be read and patched on its own
+
 ## 0.4.0 (2026-10-28)
 
 Operability: the checks the maintenance routine did by hand are commands now.
