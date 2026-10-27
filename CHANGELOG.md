@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 (2026-10-27)
 
 - **`wiki_deprecate` / `doltap deprecate`**: sets `confidence: deprecated` and `replaced_by`, adds a banner at the top of the body, updates the hub. The replacement must exist. Lint now fails a deprecated page without a replacement; search and get return `replaced_by`
 - **`wiki_verify` / `doltap verify`**: promotion needs evidence (appended to `sources`), records `verified_by` and `verified_on`, and refuses the session that created the page. `wiki_set_meta` and `wiki_upsert` no longer accept `verified`
