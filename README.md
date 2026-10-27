@@ -184,7 +184,7 @@ doltap integrations install|uninstall claude [--remote [<url>]] [--dry-run]   # 
 
 - 원격 접속을 보호하는 것은 **경로에 들어가는 64자리 무작위 토큰 하나**입니다. OAuth는 아직 없습니다. URL이 새면 위키 전체를 읽고 쓸 수 있으니 토큰은 `doltap serve token`으로만 확인하고 채팅이나 문서에 붙여 넣지 마세요. 새면 `doltap serve token --rotate --quiet && doltap serve install`로 교체합니다. CLI 출력은 토큰을 가리고(`serve install`은 `--show-url`이 없으면 `<token>`으로 표시), `integrations install --remote`는 URL을 `DOLTAP_REMOTE_URL`에서 읽어 셸 히스토리에 남기지 않으며, lint는 커넥터 URL이 든 페이지를 거부합니다.
 - 서버는 `Host`로 루프백, 바인드 주소, `*.ts.net`만 받고(추가는 `DOLTAP_HTTP_ALLOWED_HOSTS`), 요청 본문은 2 MiB까지만 받으며, 오류는 일반 문구만 돌려주고 상세는 서비스 로그에 남깁니다.
-- 페이지 id는 모든 경로에서 검증되므로(`<category>/<slug>` 문자만 허용) 요청이 `wiki/` 밖의 파일을 가리킬 수 없습니다.
+- 페이지 id는 모든 경로에서 검증되므로(`<category>/<slug>` 문자만 허용) 요청이 `wiki/` 밖의 파일을 가리킬 수 없습니다. 심볼릭 링크인 페이지 파일은 읽지도 색인하지도 않습니다(공유 원격을 통해 커밋된 링크가 서비스 머신의 임의 파일을 가리킬 수 있으므로). lint가 이를 오류로 보고합니다.
 - 서비스는 기본으로 127.0.0.1에만 바인딩합니다. 인터넷에 내는 것은 Tailscale Funnel 같은 바깥 계층의 선택입니다.
 - 위키 내용은 git 이력에 영구히 남고, 에이전트가 읽은 페이지는 그 에이전트의 모델 제공사로 전송됩니다. 비밀값을 적지 않는 이유입니다.
 - 원격으로 쓴 commit은 서버 머신 이름과, 이름 붙은 토큰(`doltap serve client add <name>`)을 쓰면 그 이름으로 기록됩니다. `--read-only` 토큰은 검색과 읽기만 됩니다.

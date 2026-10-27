@@ -1,6 +1,6 @@
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { createHash } from "node:crypto";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, lstatSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import type { Category, Confidence, WikiConfig } from "./config.js";
 
@@ -211,6 +211,9 @@ export function readPage(cfg: WikiConfig, id: string): Page | null {
   const relPath = relPathFromId(id);
   const abs = join(cfg.wikiDir, relPath);
   if (!existsSync(abs)) return null;
+  // A symlinked page file would read whatever it points at (another wiki, .doltap/http-token, /etc/...).
+  // Pages are regular files only; lint reports symlinks so the owner can remove them.
+  if (lstatSync(abs).isSymbolicLink()) return null;
   return parsePage(cfg, relPath, readFileSync(abs, "utf8"));
 }
 

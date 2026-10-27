@@ -1,8 +1,8 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { parse } from "yaml";
+import { parse, stringify } from "yaml";
 import type { WikiConfig } from "./config.js";
-import { commitAndPush, emptyReport, pull, assertOnBranch, type SyncReport } from "./git.js";
+import { commitAndPush, commitMessage, emptyReport, pull, assertOnBranch, type SyncReport } from "./git.js";
 import { withWriteLock } from "./lock.js";
 
 export interface TagInfo {
@@ -16,13 +16,21 @@ export function tagsPath(cfg: WikiConfig): string {
 }
 
 export function loadTags(cfg: WikiConfig): TagInfo[] {
-  const raw = readFileSync(tagsPath(cfg), "utf8");
-  const doc = parse(raw) as Record<string, Record<string, string>>;
-  const out: TagInfo[] = [];
+  return parseTags(readFileSync(tagsPath(cfg), "utf8"));
+}
+
+/**
+ * Parse tags.yaml text. Duplicate keys are tolerated (last one wins): `merge=union` keeps both lines when two
+ * machines add the same tag at once, and a vocabulary that fails to parse would block every write on every clone.
+ */
+export function parseTags(raw: string): TagInfo[] {
+  const doc = parse(raw, { uniqueKeys: false }) as Record<string, Record<string, unknown>> | null;
+  const seen = new Map<string, TagInfo>();
   for (const [group, tags] of Object.entries(doc ?? {})) {
-    for (const [tag, description] of Object.entries(tags ?? {})) out.push({ tag, group, description: String(description) });
+    if (!tags || typeof tags !== "object") continue;
+    for (const [tag, description] of Object.entries(tags)) seen.set(tag, { tag, group, description: description == null ? "" : String(description) });
   }
-  return out;
+  return [...seen.values()];
 }
 
 export function allowedTagSet(cfg: WikiConfig): Set<string> {
@@ -74,25 +82,59 @@ export function addTag(cfg: WikiConfig, input: AddTagInput): TagWriteResult {
   if (!TAG_RE.test(tag)) throw new Error(`tag "${tag}" must be kebab-case (letters, digits, hyphens)`);
   if (!TAG_RE.test(group)) throw new Error(`group "${group}" must be kebab-case`);
   if (!description) throw new Error("a one-line description is required");
-  if (/[:#]/.test(description)) throw new Error("description must not contain ':' or '#'");
   return withWriteLock(cfg, () => {
     assertOnBranch(cfg);
     const sync = emptyReport();
     pull(cfg, sync);
     if (allowedTagSet(cfg).has(tag)) throw new Error(`tag "${tag}" already exists`);
     const path = tagsPath(cfg);
-    const lines = readFileSync(path, "utf8").replace(/\s+$/, "").split("\n");
-    const entry = `  ${tag}: ${description}`;
-    const head = lines.findIndex((l) => l === `${group}:`);
+    const before = parseTags(readFileSync(path, "utf8"));
+    const lines = dedupeLines(readFileSync(path, "utf8").replace(/\s+$/, "").split("\n"));
+    // Let the YAML library quote the value: a description starting with ` @ [ ' " * | > % & ! { would otherwise change meaning or break the file.
+    const entry = "  " + stringify({ [tag]: description }).trimEnd();
+    const headRe = new RegExp(`^${group}:\\s*(#.*)?$`);
+    const head = lines.findIndex((l) => headRe.test(l));
     if (head >= 0) {
       let end = head + 1;
       while (end < lines.length && /^\s+\S/.test(lines[end])) end++;
       lines.splice(end, 0, entry);
     } else lines.push("", `${group}:`, entry);
-    writeFileSync(path, lines.join("\n") + "\n");
-    commitAndPush(cfg, [join("wiki", "_meta", "tags.yaml")], `wiki: add tag ${tag}\n\n[host:${cfg.hostname}] [agent:${cfg.agent}]${cfg.session ? ` [session:${cfg.session}]` : ""}`, sync);
+    const next = lines.join("\n") + "\n";
+    verifyEdit(next, before, [...before.map((t) => t.tag), tag]);
+    writeFileSync(path, next);
+    commitAndPush(cfg, [join("wiki", "_meta", "tags.yaml")], commitMessage(cfg, "add tag", tag), sync);
     return { tag, group, sync };
   });
+}
+
+/** Drop the second copy of a duplicated `  tag:` line (what a union merge leaves behind); the later line is kept, like the parser does. */
+function dedupeLines(lines: string[]): string[] {
+  const last = new Map<string, number>();
+  lines.forEach((l, i) => {
+    const m = /^\s+([a-z0-9-]+):/.exec(l);
+    if (m) last.set(m[1], i);
+  });
+  return lines.filter((l, i) => {
+    const m = /^\s+([a-z0-9-]+):/.exec(l);
+    return !m || last.get(m[1]) === i;
+  });
+}
+
+/** Refuse to write a vocabulary that no longer parses or lost a tag: every clone loads this file on every write. */
+function verifyEdit(next: string, before: TagInfo[], expectTags: string[]): void {
+  let after: TagInfo[];
+  try {
+    after = parseTags(next);
+  } catch (e) {
+    throw new Error(`refusing to write tags.yaml: the result does not parse (${e instanceof Error ? e.message : String(e)})`);
+  }
+  const have = new Set(after.map((t) => t.tag));
+  const missing = expectTags.filter((t) => !have.has(t));
+  if (missing.length) throw new Error(`refusing to write tags.yaml: ${missing.join(", ")} would be lost`);
+  for (const t of before) {
+    const n = after.find((x) => x.tag === t.tag);
+    if (n && n.description !== t.description && expectTags.includes(t.tag)) throw new Error(`refusing to write tags.yaml: description of ${t.tag} would change`);
+  }
 }
 
 /** Remove a tag that no page uses. */
@@ -105,11 +147,14 @@ export function removeTag(cfg: WikiConfig, tag: string, usedBy: string[]): TagWr
     const info = loadTags(cfg).find((t) => t.tag === tag);
     if (!info) throw new Error(`tag "${tag}" is not in tags.yaml`);
     const path = tagsPath(cfg);
-    const lines = readFileSync(path, "utf8").replace(/\s+$/, "").split("\n");
-    const i = lines.findIndex((l) => new RegExp(`^  ${tag}:`).test(l));
-    if (i >= 0) lines.splice(i, 1);
-    writeFileSync(path, lines.join("\n") + "\n");
-    commitAndPush(cfg, [join("wiki", "_meta", "tags.yaml")], `wiki: remove tag ${tag}\n\n[host:${cfg.hostname}] [agent:${cfg.agent}]`, sync);
+    const before = parseTags(readFileSync(path, "utf8"));
+    const re = new RegExp(`^\\s+${tag}:`);
+    const lines = readFileSync(path, "utf8").replace(/\s+$/, "").split("\n").filter((l) => !re.test(l));
+    const next = lines.join("\n") + "\n";
+    if (parseTags(next).some((t) => t.tag === tag)) throw new Error(`could not remove "${tag}" from tags.yaml; edit the file by hand`);
+    verifyEdit(next, before, before.map((t) => t.tag).filter((t) => t !== tag));
+    writeFileSync(path, next);
+    commitAndPush(cfg, [join("wiki", "_meta", "tags.yaml")], commitMessage(cfg, "remove tag", tag), sync);
     return { tag, group: info.group, sync };
   });
 }

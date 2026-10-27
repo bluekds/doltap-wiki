@@ -39,8 +39,11 @@ export function git(cfg: WikiConfig, args: string[], opts: { timeoutMs?: number;
     const stdout = execFileSync("git", args, o) as string;
     return { ok: true, stdout: stdout.trim(), stderr: "" };
   } catch (e) {
-    const err = e as { stdout?: string | Buffer; stderr?: string | Buffer; message: string };
-    const res = { ok: false, stdout: String(err.stdout ?? "").trim(), stderr: String(err.stderr ?? err.message).trim() };
+    const err = e as { stdout?: string | Buffer; stderr?: string | Buffer; message: string; killed?: boolean; signal?: string | null; code?: string };
+    let stderr = String(err.stderr ?? err.message).trim();
+    // A child killed by the timeout has empty stderr; name the cause so the remote failure is classified as offline.
+    if (err.killed || err.signal || err.code === "ETIMEDOUT") stderr = `timed out after ${o.timeout}ms: git ${args.join(" ")}${stderr ? `\n${stderr}` : ""}`;
+    const res = { ok: false, stdout: String(err.stdout ?? "").trim(), stderr };
     if (opts.allowFail) return res;
     throw new Error(redactCredentials(`git ${args.join(" ")} failed: ${res.stderr || res.stdout}`));
   }
@@ -84,7 +87,7 @@ export function writeSyncState(cfg: WikiConfig, patch: SyncState): void {
 
 /** Authentication, permission and URL problems: retrying will not help, a human must fix the remote or the credentials. */
 function remoteErrorOf(stderr: string): string | null {
-  const m = /permission denied|authentication failed|could not read username|invalid username or password|the requested url returned error: 40[134]|repository not found|does not appear to be a git repository|does not exist|repository '.*' not found/i.exec(stderr);
+  const m = /permission denied|authentication failed|could not read username|invalid username or password|the requested url returned error: 40[134]|repository not found|does not appear to be a git repository|does not exist|repository '.*' not found|\[remote rejected\]|hook declined|protected branch|not allowed to push|insufficient permission|unpacker error|push declined|GH0\d\d/i.exec(stderr);
   if (!m) return null;
   const line = stderr.split("\n").find((l) => l.toLowerCase().includes(m[0].toLowerCase())) ?? m[0];
   return redactCredentials(line.replace(/^fatal:\s*/i, "").trim());
@@ -208,9 +211,14 @@ export function emptyReport(): SyncReport {
   return { pulled: false, pushed: false, offline: false, conflicts: [], messages: [] };
 }
 
+/** Trailer values come from config, env and the HTTP clients file; keep them to one token so nobody can forge a second trailer. */
+export function trailerValue(s: string): string {
+  return s.replace(/[\s\[\]]+/g, "-").replace(/^-+|-+$/g, "") || "unknown";
+}
+
 export function commitMessage(cfg: WikiConfig, action: string, id: string, extra?: string): string {
-  const tags = [`[host:${cfg.hostname}]`, `[agent:${cfg.agent}]`];
-  if (cfg.session) tags.push(`[session:${cfg.session}]`);
+  const tags = [`[host:${trailerValue(cfg.hostname)}]`, `[agent:${trailerValue(cfg.agent)}]`];
+  if (cfg.session) tags.push(`[session:${trailerValue(cfg.session)}]`);
   return `wiki: ${action} ${id}\n\n${tags.join(" ")}${extra ? "\n\n" + extra : ""}`;
 }
 

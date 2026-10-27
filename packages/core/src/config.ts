@@ -84,7 +84,8 @@ export function resolveConfig(o: ConfigOverrides = {}): WikiConfig {
     dbPath: join(stateDir, "index.sqlite"),
     hostname: hostname().split(".")[0],
     agent: o.agent ?? env.DOLTAP_AGENT ?? "cli",
-    session: o.session ?? env.DOLTAP_SESSION,
+    // Claude Code exports CLAUDE_CODE_SESSION_ID to the commands it runs; it is the natural "same session" for the CLI.
+    session: o.session ?? env.DOLTAP_SESSION ?? env.CLAUDE_CODE_SESSION_ID,
     noSync: o.noSync ?? env.DOLTAP_NO_SYNC === "1",
     autoPullMinutes: o.autoPullMinutes ?? Number(env.DOLTAP_AUTO_PULL_MINUTES ?? 10),
   };

@@ -109,19 +109,30 @@ export class WikiDb {
     this.db.close();
   }
 
-  /** Walk wiki/ for page files, skipping _meta, dotfiles, and conflict copies. */
+  /** Walk wiki/ for page files, skipping _meta, dotfiles, conflict copies and symlinks (see listSymlinks). */
   listFiles(): string[] {
-    const out: string[] = [];
+    return this.walk().files;
+  }
+
+  /** Symlinks under wiki/ (files or directories). They are never read: a link can point outside the wiki. */
+  listSymlinks(): string[] {
+    return this.walk().symlinks;
+  }
+
+  private walk(): { files: string[]; symlinks: string[] } {
+    const files: string[] = [];
+    const symlinks: string[] = [];
     const walk = (dir: string) => {
       for (const ent of readdirSync(dir, { withFileTypes: true })) {
         if (ent.name.startsWith(".") || ent.name.startsWith("_meta")) continue;
         const p = join(dir, ent.name);
-        if (ent.isDirectory()) walk(p);
-        else if (ent.name.endsWith(".md") && !/\.conflict-[^.]+\.md$/.test(ent.name)) out.push(p);
+        if (ent.isSymbolicLink()) symlinks.push(p);
+        else if (ent.isDirectory()) walk(p);
+        else if (ent.name.endsWith(".md") && !/\.conflict-[^.]+\.md$/.test(ent.name)) files.push(p);
       }
     };
     walk(this.cfg.wikiDir);
-    return out.sort();
+    return { files: files.sort(), symlinks: symlinks.sort() };
   }
 
   indexPage(page: Page, mtime: number, size: number): void {

@@ -13,15 +13,17 @@ export interface LintIssue {
 export interface LintContext {
   allowedTags: Set<string>;
   allIds: Set<string>;
+  /** Ids whose confidence is deprecated (a replacement chain must not end on one). */
+  deprecatedIds: Set<string>;
   /** id -> number of inbound links (from the index). */
   inbound: Map<string, number>;
   requiredSections: Map<string, string[]>;
 }
 
-export function buildLintContext(cfg: WikiConfig, allIds: Set<string>, inbound: Map<string, number>): LintContext {
+export function buildLintContext(cfg: WikiConfig, allIds: Set<string>, inbound: Map<string, number>, deprecatedIds: Set<string> = new Set()): LintContext {
   const req = new Map<string, string[]>();
   for (const c of CATEGORIES) req.set(c, requiredSections(cfg, c));
-  return { allowedTags: allowedTagSet(cfg), allIds, inbound, requiredSections: req };
+  return { allowedTags: allowedTagSet(cfg), allIds, deprecatedIds, inbound, requiredSections: req };
 }
 
 /**
@@ -112,6 +114,7 @@ export function lintPage(page: Page, ctx: LintContext): LintIssue[] {
   if (m.confidence === "deprecated") {
     const rb = typeof m.replaced_by === "string" ? m.replaced_by : "";
     if (rb && !ctx.allIds.has(rb)) err("replaced-by-missing", `replaced_by "${rb}" is not an existing page`);
+    else if (rb && ctx.deprecatedIds.has(rb)) warn("replaced-by-deprecated", `replaced_by "${rb}" is deprecated itself; point at its replacement`);
     else if (!rb && page.links.filter((l) => !l.endsWith("/_index")).length === 0) err("deprecated-no-replacement", "deprecated page must name its replacement (wiki_deprecate sets replaced_by)");
   } else if (m.replaced_by) warn("replaced-by-on-active", "replaced_by is set but the page is not deprecated");
 

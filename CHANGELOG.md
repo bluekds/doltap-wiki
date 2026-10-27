@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+Fixes from the 0.3.0 independent audits (security and core).
+
+- **Security: symlinked page files are no longer read.** A `wiki/<category>/<slug>.md` that is a symbolic link (planted through the shared git remote) used to be returned by `wiki_get` and indexed by search, which exposed any file on the service host, including `.doltap/http-token`, to read-only token holders. Reads and the index skip symlinks; `lint` reports them as `symlink` errors
+- **`wiki_verify` self-promotion guard now works by default.** Nothing set a session id before, so the "session that created the page cannot verify it" rule never fired. The stdio MCP server now gets a session id per process, the HTTP server one per client and day, and the CLI takes `CLAUDE_CODE_SESSION_ID` when `DOLTAP_SESSION` is unset. `wiki_upsert`, `wiki_set_meta`, `doltap add` and `doltap meta` refuse `confidence: verified`; only verify promotes
+- **tags.yaml can no longer be broken by `wiki_add_tag`.** Descriptions are YAML-quoted (a leading backtick, `@`, `[`, quote or `*` used to make the file unparsable on every clone), group headers with trailing comments are recognised, the result is re-parsed before it is written, and duplicate keys left by a `merge=union` of the same tag added on two machines are tolerated and cleaned up on the next edit. `tags remove` works with any indentation and refuses when the tag survived
+- Git: a pull or push killed by its timeout is classified as `offline` (the write stops retrying instead of blocking for minutes); `[remote rejected]`, hook and protected-branch refusals are `remoteError`; the write lock is only treated as stale when its owner process is gone, so a long push cannot have its lock stolen
+- `wiki_resolve_conflict` / `doltap resolve`: accepts `base_rev`, handles a conflict copy that was never committed (left by an autostash conflict), and refuses `take: conflict` when more than one copy exists instead of silently dropping one
+- The `rev` returned by a write is the on-disk rev when the written page is itself a hub whose list was regenerated
+- Lint warns (`replaced-by-deprecated`) when `replaced_by` points at a page that is deprecated itself
+- Commit trailers (`[host:]`, `[agent:]`, `[session:]`) are sanitised; HTTP client names must be kebab-case or the client is ignored
+
 ## 0.3.0 (2026-10-27)
 
 - **`wiki_deprecate` / `doltap deprecate`**: sets `confidence: deprecated` and `replaced_by`, adds a banner at the top of the body, updates the hub. The replacement must exist. Lint now fails a deprecated page without a replacement; search and get return `replaced_by`

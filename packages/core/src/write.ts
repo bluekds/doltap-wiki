@@ -52,7 +52,19 @@ export function lintOne(cfg: WikiConfig, db: WikiDb, page: Page): LintIssue[] {
   const ids = db.allIds();
   ids.add(page.id);
   const inbound = inboundMap(db);
-  return lintPage(page, buildLintContext(cfg, ids, inbound));
+  return lintPage(page, buildLintContext(cfg, ids, inbound, deprecatedIds(db)));
+}
+
+function deprecatedIds(db: WikiDb): Set<string> {
+  return new Set(db.list({ includeDeprecated: true }).filter((r) => r.confidence === "deprecated").map((r) => r.id));
+}
+
+/** Symlinks under wiki/ as lint errors: they are skipped by every read, and a link can point at any file on the host. */
+function symlinkIssues(cfg: WikiConfig, db: WikiDb): LintIssue[] {
+  return db.listSymlinks().map((abs) => {
+    const rel = relative(cfg.wikiDir, abs).split("\\").join("/");
+    return { id: rel.replace(/\.md$/, ""), level: "error" as const, rule: "symlink", message: `${rel} is a symbolic link; pages must be regular files (remove it)` };
+  });
 }
 
 /** The id of the nearest hub above a page: `projects/demo/_index` for `projects/demo/environment` (when it exists),
@@ -123,12 +135,19 @@ export function refreshHubs(cfg: WikiConfig): string[] {
   });
 }
 
+/** The rev to return from a write: when the page is itself a hub whose list was just regenerated, the on-disk rev differs from the one computed before. */
+function revAfterHubs(cfg: WikiConfig, id: string, written: Page, changedHubs: string[]): string {
+  if (!changedHubs.includes(written.relPath)) return written.rev;
+  return readPage(cfg, id)?.rev ?? written.rev;
+}
+
 /**
  * Create or fully replace a page. Runs pull → write → lint → commit → push.
  * Lint errors abort the write (file is restored) and are returned in `issues`.
  */
 export function upsertPage(cfg: WikiConfig, input: UpsertInput): WriteResult {
   const relPath = relPathFromId(input.id);
+  if (input.confidence === "verified") throw new Error("confidence verified cannot be set directly; promote with verify (evidence, verified_by/verified_on)");
   const category = input.id.split("/")[0];
   if (!(CATEGORIES as readonly string[]).includes(category)) {
     throw new Error(`id must start with a category (${CATEGORIES.join(", ")}): ${input.id}`);
@@ -183,9 +202,10 @@ export function upsertPage(cfg: WikiConfig, input: UpsertInput): WriteResult {
     mkdirSync(dirname(abs), { recursive: true });
     writeFileSync(abs, raw);
     db.reindex();
-    const touched = [join("wiki", relPath), ...regenerateHubLists(cfg, db).map((rel) => join("wiki", rel))];
+    const hubs = regenerateHubLists(cfg, db);
+    const touched = [join("wiki", relPath), ...hubs.map((rel) => join("wiki", rel))];
     commitAndPush(cfg, touched, commitMessage(cfg, existing ? "update" : "add", input.id), sync);
-    return { id: input.id, path: relPath, created: !existing, issues, sync, rev: page.rev };
+    return { id: input.id, path: relPath, created: !existing, issues, sync, rev: revAfterHubs(cfg, input.id, page, hubs) };
   } finally {
     db.close();
   }
@@ -259,6 +279,7 @@ export function patchMeta(cfg: WikiConfig, input: MetaPatch): WriteResult {
     const stale = staleRefusal(page.rev, input.baseRev);
     if (stale) return { id: input.id, path: page.relPath, created: false, issues: [], sync, refused: stale };
     const meta = { ...page.meta, updated: today() };
+    if (input.confidence === "verified") throw new Error("confidence verified cannot be set directly; promote with verify (evidence, verified_by/verified_on)");
     if (input.confidence) meta.confidence = input.confidence;
     if (input.title) meta.title = input.title;
     if (input.summary) meta.summary = input.summary;
@@ -320,9 +341,10 @@ export function deprecatePage(cfg: WikiConfig, input: DeprecateInput): WriteResu
       if (hasErrors(issues)) return { id: input.id, path: page.relPath, created: false, issues, sync, refused: "lint errors" };
       writeFileSync(page.absPath, raw);
       db.reindex();
-      const touched = [join("wiki", page.relPath), ...regenerateHubLists(cfg, db).map((rel) => join("wiki", rel))];
+      const hubs = regenerateHubLists(cfg, db);
+      const touched = [join("wiki", page.relPath), ...hubs.map((rel) => join("wiki", rel))];
       commitAndPush(cfg, touched, commitMessage(cfg, "deprecate", input.id, `replaced by ${input.replacedBy}`), sync);
-      return { id: input.id, path: page.relPath, created: false, issues, sync, rev: next.rev };
+      return { id: input.id, path: page.relPath, created: false, issues, sync, rev: revAfterHubs(cfg, input.id, next, hubs) };
     } finally {
       db.close();
     }
@@ -394,6 +416,8 @@ export interface ResolveInput {
   /** The merged body. Omit with `take: "conflict"` to keep the conflict copy's body as is. */
   body?: string;
   take?: "conflict";
+  /** rev from get; refused as stale when the page changed since (someone else may have edited it while you merged). */
+  baseRev?: string;
 }
 
 /** Conflict copies of a page in this clone: `<id>.conflict-<host>.md`, wiki-relative. */
@@ -424,10 +448,13 @@ export function resolveConflict(cfg: WikiConfig, input: ResolveInput): WriteResu
       db.reindex();
       const page = readPage(cfg, input.id);
       if (!page) throw new Error(`page not found: ${input.id}`);
+      const stale = staleRefusal(page.rev, input.baseRev);
+      if (stale) return { id: input.id, path: page.relPath, created: false, issues: [], sync, refused: stale };
       const copies = conflictCopiesOf(cfg, input.id);
       let body = input.body;
       if (input.take === "conflict") {
         if (!copies.length) throw new Error(`no conflict copy for ${input.id}`);
+        if (copies.length > 1) throw new Error(`multiple conflict copies for ${input.id} (${copies.join(", ")}); merge them and pass the body`);
         body = parsePage(cfg, copies[0], readFileSync(join(cfg.wikiDir, copies[0]), "utf8")).body;
       }
       if (body === undefined) throw new Error("pass the merged body, or take: \"conflict\" to keep the conflict copy");
@@ -436,12 +463,15 @@ export function resolveConflict(cfg: WikiConfig, input: ResolveInput): WriteResu
       const next = parsePage(cfg, page.relPath, raw);
       const issues = lintOne(cfg, db, next).filter((i) => i.rule !== "orphan");
       if (hasErrors(issues)) return { id: input.id, path: page.relPath, created: false, issues, sync, refused: "lint errors" };
+      // A copy left by an autostash conflict is untracked; `git add` of a deleted untracked path fails, so stage only tracked copies.
+      const tracked = copies.filter((c) => git(cfg, ["ls-files", "--error-unmatch", "--", `wiki/${c}`], { allowFail: true }).ok);
       writeFileSync(page.absPath, raw);
       for (const c of copies) unlinkSync(join(cfg.wikiDir, c));
       db.reindex();
-      const touched = [join("wiki", page.relPath), ...copies.map((c) => `wiki/${c}`), ...regenerateHubLists(cfg, db).map((rel) => join("wiki", rel))];
+      const hubs = regenerateHubLists(cfg, db);
+      const touched = [join("wiki", page.relPath), ...tracked.map((c) => `wiki/${c}`), ...hubs.map((rel) => join("wiki", rel))];
       commitAndPush(cfg, touched, commitMessage(cfg, "resolve conflict", input.id, copies.length ? `removed: ${copies.join(", ")}` : undefined), sync);
-      return { id: input.id, path: page.relPath, created: false, issues, sync, rev: next.rev };
+      return { id: input.id, path: page.relPath, created: false, issues, sync, rev: revAfterHubs(cfg, input.id, next, hubs) };
     } finally {
       db.close();
     }
@@ -453,9 +483,10 @@ export function lintAll(cfg: WikiConfig, ids?: string[]): LintIssue[] {
   const db = new WikiDb(cfg);
   try {
     const { pages, broken } = db.reindex();
-    const ctx = buildLintContext(cfg, db.allIds(), inboundMap(db));
+    const ctx = buildLintContext(cfg, db.allIds(), inboundMap(db), deprecatedIds(db));
     const out: LintIssue[] = [];
     for (const b of broken) if (!ids || ids.includes(b.id)) out.push({ id: b.id, level: "error", rule: "frontmatter-invalid", message: `${b.relPath}: ${b.error}` });
+    for (const i of symlinkIssues(cfg, db)) if (!ids || ids.includes(i.id)) out.push(i);
     for (const p of pages) if (!ids || ids.includes(p.id)) out.push(...lintPage(p, ctx));
     return out;
   } finally {
