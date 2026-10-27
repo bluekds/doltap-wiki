@@ -62,16 +62,17 @@ describe("doctor and integrations status (0.4)", () => {
   it("integrations status tells a stale skill copy from a current one", () => {
     const home = mkdtempSync(join(tmpdir(), "doltap-home-"));
     try {
-      const none = JSON.parse(cli(["integrations", "status", "--json"], { HOME: home, PATH: "/nonexistent" }));
+      const env = { HOME: home, USERPROFILE: home, PATH: "/nonexistent" }; // homedir() reads USERPROFILE on Windows
+      const none = JSON.parse(cli(["integrations", "status", "--json"], env));
       expect(none.checks.find((c: { name: string }) => c.name === "skill")).toMatchObject({ status: "warn", fix: "doltap integrations install claude" });
       expect(none.checks.find((c: { name: string }) => c.name === "mcp-registration").status).toBe("skip");
-      cli(["--root", m.a, "integrations", "install", "claude"], { HOME: home, PATH: "/nonexistent" });
-      const fresh = JSON.parse(cli(["integrations", "status", "--json"], { HOME: home, PATH: "/nonexistent" }));
+      cli(["--root", m.a, "integrations", "install", "claude"], env);
+      const fresh = JSON.parse(cli(["integrations", "status", "--json"], env));
       expect(fresh.checks.find((c: { name: string }) => c.name === "skill").status).toBe("ok");
       expect(fresh.checks.find((c: { name: string }) => c.name === "instructions").status).toBe("ok");
       const skill = join(home, ".claude", "skills", "doltap", "SKILL.md");
       writeFileSync(skill, readFileSync(skill, "utf8") + "\nlocal edit\n");
-      const stale = JSON.parse(cli(["integrations", "status", "--json"], { HOME: home, PATH: "/nonexistent" }));
+      const stale = JSON.parse(cli(["integrations", "status", "--json"], env));
       expect(stale.checks.find((c: { name: string }) => c.name === "skill")).toMatchObject({ status: "warn", detail: expect.stringContaining("differs") });
     } finally { rmSync(home, { recursive: true, force: true }); }
   });

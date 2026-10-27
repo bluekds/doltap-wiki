@@ -9,7 +9,7 @@ let cfg: WikiConfig;
 beforeEach(() => {
   m = makeTwoMachines();
   cfg = cfgFor(m.a, { noSync: false, session: "s1" });
-  new WikiDb(cfg).reindex() && undefined;
+  const db = new WikiDb(cfg); db.reindex(); db.close();
 });
 afterEach(() => m.cleanup());
 
@@ -34,7 +34,10 @@ describe("doctor", () => {
     expect(byName((await run()).checks, "repo")).toMatchObject({ status: "fail", detail: expect.stringContaining("detached") });
     sh(m.a, "git", ["checkout", "-q", "main"]);
     sh(m.a, "git", ["config", "--unset", "user.email"]);
-    expect(byName((await run()).checks, "repo")).toMatchObject({ status: "fail", detail: expect.stringContaining("identity") });
+    // A global identity (CI runners often set one) still satisfies git, and then doctor rightly says ok.
+    let globalEmail = "";
+    try { globalEmail = sh(m.a, "git", ["config", "--global", "user.email"]); } catch { /* none */ }
+    expect(byName((await run()).checks, "repo")).toMatchObject(globalEmail ? { status: "ok" } : { status: "fail", detail: expect.stringContaining("identity") });
   });
 
   it("warns about unpushed commits, dirty pages, conflict copies and a stale pull", async () => {

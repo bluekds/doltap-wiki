@@ -7,7 +7,7 @@ import { addTag, publishHostStats, refreshHubs, removeTag, resolveConflict, sync
 let m: ReturnType<typeof makeTwoMachines>;
 let A: WikiConfig;
 let B: WikiConfig;
-beforeEach(() => { m = makeTwoMachines(); A = cfgFor(m.a, { noSync: false, session: "a" }); B = cfgFor(m.b, { noSync: false, session: "b", hostname: "hostb" }); new WikiDb(A).reindex(); new WikiDb(B).reindex(); });
+beforeEach(() => { m = makeTwoMachines(); A = cfgFor(m.a, { noSync: false, session: "a" }); B = cfgFor(m.b, { noSync: false, session: "b", hostname: "hostb" }); for (const c of [A, B]) { const db = new WikiDb(c); db.reindex(); db.close(); } });
 afterEach(() => m.cleanup());
 
 const howto = (x: string) => `## Prerequisites\n\n${x}\n\n## Steps\n\n1. y\n\n## Verification\n\nz\n\n## Pitfalls\n\n- w\n\n## Related\n\n- [[howto/_index]]\n`;

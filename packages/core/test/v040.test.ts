@@ -5,7 +5,7 @@ import { readSyncState, remoteBackoffMinutes, syncAll, upsertPage, WikiDb, write
 const win = process.platform === "win32";
 let m: ReturnType<typeof makeTwoMachines>;
 let A: WikiConfig;
-beforeEach(() => { m = makeTwoMachines(); A = cfgFor(m.a, { noSync: false, remoteTimeoutMs: 700 }); new WikiDb(A).reindex(); });
+beforeEach(() => { m = makeTwoMachines(); A = cfgFor(m.a, { noSync: false, remoteTimeoutMs: 700 }); const db = new WikiDb(A); db.reindex(); db.close(); });
 afterEach(() => m.cleanup());
 
 const howto = (x: string) => `## Prerequisites\n\n${x}\n\n## Steps\n\n1. y\n\n## Verification\n\nz\n\n## Pitfalls\n\n- w\n\n## Related\n\n- [[howto/_index]]\n`;

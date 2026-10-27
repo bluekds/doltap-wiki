@@ -4,7 +4,7 @@ import { pageHistory, patchSection, upsertPage, verifyPage, WikiDb, type WikiCon
 
 let m: ReturnType<typeof makeTwoMachines>;
 let cfg: WikiConfig;
-beforeEach(() => { m = makeTwoMachines(); cfg = cfgFor(m.a, { session: "s-one" }); new WikiDb(cfg).reindex(); });
+beforeEach(() => { m = makeTwoMachines(); cfg = cfgFor(m.a, { session: "s-one" }); const db = new WikiDb(cfg); db.reindex(); db.close(); });
 afterEach(() => m.cleanup());
 
 const body = "## Prerequisites\n\nx\n\n## Steps\n\n1. y\n\n## Verification\n\nz\n\n## Pitfalls\n\n- w\n\n## Related\n\n- [[howto/_index]]\n";
