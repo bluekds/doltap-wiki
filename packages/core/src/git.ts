@@ -67,6 +67,8 @@ export interface SyncState {
   /** Last pull attempt, successful or not; auto-pull backs off from this so a dead remote is not retried on every read. */
   lastPullAttempt?: string;
   pendingPush?: boolean;
+  /** When the remote was last found unreachable; writes skip the remote for cfg.autoPullMinutes after it. Cleared by any successful pull or push. */
+  lastOffline?: string | null;
 }
 
 function statePath(cfg: WikiConfig): string {
@@ -99,7 +101,7 @@ function looksOffline(stderr: string): boolean {
 }
 
 /** Classify a failed pull/push into the report. Returns true when it was handled (offline or remote error). */
-function reportRemoteFailure(report: SyncReport, verb: string, stderr: string): boolean {
+function reportRemoteFailure(cfg: WikiConfig, report: SyncReport, verb: string, stderr: string): boolean {
   const err = remoteErrorOf(stderr);
   if (err) {
     report.remoteError = err;
@@ -109,9 +111,29 @@ function reportRemoteFailure(report: SyncReport, verb: string, stderr: string): 
   if (looksOffline(stderr)) {
     report.offline = true;
     report.messages.push(`${verb} skipped: remote unreachable (commit saved locally)`);
+    writeSyncState(cfg, { lastOffline: new Date().toISOString() });
     return true;
   }
   return false;
+}
+
+/**
+ * Minutes since the remote was last found unreachable, when that is more recent than cfg.autoPullMinutes.
+ * Writes use it to skip the remote outright: one timeout per interval, not one per write.
+ */
+export function remoteBackoffMinutes(cfg: WikiConfig): number | null {
+  const iso = readSyncState(cfg).lastOffline;
+  if (!iso) return null;
+  const min = (Date.now() - Date.parse(iso)) / 60000;
+  return Number.isFinite(min) && min >= 0 && min < cfg.autoPullMinutes ? min : null;
+}
+
+function deferForBackoff(cfg: WikiConfig, report: SyncReport, verb: string): boolean {
+  const min = remoteBackoffMinutes(cfg);
+  if (min === null) return false;
+  report.offline = true;
+  report.messages.push(`${verb} deferred: remote was unreachable ${Math.round(min)} min ago; the next sync retries (commit saved locally)`);
+  return true;
 }
 
 /** Writes need a branch to commit on; a detached HEAD would orphan the commit while the report says it was saved. */
@@ -176,10 +198,11 @@ function resolveRebaseConflicts(cfg: WikiConfig): string[] {
 }
 
 /** git pull --rebase --autostash. Returns a report; never throws on network failure. */
-export function pull(cfg: WikiConfig, report: SyncReport = emptyReport()): SyncReport {
+export function pull(cfg: WikiConfig, report: SyncReport = emptyReport(), o: { force?: boolean } = {}): SyncReport {
   if (cfg.noSync || !isRepo(cfg) || !hasRemote(cfg)) return report;
+  if (!o.force && deferForBackoff(cfg, report, "pull")) return report;
   writeSyncState(cfg, { lastPullAttempt: new Date().toISOString() });
-  const res = git(cfg, ["pull", "--rebase", "--autostash", "--quiet"], { allowFail: true, timeoutMs: 20000 });
+  const res = git(cfg, ["pull", "--rebase", "--autostash", "--quiet"], { allowFail: true, timeoutMs: cfg.remoteTimeoutMs });
   // A failed autostash re-apply exits 0 and only prints to stderr, so look at the index instead.
   const unmerged = git(cfg, ["diff", "--name-only", "--diff-filter=U"], { allowFail: true }).stdout.split("\n").filter(Boolean);
   const stashLeft = /autostash/i.test(git(cfg, ["stash", "list"], { allowFail: true }).stdout);
@@ -190,10 +213,10 @@ export function pull(cfg: WikiConfig, report: SyncReport = emptyReport()): SyncR
       report.messages.push(`autostash conflicted; upstream kept${saved.length ? `, local pages saved as: ${saved.join(", ")}` : ""}`);
     }
     report.pulled = true;
-    writeSyncState(cfg, { lastPull: new Date().toISOString() });
+    writeSyncState(cfg, { lastPull: new Date().toISOString(), lastOffline: null });
     return report;
   }
-  if (reportRemoteFailure(report, "pull", res.stderr)) return report;
+  if (reportRemoteFailure(cfg, report, "pull", res.stderr)) return report;
   const output = res.stderr + res.stdout;
   if (/conflict/i.test(output)) {
     const saved = resolveRebaseConflicts(cfg);
@@ -234,14 +257,18 @@ export function commitAndPush(cfg: WikiConfig, paths: string[], message: string,
   }
   git(cfg, ["commit", "--quiet", "-m", message]);
   if (cfg.noSync || !hasRemote(cfg)) return report;
+  if (deferForBackoff(cfg, report, "push")) {
+    writeSyncState(cfg, { pendingPush: true });
+    return report;
+  }
   for (let attempt = 0; attempt < 3; attempt++) {
-    const res = git(cfg, ["push", "--quiet"], { allowFail: true, timeoutMs: 20000 });
+    const res = git(cfg, ["push", "--quiet"], { allowFail: true, timeoutMs: cfg.remoteTimeoutMs });
     if (res.ok) {
       report.pushed = true;
-      writeSyncState(cfg, { pendingPush: false });
+      writeSyncState(cfg, { pendingPush: false, lastOffline: null });
       return report;
     }
-    if (reportRemoteFailure(report, "push", res.stderr)) {
+    if (reportRemoteFailure(cfg, report, "push", res.stderr)) {
       writeSyncState(cfg, { pendingPush: true });
       return report;
     }
@@ -257,19 +284,19 @@ export function pushPending(cfg: WikiConfig, report: SyncReport = emptyReport())
   if (cfg.noSync || !isRepo(cfg) || !hasRemote(cfg)) return report;
   const ahead = git(cfg, ["rev-list", "--count", "@{u}..HEAD"], { allowFail: true });
   if (!ahead.ok || ahead.stdout === "0") return report;
-  const res = git(cfg, ["push", "--quiet"], { allowFail: true, timeoutMs: 20000 });
+  const res = git(cfg, ["push", "--quiet"], { allowFail: true, timeoutMs: cfg.remoteTimeoutMs });
   if (res.ok) {
     report.pushed = true;
-    writeSyncState(cfg, { pendingPush: false });
-  } else if (!reportRemoteFailure(report, "push", res.stderr)) report.messages.push(redactCredentials(`push failed: ${res.stderr}`));
+    writeSyncState(cfg, { pendingPush: false, lastOffline: null });
+  } else if (!reportRemoteFailure(cfg, report, "push", res.stderr)) report.messages.push(redactCredentials(`push failed: ${res.stderr}`));
   return report;
 }
 
-/** Full sync: pull (resolving conflicts) then push anything pending. */
+/** Full sync: pull (resolving conflicts) then push anything pending. Always tries the remote, even during a backoff. */
 export function syncAll(cfg: WikiConfig): SyncReport {
   return withWriteLock(cfg, () => {
     const report = emptyReport();
-    pull(cfg, report);
+    pull(cfg, report, { force: true });
     pushPending(cfg, report);
     return report;
   });

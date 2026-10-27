@@ -3,7 +3,7 @@ import { platform } from "node:os";
 import { join } from "node:path";
 import type { WikiConfig } from "./config.js";
 import { WikiDb } from "./db.js";
-import { git, hasRemote, isRepo, listConflictFiles, readSyncState } from "./git.js";
+import { git, hasRemote, isRepo, listConflictFiles, readSyncState, remoteBackoffMinutes } from "./git.js";
 import { DEFAULT_LOG_MAX_BYTES, listLogs } from "./logs.js";
 import { httpServiceStatus, scheduleStatus } from "./schedule.js";
 import { loadTags, tagsPath } from "./tags.js";
@@ -105,6 +105,8 @@ function syncAgeCheck(cfg: WikiConfig, checks: DoctorCheck[], maxAge: number, sc
   if (cfg.noSync || !isRepo(cfg) || !hasRemote(cfg)) { checks.push({ name: "sync", status: "skip", detail: "no remote or sync disabled" }); return; }
   const st = readSyncState(cfg);
   const age = ageMinutes(st.lastPull);
+  const backoff = remoteBackoffMinutes(cfg);
+  if (backoff !== null) checks.push({ name: "remote-reachability", status: "warn", detail: `remote was unreachable ${Math.round(backoff)} min ago; writes skip push until the next sync`, fix: "doltap sync (retries now)" });
   if (age === null) checks.push({ name: "sync", status: "warn", detail: "never pulled on this machine", fix: "doltap sync" });
   else if (age > maxAge) checks.push({ name: "sync", status: scheduled ? "fail" : "warn", detail: `last pull ${fmtAge(age)} (limit ${maxAge} min)${scheduled ? "; the scheduled sync is not running" : ""}`, fix: scheduled ? "doltap schedule install (re-registers the job) and check .doltap/logs/sync.err" : "doltap sync, or doltap schedule install" });
   else checks.push({ name: "sync", status: "ok", detail: `last pull ${fmtAge(age)}` });

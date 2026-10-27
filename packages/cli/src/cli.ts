@@ -546,8 +546,8 @@ program
       out(json, { ...plan, result }, () => {
         console.log(`skeleton ${plan.skeletonVersion}`);
         for (const i of plan.items) {
-          if (i.status === "same") continue;
-          const what = i.class === "page" ? (i.status === "missing" ? "example page not in this wiki (optional)" : "example page differs (yours wins)") : i.class === "review" ? "differs; merge by hand (doltap upgrade --diff)" : i.status === "missing" ? "missing; --apply adds it" : i.class === "merge" ? `--apply appends: ${i.addLines?.join(" | ")}` : "differs; --apply replaces it";
+          if (i.status === "same" || (i.class === "page" && i.status === "differs")) continue;
+          const what = i.class === "page" ? "example page not in this wiki (optional; see the skeleton in the doltap package)" : i.class === "review" ? "differs; merge by hand (doltap upgrade --diff)" : i.status === "missing" ? "missing; --apply adds it" : i.class === "merge" ? `--apply appends: ${i.addLines?.join(" | ")}` : "differs; --apply replaces it";
           console.log(`${i.status.padEnd(8)} ${i.path.padEnd(44)} ${what}`);
           if (i.diff) console.log(i.diff.trimEnd());
         }

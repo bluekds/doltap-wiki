@@ -44,7 +44,8 @@ export function pageHistory(cfg: WikiConfig, id: string, limit = 20): HistoryEnt
         .join("\n")
         .trim();
       const e: HistoryEntry = { rev, date: date.trim(), action, subject };
-      const host = trailer(body, "host"), agent = trailer(body, "agent"), session = trailer(body, "session");
+      const all = `${subject}\n${body}`;
+      const host = trailer(all, "host"), agent = trailer(all, "agent"), session = trailer(all, "session");
       if (host) e.host = host;
       if (agent) e.agent = agent;
       if (session) e.session = session;
