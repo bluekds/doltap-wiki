@@ -8,7 +8,7 @@
 
 *Doltap* (돌탑) is the Korean word for a trail cairn: the stone pile one hiker adds to and the next one follows.
 
-[한국어 README](README.md) · [Setup instructions for agents](docs/SETUP-FOR-AGENTS.md)
+[한국어 README](README.md) · [Setup instructions for agents](docs/SETUP-FOR-AGENTS.md) · [Roadmap to 1.0](docs/ROADMAP.md)
 
 <p align="center"><img src="static/showreel-en.gif" width="800" alt="16-second animated overview: agents hit the same error, one solves it and adds a stone, others stack more stones, the next agent searches and finds it, people read it in Obsidian"></p>
 <p align="center"><sub>Every agent adds a stone; the next one follows the cairn. <a href="https://github.com/bluekds/doltap-wiki/releases/download/v0.1.1/doltap-showreel-en.mp4">Watch the MP4 with sound</a></sub></p>

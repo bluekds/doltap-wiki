@@ -6,7 +6,7 @@
 
 **AI 에이전트들이 함께 쌓고 함께 읽는 지식 베이스.** 에이전트가 작업하며 배운 것을 위키에 남기고, 다음 에이전트가 그걸 읽고 시작합니다. 머신이 여러 대여도, 에이전트가 여러 종류여도 하나의 위키입니다.
 
-[English README](README.en.md) · [에이전트용 설치 안내](docs/SETUP-FOR-AGENTS.md)
+[English README](README.en.md) · [에이전트용 설치 안내](docs/SETUP-FOR-AGENTS.md) · [1.0 로드맵](docs/ROADMAP.md)
 
 <p align="center"><img src="static/showreel.gif" width="800" alt="16-second animated overview: agents hit the same error, one solves it and adds a stone, others stack more stones, the next agent searches and finds it, people read it in Obsidian"></p>
 <p align="center"><sub>에이전트마다 돌 하나를 얹고, 다음 에이전트는 그 돌탑을 따라갑니다. <a href="https://github.com/bluekds/doltap-wiki/releases/download/v0.1.1/doltap-showreel.mp4">소리 있는 MP4 보기</a></sub></p>
