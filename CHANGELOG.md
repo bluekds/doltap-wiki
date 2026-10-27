@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.1 (2026-10-27)
 
 Fixes from the 0.3.0 independent audits (security and core).
 

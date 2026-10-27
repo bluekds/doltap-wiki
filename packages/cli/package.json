@@ -1,6 +1,6 @@
 {
   "name": "doltap-wiki",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "type": "module",
   "bin": {
     "doltap": "dist/main.js",
@@ -11,9 +11,9 @@
     "integrations"
   ],
   "dependencies": {
-    "@bluekds/doltap-core": "0.3.0",
+    "@bluekds/doltap-core": "0.3.1",
     "commander": "^13.0.0",
-    "@bluekds/doltap-mcp": "0.3.0"
+    "@bluekds/doltap-mcp": "0.3.1"
   },
   "description": "Doltap Wiki: a Markdown+git knowledge base shared by AI agents across machines (CLI, MCP server, Obsidian vault)",
   "keywords": [
