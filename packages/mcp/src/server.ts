@@ -70,7 +70,7 @@ const INSTRUCTIONS = `Doltap is a shared wiki for agents (howto, patterns, refer
 - Never write secret values (tokens, keys, passwords, connector URLs); record where the secret lives and how to load it. Internal hosts are fine.
 - English only. Tags only from wiki://tags (add one with wiki_add_tag). Hub lists are generated; do not edit them. Deprecate with wiki_deprecate, finish a conflict with wiki_resolve_conflict.`;
 
-const server = new McpServer({ name: "doltap", version: "0.4.0" }, { instructions: INSTRUCTIONS });
+const server = new McpServer({ name: "doltap", version: "0.4.1" }, { instructions: INSTRUCTIONS });
 
 // ------------------------------------------------------------------ resources
 server.registerResource("protocol", "wiki://protocol", { title: "Doltap protocol", description: "Rules for reading, writing, and classifying wiki pages. Read before writing.", mimeType: "text/markdown" }, async (uri) => ({

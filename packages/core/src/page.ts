@@ -88,10 +88,14 @@ export function splitSections(body: string): Section[] {
     if (inFence) continue;
     const m = /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line);
     if (!m) continue;
-    if (sections.length) sections[sections.length - 1].end = i;
     sections.push({ heading: m[2], level: m[1].length, content: "", start: i, end: lines.length });
   }
-  for (const s of sections) s.content = lines.slice(s.start + 1, s.end).join("\n").trim();
+  // A section runs until the next heading at its own level or higher: `### Daily` under `## Steps` belongs to Steps.
+  for (let i = 0; i < sections.length; i++) {
+    const next = sections.slice(i + 1).find((s) => s.level <= sections[i].level);
+    sections[i].end = next ? next.start : lines.length;
+    sections[i].content = lines.slice(sections[i].start + 1, sections[i].end).join("\n").trim();
+  }
   return sections;
 }
 
