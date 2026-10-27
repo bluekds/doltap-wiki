@@ -333,7 +333,7 @@ server.registerTool(
     try {
       const ro = readOnly(); if (ro) return ro;
       const report = syncAll(cfg);
-      const hubs = refreshHubs(cfg);
+      const hubs = refreshHubs(cfg, report);
       const db = new WikiDb(cfg);
       const r = db.reindex();
       publishHostStats(cfg, db, report);

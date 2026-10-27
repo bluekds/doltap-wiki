@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { join } from "node:path";
 import { isCategoryHub, type WikiConfig } from "./config.js";
 import { WikiDb, type PageRow } from "./db.js";
-import { commitAndPush, listConflictFiles, readSyncState, writeSyncState, type SyncReport } from "./git.js";
+import { assertOnBranch, commitAndPush, listConflictFiles, readSyncState, writeSyncState, type SyncReport } from "./git.js";
 import { loadTags } from "./tags.js";
 
 /** Per-host access counts shared through git: wiki/_meta/stats/<host>.json */
@@ -42,6 +42,7 @@ export function publishHostStats(cfg: WikiConfig, db: WikiDb, report: SyncReport
   if (ageH < minHours) return false;
   const stats = collectHostStats(cfg, db);
   if (!Object.keys(stats.counts).length) return false;
+  assertOnBranch(cfg);
   mkdirSync(statsDir(cfg), { recursive: true });
   const file = join(statsDir(cfg), `${cfg.hostname}.json`);
   const next = JSON.stringify({ ...stats, generated: undefined }, null, 2);

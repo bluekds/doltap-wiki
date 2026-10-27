@@ -89,7 +89,7 @@ export function addTag(cfg: WikiConfig, input: AddTagInput): TagWriteResult {
     if (allowedTagSet(cfg).has(tag)) throw new Error(`tag "${tag}" already exists`);
     const path = tagsPath(cfg);
     const before = parseTags(readFileSync(path, "utf8"));
-    const lines = dedupeLines(readFileSync(path, "utf8").replace(/\s+$/, "").split("\n"));
+    const lines = dedupeLines(readFileSync(path, "utf8").replace(/\s+$/, "").split(/\r?\n/)); // CRLF checkouts are rewritten as LF
     // Let the YAML library quote the value: a description starting with ` @ [ ' " * | > % & ! { would otherwise change meaning or break the file.
     const entry = "  " + stringify({ [tag]: description }).trimEnd();
     const headRe = new RegExp(`^${group}:\\s*(#.*)?$`);
@@ -149,7 +149,7 @@ export function removeTag(cfg: WikiConfig, tag: string, usedBy: string[]): TagWr
     const path = tagsPath(cfg);
     const before = parseTags(readFileSync(path, "utf8"));
     const re = new RegExp(`^\\s+${tag}:`);
-    const lines = readFileSync(path, "utf8").replace(/\s+$/, "").split("\n").filter((l) => !re.test(l));
+    const lines = readFileSync(path, "utf8").replace(/\s+$/, "").split(/\r?\n/).filter((l) => !re.test(l));
     const next = lines.join("\n") + "\n";
     if (parseTags(next).some((t) => t.tag === tag)) throw new Error(`could not remove "${tag}" from tags.yaml; edit the file by hand`);
     verifyEdit(next, before, before.map((t) => t.tag).filter((t) => t !== tag));

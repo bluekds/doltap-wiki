@@ -454,7 +454,7 @@ program.command("sync").description("pull, push pending commits, reindex, refres
     const { cfg, json } = cfgFrom();
     const rotated = rotateLogs(cfg);
     const report = syncAll(cfg);
-    const hubs = refreshHubs(cfg);
+    const hubs = refreshHubs(cfg, report);
     const db = new WikiDb(cfg);
     const r = db.reindex();
     const published = publishHostStats(cfg, db, report);
