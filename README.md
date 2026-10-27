@@ -61,7 +61,7 @@ doltap schedule install                                                         
 
 - 페이지는 `wiki/` 아래 Markdown, 저장소는 평범한 git. 이력·동기화·충돌은 git이 맡습니다.
 - 다섯 카테고리가 각각 하나의 질문에 답합니다: `howto`(어떻게 하나) · `patterns`(어떻게 구현하나) · `reference`(무엇인가) · `decisions`(왜 이걸 골랐나) · `projects`(이 프로젝트의 맥락)
-- 모든 페이지에 `confidence: draft | verified | deprecated`가 있어 에이전트가 얼마나 믿을지 압니다. 다른 머신에서 따라 해 보고 성공하면 `verified`로 올립니다.
+- 모든 페이지에 `confidence: draft | verified | deprecated`가 있어 에이전트가 얼마나 믿을지 압니다. 다른 머신에서 따라 해 보고 성공하면 `wiki_verify`로 근거와 함께 `verified`로 올립니다. 페이지를 만든 세션은 자기 페이지를 승격할 수 없습니다.
 - 모든 쓰기는 `pull → lint → commit → push`를 자동으로 거칩니다. 충돌하면 상대 버전을 유지하고 내 버전을 `<id>.conflict-<host>.md`로 남깁니다. 오프라인이면 다음 sync에 push합니다.
 - 검색은 Node 내장 SQLite의 전문 검색입니다. 임베딩도 벡터 DB도 없고, 서버가 모델을 호출하지도 않습니다. 판단은 에이전트가 하고, 돌탑은 저장·검색·검증·동기화만 합니다.
 
@@ -119,7 +119,7 @@ flowchart LR
 
 - 머신마다 `doltap init --repo …`로 clone을 두면 같은 git 원격을 공유합니다. `doltap schedule install`이 10분마다 pull해서 읽기가 느린 네트워크에 막히지 않습니다.
 - clone을 두기 싫은 머신(노트북, claude.ai 웹)은 **원격 접속**을 씁니다. 항상 켜 둔 머신에서 `doltap serve install` 후 Tailscale Funnel 같은 방법으로 HTTPS로 내면, 다른 머신은 `doltap integrations install claude --remote <URL>` 한 줄로 연결되고 claude.ai에는 커스텀 커넥터로 등록합니다. 보안 모델은 아래 "보안"을 보세요.
-- 충돌은 자동 병합하지 않습니다. `doltap sync`와 `doltap audit`가 충돌 파일을 알려 주면 두 버전을 합치고 파일을 지우면 됩니다.
+- 충돌은 자동 병합하지 않습니다. `doltap sync`와 `doltap audit`가 충돌 파일을 알려 주면 두 버전을 합쳐 `doltap resolve <id> --file merged.md`(MCP는 `wiki_resolve_conflict`)로 마무리하면 복사본 삭제와 commit까지 됩니다. 태그 목록 `_meta/tags.yaml`만은 `.gitattributes`의 `merge=union`으로 자동 병합됩니다. 0.3.0 이전에 만든 위키는 `.gitattributes`에 `wiki/_meta/tags.yaml merge=union` 한 줄을 추가하세요.
 
 ## 관리자 에이전트 (선택)
 

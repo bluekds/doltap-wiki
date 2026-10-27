@@ -63,7 +63,7 @@ Agents cannot pile up arbitrary notes. The classification table, per-category te
 
 - Pages are Markdown under `wiki/` in an ordinary git repository. History, sync and conflicts are git's job.
 - Five categories, each answering one question: `howto` (how do I do X) · `patterns` (how do I implement X) · `reference` (what is X) · `decisions` (why X over Y) · `projects` (context of one project)
-- Every page carries `confidence: draft | verified | deprecated`, so an agent knows how far to trust it. A page becomes `verified` after someone follows it successfully on another machine.
+- Every page carries `confidence: draft | verified | deprecated`, so an agent knows how far to trust it. A page becomes `verified` after someone follows it successfully on another machine and records that evidence with `wiki_verify`; the session that created a page cannot promote it.
 - Every write runs `pull → lint → commit → push`. On a conflict the upstream version stays and yours is saved as `<id>.conflict-<host>.md`. Offline writes push on the next sync.
 - Search is full-text search in Node's built-in SQLite. No embeddings, no vector database, and the server never calls a model: agents do the thinking, Doltap stores, searches, validates and syncs.
 
@@ -121,7 +121,7 @@ flowchart LR
 
 - Each machine with `doltap init --repo …` shares the same git remote. `doltap schedule install` pulls every 10 minutes so reads never block on a slow network.
 - Machines without a clone (a laptop, claude.ai on the web) use **remote access**: on an always-on machine run `doltap serve install` and publish it over HTTPS (Tailscale Funnel, for example); other machines connect with `doltap integrations install claude --remote <URL>`, and claude.ai registers it as a custom connector. See "Security" below for the model.
-- Conflicts are never auto-merged. `doltap sync` and `doltap audit` list conflict files; merge the two versions and delete the file.
+- Conflicts are never auto-merged. `doltap sync` and `doltap audit` list conflict files; merge the two versions and finish with `doltap resolve <id> --file merged.md` (`wiki_resolve_conflict` over MCP), which deletes the copy and commits. Only the tag vocabulary `_meta/tags.yaml` merges automatically through `merge=union` in `.gitattributes`; wikis created before 0.3.0 need the line `wiki/_meta/tags.yaml merge=union` added there.
 
 ## A maintainer agent (optional)
 
