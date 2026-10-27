@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { cpSync, mkdtempSync, rmSync } from "node:fs";
+import { cpSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,6 +17,7 @@ beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), "doltap-http-"));
   cpSync(fileURLToPath(new URL("../../core/test/fixtures/wiki/", import.meta.url)), join(dir, "wiki"), { recursive: true });
   cfg = resolveConfig({ root: dir, noSync: true, agent: "test" });
+  writeFileSync(join(cfg.stateDir, "http-clients.json"), JSON.stringify({ laptop: { token: "cd".repeat(32), readOnly: true, created: "2026-10-27" } }));
   srv = await startHttpServer(cfg, { port: 0, host: "127.0.0.1", token: TOKEN, maxBodyBytes: 64 * 1024 });
   base = `http://127.0.0.1:${srv.port}`;
 });
@@ -36,7 +37,7 @@ describe("http transport", () => {
     expect(text).toContain("doltap");
     expect(text).toContain("instructions");
     expect(text).toContain("wiki_search");
-    const wrong = await fetch(`${base}/${"cd".repeat(32)}/mcp`, { method: "POST", headers, body: init });
+    const wrong = await fetch(`${base}/${"ef".repeat(32)}/mcp`, { method: "POST", headers, body: init });
     expect(wrong.status).toBe(404);
     const short = await fetch(`${base}/x/mcp`, { method: "POST", headers, body: init });
     expect(short.status).toBe(404);
@@ -65,5 +66,17 @@ describe("http transport", () => {
     expect(await postWithHost("evil.example:8765")).toBe(421);
     expect(await postWithHost("box.tail1234.ts.net")).toBe(200);
     expect(await postWithHost("localhost:1234")).toBe(200);
+  });
+});
+
+describe("per-client tokens", () => {
+  const call = (token: string, name: string, args: Record<string, unknown>) =>
+    fetch(`${base}/${token}/mcp`, { method: "POST", headers, body: JSON.stringify({ jsonrpc: "2.0", id: 9, method: "tools/call", params: { name, arguments: args } }) }).then((r) => r.text());
+  it("a read-only client token can search but not write", async () => {
+    const ro = "cd".repeat(32);
+    expect(await call(ro, "wiki_search", { query: "obsidian" })).toContain("reference/obsidian-conventions");
+    const w = await call(ro, "wiki_patch_section", { id: "reference/obsidian-conventions", section: "Details", content: "x" });
+    expect(w).toContain("read-only");
+    expect(w).toContain("isError");
   });
 });

@@ -7,3 +7,5 @@
 *.png binary
 *.jpg binary
 *.pdf binary
+# The tag vocabulary is append-mostly: concurrent additions from two machines are both kept instead of conflicting.
+wiki/_meta/tags.yaml merge=union

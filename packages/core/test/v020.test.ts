@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { WikiDb, get, lintAll, parsePage, patchMeta, patchSection, pull, readPage, refreshHubs, replaceSection, resolveConfig, search, upsertPage, type WikiConfig } from "../src/index.js";
+import { WikiDb, deprecatePage, get, lintAll, parsePage, patchMeta, patchSection, pull, readPage, refreshHubs, replaceSection, resolveConfig, search, upsertPage, type WikiConfig } from "../src/index.js";
 import { cfgFor, makeTwoMachines, makeWikiCopy, sh, type Fixture } from "./helpers.js";
 
 const howto = (n: string) => `## Prerequisites\n\n${n}\n\n## Steps\n\n1. y\n\n## Verification\n\nz\n\n## Pitfalls\n\n- w\n\n## Related\n\n- [[howto/_index]]\n`;
@@ -132,7 +132,8 @@ describe("hub lists are derived from the index", () => {
     const hub1 = readPage(A, "howto/_index")!.body;
     expect(hub1).toContain("- [[howto/one]] — Changed.");
     expect(hub1).not.toContain("First.");
-    patchMeta(A, { id: "howto/one", confidence: "deprecated" });
+    upsertPage(A, { id: "howto/two", title: "Two", summary: "Second.", tags: ["wiki"], body: howto("v2"), force: true });
+    deprecatePage(A, { id: "howto/one", replacedBy: "howto/two" });
     expect(readPage(A, "howto/_index")!.body).toContain("- [[howto/one]] — (deprecated) Changed.");
     const hubPath = join(m.a, "wiki/howto/_index.md");
     writeFileSync(hubPath, readFileSync(hubPath, "utf8").replace(/- \[\[howto\/one\]\][^\n]*\n/, ""));

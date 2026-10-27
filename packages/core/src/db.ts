@@ -14,6 +14,8 @@ export interface PageRow {
   created: string;
   updated: string;
   rel_path: string;
+  /** Set on deprecated pages: the id to use instead. */
+  replaced_by: string | null;
 }
 
 export interface SearchHit extends PageRow {
@@ -39,6 +41,9 @@ export interface BrokenPage {
   error: string;
 }
 
+/** Bump when the table layout changes: an older index file is dropped and rebuilt on open. */
+const SCHEMA_VERSION = 2;
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS pages (
   id TEXT PRIMARY KEY,
@@ -51,7 +56,8 @@ CREATE TABLE IF NOT EXISTS pages (
   created TEXT NOT NULL,
   updated TEXT NOT NULL,
   mtime INTEGER NOT NULL,
-  size INTEGER NOT NULL
+  size INTEGER NOT NULL,
+  replaced_by TEXT
 );
 CREATE VIRTUAL TABLE IF NOT EXISTS pages_fts USING fts5(
   id UNINDEXED, title, summary, tags, body, tokenize='porter unicode61'
@@ -91,6 +97,11 @@ export class WikiDb {
     // Readers also write (incremental reindex), so a concurrent process must wait instead of failing with "database is locked".
     this.db.exec("PRAGMA busy_timeout=5000");
     this.db.exec("PRAGMA journal_mode=WAL");
+    const v = Number((this.db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version);
+    if (v !== SCHEMA_VERSION) {
+      this.db.exec("DROP TABLE IF EXISTS pages; DROP TABLE IF EXISTS pages_fts; DROP TABLE IF EXISTS links;");
+      this.db.exec(`PRAGMA user_version=${SCHEMA_VERSION}`);
+    }
     this.db.exec(SCHEMA);
   }
 
@@ -117,10 +128,10 @@ export class WikiDb {
     const { meta } = page;
     this.db
       .prepare(
-        `INSERT OR REPLACE INTO pages (id, rel_path, title, category, summary, tags, confidence, created, updated, mtime, size)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT OR REPLACE INTO pages (id, rel_path, title, category, summary, tags, confidence, created, updated, mtime, size, replaced_by)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
       )
-      .run(page.id, page.relPath, meta.title, meta.category, meta.summary, JSON.stringify(meta.tags), meta.confidence, meta.created, meta.updated, mtime, size);
+      .run(page.id, page.relPath, meta.title, meta.category, meta.summary, JSON.stringify(meta.tags), meta.confidence, meta.created, meta.updated, mtime, size, meta.replaced_by ? String(meta.replaced_by) : null);
     this.db.prepare("DELETE FROM pages_fts WHERE id = ?").run(page.id);
     this.db
       .prepare("INSERT INTO pages_fts (id, title, summary, tags, body) VALUES (?,?,?,?,?)")
@@ -199,6 +210,7 @@ export class WikiDb {
       created: String(r.created),
       updated: String(r.updated),
       rel_path: String(r.rel_path),
+      replaced_by: r.replaced_by == null ? null : String(r.replaced_by),
     };
   }
 

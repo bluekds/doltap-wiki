@@ -18,7 +18,10 @@ export interface GitResult {
 export interface SyncReport {
   pulled: boolean;
   pushed: boolean;
+  /** The remote could not be reached (DNS, connection, timeout). The commit is kept locally and pushed later. */
   offline: boolean;
+  /** The remote answered but refused: authentication, permissions, wrong URL, missing repository. Needs a human. */
+  remoteError?: string;
   conflicts: string[];
   messages: string[];
 }
@@ -79,8 +82,39 @@ export function writeSyncState(cfg: WikiConfig, patch: SyncState): void {
   writeFileSync(statePath(cfg), JSON.stringify({ ...readSyncState(cfg), ...patch }, null, 2));
 }
 
+/** Authentication, permission and URL problems: retrying will not help, a human must fix the remote or the credentials. */
+function remoteErrorOf(stderr: string): string | null {
+  const m = /permission denied|authentication failed|could not read username|invalid username or password|the requested url returned error: 40[134]|repository not found|does not appear to be a git repository|does not exist|repository '.*' not found/i.exec(stderr);
+  if (!m) return null;
+  const line = stderr.split("\n").find((l) => l.toLowerCase().includes(m[0].toLowerCase())) ?? m[0];
+  return redactCredentials(line.replace(/^fatal:\s*/i, "").trim());
+}
+
+/** Network-level failures only; auth and URL errors are classified by remoteErrorOf first. */
 function looksOffline(stderr: string): boolean {
-  return /could not resolve|unable to access|connection|network|timed out|Could not read from remote/i.test(stderr);
+  return /could not resolve|unable to access|connection|network|timed out|no route to host|Could not read from remote/i.test(stderr);
+}
+
+/** Classify a failed pull/push into the report. Returns true when it was handled (offline or remote error). */
+function reportRemoteFailure(report: SyncReport, verb: string, stderr: string): boolean {
+  const err = remoteErrorOf(stderr);
+  if (err) {
+    report.remoteError = err;
+    report.messages.push(`remote error: ${err} (${verb} skipped, commit saved locally)`);
+    return true;
+  }
+  if (looksOffline(stderr)) {
+    report.offline = true;
+    report.messages.push(`${verb} skipped: remote unreachable (commit saved locally)`);
+    return true;
+  }
+  return false;
+}
+
+/** Writes need a branch to commit on; a detached HEAD would orphan the commit while the report says it was saved. */
+export function assertOnBranch(cfg: WikiConfig): void {
+  if (!isRepo(cfg)) return;
+  if (!git(cfg, ["symbolic-ref", "-q", "HEAD"], { allowFail: true }).ok) throw new Error("repository is on a detached HEAD; check out a branch (git checkout main) before writing");
 }
 
 /**
@@ -156,11 +190,7 @@ export function pull(cfg: WikiConfig, report: SyncReport = emptyReport()): SyncR
     writeSyncState(cfg, { lastPull: new Date().toISOString() });
     return report;
   }
-  if (looksOffline(res.stderr)) {
-    report.offline = true;
-    report.messages.push("pull skipped: remote unreachable");
-    return report;
-  }
+  if (reportRemoteFailure(report, "pull", res.stderr)) return report;
   const output = res.stderr + res.stdout;
   if (/conflict/i.test(output)) {
     const saved = resolveRebaseConflicts(cfg);
@@ -203,9 +233,7 @@ export function commitAndPush(cfg: WikiConfig, paths: string[], message: string,
       writeSyncState(cfg, { pendingPush: false });
       return report;
     }
-    if (looksOffline(res.stderr)) {
-      report.offline = true;
-      report.messages.push("push skipped: remote unreachable (commit saved locally)");
+    if (reportRemoteFailure(report, "push", res.stderr)) {
       writeSyncState(cfg, { pendingPush: true });
       return report;
     }
@@ -225,8 +253,7 @@ export function pushPending(cfg: WikiConfig, report: SyncReport = emptyReport())
   if (res.ok) {
     report.pushed = true;
     writeSyncState(cfg, { pendingPush: false });
-  } else if (looksOffline(res.stderr)) report.offline = true;
-  else report.messages.push(redactCredentials(`push failed: ${res.stderr}`));
+  } else if (!reportRemoteFailure(report, "push", res.stderr)) report.messages.push(redactCredentials(`push failed: ${res.stderr}`));
   return report;
 }
 

@@ -143,13 +143,18 @@ doltap index                              # one line per page
 doltap template <category>
 doltap add <category>/<slug> --title .. --summary .. --tags a,b [--file body.md | --stdin] [--force] [--replace --base-rev <rev>]
 doltap patch <id> -s "Section" (--content .. | --file .. | --stdin) [--append] [--create] [--base-rev <rev>]
-doltap meta <id> [--confidence verified] [--add-source ..] [--add-tag ..]
+doltap meta <id> [--add-source ..] [--add-tag ..] [--title ..] [--summary ..]
+doltap verify <id> --evidence ".."           # draft -> verified; refuses the creating session
+doltap deprecate <id> --replaced-by <id>     # sets replaced_by, banner, hub entry
+doltap resolve <id> (--file merged.md | --stdin | --take conflict)   # finish a *.conflict-<host>.md
+doltap tags [list] | tags add <tag> <description> [--group g] | tags remove <tag>
 doltap lint [ids...]
 doltap sync                               # pull, push pending, reindex, refresh hub lists, publish read stats, list conflict files
 doltap reindex [--full]
 doltap audit [--unreferenced-days 90] [--stale-days 90] [--draft-days 30]
 doltap schedule install|status|uninstall  # periodic sync
 doltap serve install [--show-url]|status|uninstall|token [--rotate] [--quiet]   # always-on HTTP MCP service
+doltap serve client add <name> [--read-only] | list | remove <name>   # named tokens: commits carry the name
 doltap integrations install|uninstall claude [--remote [<url>]] [--dry-run]   # --remote without a value reads $DOLTAP_REMOTE_URL
 ```
 
@@ -167,7 +172,9 @@ Global flags `--root`, `--agent`, `--session`, `--no-sync`, `--json`. Environmen
 | `wiki_template` | Category template |
 | `wiki_upsert` | Create a page (duplicate detection, lint); `replace` + `base_rev` to rewrite one |
 | `wiki_patch_section` | Replace or append one section; `base_rev` refuses a stale edit |
-| `wiki_set_meta` | Frontmatter changes: promote confidence, add sources and tags |
+| `wiki_set_meta` | Frontmatter changes: sources, tags, title, summary |
+| `wiki_verify`, `wiki_deprecate` | Promote with evidence (not by the creating session); retire with `replaced_by` |
+| `wiki_resolve_conflict`, `wiki_add_tag` | Finish a conflict copy; extend the tag vocabulary |
 | `wiki_lint`, `wiki_sync`, `wiki_audit` | Validation, sync, health report |
 
 Resources: `wiki://protocol`, `wiki://index`, `wiki://tags`.
@@ -182,7 +189,7 @@ Resources: `wiki://protocol`, `wiki://index`, `wiki://tags`.
 - Page ids are validated everywhere (`<category>/<slug>` characters only), so a request cannot name a file outside `wiki/`.
 - The service binds to 127.0.0.1 by default. Exposing it to the internet is a deliberate step in an outer layer such as Tailscale Funnel.
 - Wiki content lives forever in git history, and every page an agent reads is sent to that agent's model provider. That is why secret values never go in.
-- Commits made through the remote server carry the server's hostname; per-client attribution over HTTP is not available yet.
+- Commits made through the remote server carry the server's hostname and the client name when a named token is used (`doltap serve client add <name>`); `--read-only` tokens can search and read but not write.
 
 </details>
 
