@@ -146,17 +146,22 @@ doltap verify <id> --evidence ".."           # draft -> verified; 만든 세션�
 doltap deprecate <id> --replaced-by <id>     # replaced_by, 배너, 허브 항목
 doltap resolve <id> (--file merged.md | --stdin | --take conflict)   # *.conflict-<host>.md 정리
 doltap tags [list] | tags add <tag> <description> [--group g] | tags remove <tag>
+doltap history <id> [-n 20]               # 페이지를 바꾼 commit: 누가, 언제, 무엇을
 doltap lint [ids...]
-doltap sync                               # pull, 밀린 push, reindex, 읽기 통계 발행, 충돌 파일 목록
+doltap sync                               # pull, 밀린 push, reindex, 읽기 통계 발행, 충돌 파일 목록, 로그 회전
 doltap reindex [--full]
 doltap audit [--unreferenced-days 90] [--stale-days 90] [--draft-days 30]
+doltap doctor [--healthz <url>] [--no-services] [--quiet]   # 유지보수 점검 전부: 실패가 있으면 exit 1
+doltap upgrade [--diff] [--apply]         # 설치된 버전의 스켈레톤과 비교; 설정·템플릿 갱신, PROTOCOL은 diff만
 doltap schedule install|status|uninstall  # 주기적 sync
 doltap serve install [--show-url]|status|uninstall|token [--rotate] [--quiet]   # 상시 HTTP MCP 서비스
 doltap serve client add <name> [--read-only] | list | remove <name>   # 이름 붙은 토큰: commit에 이름이 남음
-doltap integrations install|uninstall claude [--remote [<url>]] [--dry-run]   # --remote에 값을 빼면 $DOLTAP_REMOTE_URL을 읽음
+doltap integrations install|uninstall|status claude [--remote [<url>]] [--dry-run]   # --remote에 값을 빼면 $DOLTAP_REMOTE_URL을 읽음
 ```
 
-전역 옵션 `--root`, `--agent`, `--session`, `--no-sync`, `--json`. 환경변수 `DOLTAP_ROOT`, `DOLTAP_AGENT`, `DOLTAP_SESSION`, `DOLTAP_NO_SYNC=1`, `DOLTAP_AUTO_PULL_MINUTES`(기본 10), `DOLTAP_REMOTE_URL`, `DOLTAP_HTTP_ALLOWED_HOSTS`.
+전역 옵션 `--root`, `--agent`, `--session`, `--no-sync`, `--json`. 환경변수 `DOLTAP_ROOT`, `DOLTAP_AGENT`, `DOLTAP_SESSION`, `DOLTAP_NO_SYNC=1`, `DOLTAP_AUTO_PULL_MINUTES`(기본 10; 원격이 안 닿을 때 push를 건너뛰는 시간이기도 함), `DOLTAP_REMOTE_TIMEOUT_MS`(pull/push 한 번의 상한, 기본 15000), `DOLTAP_REMOTE_URL`, `DOLTAP_HTTP_ALLOWED_HOSTS`.
+
+`doltap doctor`는 관리자 루틴의 시작 점검(저장소 상태, 스케줄러와 HTTP 서비스, 마지막 pull 시각, tags.yaml, lint, 색인, 토큰 파일 권한, 로그 크기, 설치된 skill 버전)을 한 번에 돌리고 고칠 명령을 함께 보여 줍니다. 읽기 전용입니다.
 
 `doltap audit`는 모든 머신의 읽기 통계(`wiki/_meta/stats/<host>.json`, sync가 6시간에 한 번 발행)를 합쳐서 아무도 읽지 않는 페이지, 오래된 페이지, 오래 머문 draft, 고아 페이지, 아직 링크되는 deprecated 페이지, 충돌 파일을 보고합니다.
 
@@ -167,6 +172,7 @@ doltap integrations install|uninstall claude [--remote [<url>]] [--dry-run]   # 
 | `wiki_search` | 전문 검색 (카테고리, 태그, 개수 필터) |
 | `wiki_get` | 페이지 전체 또는 한 섹션, `rev` 포함 |
 | `wiki_list`, `wiki_related` | 목록, 연결된 페이지(링크, 백링크, 공유 태그) |
+| `wiki_history` | 페이지를 바꾼 commit 목록 (누가, 언제, 어떤 작업, 근거) |
 | `wiki_template` | 카테고리 템플릿 |
 | `wiki_upsert` | 페이지 생성 (중복 감지, lint); 전체 교체는 `replace` + `base_rev` |
 | `wiki_patch_section` | 한 섹션 교체 또는 추가; `base_rev`가 다르면 거부 |

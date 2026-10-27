@@ -7,6 +7,7 @@ import { git, hasRemote, isRepo, listConflictFiles, readSyncState, remoteBackoff
 import { DEFAULT_LOG_MAX_BYTES, listLogs } from "./logs.js";
 import { httpServiceStatus, scheduleStatus } from "./schedule.js";
 import { loadTags, tagsPath } from "./tags.js";
+import { planUpgrade } from "./upgrade.js";
 import { lintAll } from "./write.js";
 
 export type DoctorStatus = "ok" | "warn" | "fail" | "skip";
@@ -199,6 +200,14 @@ function logsCheck(cfg: WikiConfig, checks: DoctorCheck[], maxBytes: number): vo
   }
 }
 
+function skeletonCheck(cfg: WikiConfig, checks: DoctorCheck[]): void {
+  try {
+    const plan = planUpgrade(cfg);
+    if (plan.applicable.length) checks.push({ name: "skeleton", status: "warn", detail: `${plan.applicable.length} shipped file(s) differ or are missing: ${plan.applicable.map((i) => i.path).slice(0, 3).join(", ")}${plan.applicable.length > 3 ? ", …" : ""}`, fix: "doltap upgrade --apply" });
+    else checks.push({ name: "skeleton", status: "ok", detail: `config and templates match doltap ${plan.skeletonVersion}${plan.review.length ? `; ${plan.review.map((i) => i.path).join(", ")} customised` : ""}` });
+  } catch (e) { checks.push({ name: "skeleton", status: "warn", detail: `cannot compare with the skeleton: ${(e as Error).message.split("\n")[0]}` }); }
+}
+
 function nodeCheck(checks: DoctorCheck[]): void {
   const [major, minor] = process.versions.node.split(".").map(Number);
   if (major < 22 || (major === 22 && minor < 13)) checks.push({ name: "node", status: "fail", detail: `node ${process.versions.node} is below 22.13 (node:sqlite)`, fix: "install a current LTS line" });
@@ -250,6 +259,7 @@ export async function doctor(cfg: WikiConfig, o: DoctorOptions = {}): Promise<Do
   contentChecks(cfg, checks);
   sessionCheck(cfg, checks, o.recentCommits ?? 30);
   secretsChecks(cfg, checks);
+  skeletonCheck(cfg, checks);
   logsCheck(cfg, checks, o.logMaxBytes ?? DEFAULT_LOG_MAX_BYTES);
   checks.push(...(o.extra ?? []));
   const failures = checks.filter((c) => c.status === "fail").length;

@@ -101,6 +101,7 @@ cd ~
 doltap lint                      # expect: 0 error(s)
 doltap search obsidian           # expect: reference/obsidian-conventions first
 doltap sync                      # expect: pulled: true ... offline: false (a new wiki has 9 pages)
+doltap doctor                    # expect: 0 failure(s); warnings name the command that clears them
 ```
 
 For Claude Code also run `claude mcp get doltap` and expect `Status: ✔ Connected`.

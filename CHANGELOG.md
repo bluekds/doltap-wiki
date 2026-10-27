@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.0 (2026-10-28)
+
+Operability: the checks the maintenance routine did by hand are commands now.
+
+- **`doltap doctor`**: one read-only run of every health check with `--json` and exit 1 on failures: git state (branch, identity, unpushed commits, uncommitted pages, conflict copies), scheduler and HTTP service (with a `/healthz` probe; `--healthz <url>` probes the public endpoint too), pull age against the scheduled interval, `tags.yaml`, lint, index consistency, session trailers on recent writes, token file modes and client names, shipped config drift, log sizes and `sync.err`, Node line, and the Claude Code integration (skill copy, instruction section, MCP registration). `--no-services` and `--quiet` for scripts
+- **`doltap upgrade`**: compares the wiki with the skeleton shipped in the installed version. `--apply` appends missing `.gitignore` / `.gitattributes` lines (the `merge=union` rule for old wikis) and replaces Obsidian config and page templates in one commit; `PROTOCOL.md` and `tags.yaml` differences are shown with `--diff` for a manual merge; example pages are never touched
+- **`wiki_history` / `doltap history <id>`**: the commits that changed a page, newest first, with action, host, agent, session and note (verify evidence, deprecate reason)
+- **`doltap integrations status`**: whether the installed skill, instruction section and MCP registration match this version
+- **Write latency cap.** One pull or push never waits longer than `DOLTAP_REMOTE_TIMEOUT_MS` (default 15 s). After the remote is found unreachable, writes skip the push for `DOLTAP_AUTO_PULL_MINUTES` and report `push deferred`; `doltap sync` (the scheduler) always retries, and any successful pull or push clears the backoff
+- Logs in `.doltap/logs/` are rotated by `sync` once they pass 1 MB (copy-truncate, three generations kept); `serve status` reports host, port and pid
+- Fixes for audit items left unverified in 0.3.1: `resolve --take conflict` restores a page the upstream deleted from its conflict copy; hub refresh and stats publishing refuse a detached HEAD; `sync` reports `pushed: true` when the hub refresh commit is what got pushed; a CRLF `tags.yaml` is rewritten as LF without duplicating groups
+
 ## 0.3.1 (2026-10-27)
 
 Fixes from the 0.3.0 independent audits (security and core).

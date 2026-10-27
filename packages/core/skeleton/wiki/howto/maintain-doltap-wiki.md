@@ -9,7 +9,7 @@ tags:
   - tooling
 confidence: draft
 created: 2026-10-18
-updated: 2026-10-18
+updated: 2026-10-28
 sources: []
 ---
 ## Prerequisites
@@ -23,8 +23,8 @@ sources: []
 ### Every maintenance session (start)
 
 1. `doltap sync` and read its output: `pulled: true`, no conflict files
-2. `doltap schedule status` reports the periodic sync as installed; if `doltap serve` is used, `doltap serve status` reports it running
-3. `doltap lint` reports 0 errors; fix errors before anything else
+2. `doltap doctor` reports 0 failures (it checks the scheduler, the HTTP service and `/healthz`, the last pull, lint, tags, index, token files, logs and the installed skill); each warning names the command that clears it. Fix failures before anything else
+3. `doltap lint` reports 0 errors (also part of doctor; run it alone to see every issue)
 
 ### Weekly
 
@@ -38,12 +38,14 @@ sources: []
 
 1. Re-verify `reference/` pages about external services whose "Verified on" date is older than ~60 days; update or record what changed
 2. From `doltap audit`, propose deprecating pages nobody read or updated in 90 days (except rare-but-critical procedures)
-3. Update the tooling: `npm install -g doltap-wiki@latest`, then re-run `doltap schedule install` (and `doltap serve install` if used) so the services pick up the new binary
-4. Tag vocabulary: `doltap audit` lists unused tags; `doltap tags remove <tag>` drops one, `doltap tags add <tag> <description> --group <g>` adds the ones agents keep needing
+3. Update the tooling: `npm install -g doltap-wiki@latest`, then re-run `doltap schedule install` (and `doltap serve install` if used) so the services pick up the new binary; then `doltap upgrade` and apply the shipped config and template changes with `--apply`, merging any `PROTOCOL.md` diff by hand
+4. `doltap integrations status` on each machine with Claude Code: a stale skill copy means `doltap integrations install claude` again
+5. Tag vocabulary: `doltap audit` lists unused tags; `doltap tags remove <tag>` drops one, `doltap tags add <tag> <description> --group <g>` adds the ones agents keep needing
 
 ### Event-driven
 
-- A `*.conflict-<host>.md` file appears: merge both versions, then `doltap resolve <id> --file merged.md` (or `--take conflict` to keep the copy); it deletes the copy and commits
+- A `*.conflict-<host>.md` file appears: merge both versions, then `doltap resolve <id> --file merged.md` (or `--take conflict` to keep the copy); it deletes the copy and commits. When the page itself is gone (deleted upstream), `--take conflict` restores it from the copy
+- `doltap history <id>` shows who changed a page and when, with the evidence recorded at verification; use it before questioning or rewriting someone's page
 - `doltap lint` reports a `symlink` error: someone committed a symbolic link under `wiki/`; it is never read, but remove it (`git rm`) and check who pushed it (`git log -- <path>`)
 - A machine reports a stuck repository: see [[howto/setup-wiki-on-new-machine#Pitfalls]]
 - The HTTP token was exposed (chat, log, screenshot): `doltap serve token --rotate --quiet && doltap serve install` (neither prints the token), then update every remote registration
