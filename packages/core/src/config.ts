@@ -16,8 +16,10 @@ export interface WikiConfig {
   session?: string;
   /** Skip git pull/push entirely (tests, offline). */
   noSync: boolean;
-  /** Minutes before an automatic pull is attempted on read. */
+  /** Minutes before an automatic pull is attempted on read; also how long a write skips the remote after it was found unreachable. */
   autoPullMinutes: number;
+  /** Upper bound for one pull or push, ms. A write never waits longer than this for the remote. */
+  remoteTimeoutMs: number;
 }
 
 export const CATEGORIES = ["howto", "patterns", "reference", "decisions", "projects"] as const;
@@ -59,6 +61,7 @@ export interface ConfigOverrides {
   session?: string;
   noSync?: boolean;
   autoPullMinutes?: number;
+  remoteTimeoutMs?: number;
 }
 
 /**
@@ -88,6 +91,7 @@ export function resolveConfig(o: ConfigOverrides = {}): WikiConfig {
     session: o.session ?? env.DOLTAP_SESSION ?? env.CLAUDE_CODE_SESSION_ID,
     noSync: o.noSync ?? env.DOLTAP_NO_SYNC === "1",
     autoPullMinutes: o.autoPullMinutes ?? Number(env.DOLTAP_AUTO_PULL_MINUTES ?? 10),
+    remoteTimeoutMs: o.remoteTimeoutMs ?? Number(env.DOLTAP_REMOTE_TIMEOUT_MS ?? 15000),
   };
 }
 

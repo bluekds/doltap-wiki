@@ -11,3 +11,7 @@ export * from "./query.js";
 export * from "./audit.js";
 export * from "./schedule.js";
 export * from "./scaffold.js";
+export * from "./logs.js";
+export * from "./doctor.js";
+export * from "./history.js";
+export * from "./upgrade.js";

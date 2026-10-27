@@ -17,9 +17,9 @@ Versions below are ordering, not dates. Items move between versions when real us
 - No web UI. Obsidian is the viewer for people.
 - No hosted service, no mandatory OAuth, no dependency on any agent framework.
 
-## 0.4 Operability
+## 0.4 Operability (shipped in 0.4.0)
 
-Everything a person does by hand today during the daily and weekly checks becomes a command.
+Everything a person does by hand today during the daily and weekly checks becomes a command. Delivered: `doltap doctor`, `doltap upgrade`, `integrations status`, log rotation, `wiki_history`, the write-latency cap with offline backoff (git stays synchronous; the HTTP server blocks for at most one capped remote call), and the open audit items. The remaining 0.4 bullet, fully asynchronous git in the HTTP server, moves to 0.6 with the session work.
 
 - `doltap doctor`: one command that checks sync, schedule, serve, `/healthz`, lint and conflict copies, with `--json` output. Includes the checks the 0.3.0 audit added: symlinked pages, `tags.yaml` parses, a session id is configured for writers.
 - `doltap upgrade`: shows skeleton changes (such as the `.gitattributes` union line or PROTOCOL wording) as a diff against an existing wiki and applies them. This was done by hand twice during 0.2 to 0.3.

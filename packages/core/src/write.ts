@@ -118,15 +118,16 @@ export function regenerateHubLists(cfg: WikiConfig, db: WikiDb): string[] {
 }
 
 /** Regenerate hub lists outside a page write (sync, scheduler) and commit them. Returns root-relative paths that changed. */
-export function refreshHubs(cfg: WikiConfig): string[] {
+export function refreshHubs(cfg: WikiConfig, report?: SyncReport): string[] {
   return withWriteLock(cfg, () => {
+    assertOnBranch(cfg);
     const db = new WikiDb(cfg);
     try {
       db.reindex();
       const changed = regenerateHubLists(cfg, db).map((rel) => `wiki/${rel}`); // posix, like git pathspecs and SyncReport paths
       if (changed.length) {
         db.reindex();
-        commitAndPush(cfg, changed, commitMessage(cfg, "refresh", "hub lists"));
+        commitAndPush(cfg, changed, commitMessage(cfg, "refresh", "hub lists"), report);
       }
       return changed;
     } finally {
@@ -446,16 +447,24 @@ export function resolveConflict(cfg: WikiConfig, input: ResolveInput): WriteResu
     const db = new WikiDb(cfg);
     try {
       db.reindex();
-      const page = readPage(cfg, input.id);
-      if (!page) throw new Error(`page not found: ${input.id}`);
-      const stale = staleRefusal(page.rev, input.baseRev);
-      if (stale) return { id: input.id, path: page.relPath, created: false, issues: [], sync, refused: stale };
       const copies = conflictCopiesOf(cfg, input.id);
+      const copy = copies.length === 1 ? parsePage(cfg, copies[0], readFileSync(join(cfg.wikiDir, copies[0]), "utf8")) : null;
+      let page = readPage(cfg, input.id);
+      // The upstream deleted the page while this clone edited it: the conflict copy is all that is left, so restore from it.
+      const restoring = !page;
+      if (!page) {
+        if (!copies.length) throw new Error(`page not found: ${input.id}`);
+        if (!copy) throw new Error(`page ${input.id} is gone upstream and has several conflict copies (${copies.join(", ")}); keep one and retry`);
+        const relPath = relPathFromId(input.id);
+        page = { ...copy, relPath, absPath: join(cfg.wikiDir, relPath) };
+      }
+      const stale = restoring ? null : staleRefusal(page.rev, input.baseRev);
+      if (stale) return { id: input.id, path: page.relPath, created: false, issues: [], sync, refused: stale };
       let body = input.body;
       if (input.take === "conflict") {
         if (!copies.length) throw new Error(`no conflict copy for ${input.id}`);
-        if (copies.length > 1) throw new Error(`multiple conflict copies for ${input.id} (${copies.join(", ")}); merge them and pass the body`);
-        body = parsePage(cfg, copies[0], readFileSync(join(cfg.wikiDir, copies[0]), "utf8")).body;
+        if (!copy) throw new Error(`multiple conflict copies for ${input.id} (${copies.join(", ")}); merge them and pass the body`);
+        body = copy.body;
       }
       if (body === undefined) throw new Error("pass the merged body, or take: \"conflict\" to keep the conflict copy");
       const meta: PageMeta = { ...page.meta, updated: today() };
@@ -470,8 +479,8 @@ export function resolveConflict(cfg: WikiConfig, input: ResolveInput): WriteResu
       db.reindex();
       const hubs = regenerateHubLists(cfg, db);
       const touched = [join("wiki", page.relPath), ...tracked.map((c) => `wiki/${c}`), ...hubs.map((rel) => join("wiki", rel))];
-      commitAndPush(cfg, touched, commitMessage(cfg, "resolve conflict", input.id, copies.length ? `removed: ${copies.join(", ")}` : undefined), sync);
-      return { id: input.id, path: page.relPath, created: false, issues, sync, rev: revAfterHubs(cfg, input.id, next, hubs) };
+      commitAndPush(cfg, touched, commitMessage(cfg, "resolve conflict", input.id, `${restoring ? "restored from the conflict copy (deleted upstream); " : ""}${copies.length ? `removed: ${copies.join(", ")}` : ""}`.trim() || undefined), sync);
+      return { id: input.id, path: page.relPath, created: restoring, issues, sync, rev: revAfterHubs(cfg, input.id, next, hubs) };
     } finally {
       db.close();
     }

@@ -29,6 +29,7 @@ import {
   isCategoryHub,
   publishHostStats,
   PAGE_ID_RE,
+  pageHistory,
   type WikiConfig,
 } from "@bluekds/doltap-core";
 
@@ -69,7 +70,7 @@ const INSTRUCTIONS = `Doltap is a shared wiki for agents (howto, patterns, refer
 - Never write secret values (tokens, keys, passwords, connector URLs); record where the secret lives and how to load it. Internal hosts are fine.
 - English only. Tags only from wiki://tags (add one with wiki_add_tag). Hub lists are generated; do not edit them. Deprecate with wiki_deprecate, finish a conflict with wiki_resolve_conflict.`;
 
-const server = new McpServer({ name: "doltap", version: "0.3.1" }, { instructions: INSTRUCTIONS });
+const server = new McpServer({ name: "doltap", version: "0.4.0" }, { instructions: INSTRUCTIONS });
 
 // ------------------------------------------------------------------ resources
 server.registerResource("protocol", "wiki://protocol", { title: "Doltap protocol", description: "Rules for reading, writing, and classifying wiki pages. Read before writing.", mimeType: "text/markdown" }, async (uri) => ({
@@ -150,6 +151,18 @@ server.registerTool(
       const { result } = related(cfg, a.id);
       const slim = (rows: { id: string; summary: string; confidence: string }[]) => rows.map((r) => ({ id: r.id, confidence: r.confidence, summary: r.summary }));
       return text({ outlinks: slim(result.outlinks), backlinks: slim(result.backlinks), shared_tags: slim(result.sharedTags) });
+    } catch (e) { return errorText(e); }
+  },
+);
+
+server.registerTool(
+  "wiki_history",
+  { title: "Page history", description: "Commits that changed a page, newest first: rev, date, action (add/update/verify/deprecate/…), host, agent, session and the note (verify evidence, deprecate reason). Use to see who changed what and when before trusting or editing a page.", inputSchema: { id: PageId, limit: z.number().int().min(1).max(200).optional() } },
+  async (a) => {
+    try {
+      const entries = pageHistory(cfg, a.id, a.limit ?? 20);
+      if (!entries.length) return errorText(new Error(`no history for ${a.id} (unknown page or not committed yet)`));
+      return text({ id: a.id, entries });
     } catch (e) { return errorText(e); }
   },
 );
@@ -320,7 +333,7 @@ server.registerTool(
     try {
       const ro = readOnly(); if (ro) return ro;
       const report = syncAll(cfg);
-      const hubs = refreshHubs(cfg);
+      const hubs = refreshHubs(cfg, report);
       const db = new WikiDb(cfg);
       const r = db.reindex();
       publishHostStats(cfg, db, report);

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
 import type { WikiConfig } from "./config.js";
@@ -96,6 +96,29 @@ export interface ScheduleResult {
   platform: string;
   installed: boolean;
   detail: string;
+  /** Sync interval recorded in the service definition (launchd StartInterval or crontab step), when known. */
+  intervalMinutes?: number;
+  /** HTTP service bind address and port recorded in the plist, when known. */
+  host?: string;
+  port?: number;
+  /** Process id of a running service, when the service manager reports one. */
+  pid?: number;
+}
+
+/** Read `--flag value` pairs and StartInterval back out of a plist written by launchdPlist. */
+function plistArgs(path: string): { args: string[]; startInterval?: number } {
+  let text = "";
+  try { text = readFileSync(path, "utf8"); } catch { return { args: [] }; }
+  const unescape = (v: string) => v.replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+  const arr = /<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/.exec(text)?.[1] ?? "";
+  const args = [...arr.matchAll(/<string>([^<]*)<\/string>/g)].map((m) => unescape(m[1]));
+  const si = /<key>StartInterval<\/key>\s*<integer>(\d+)<\/integer>/.exec(text)?.[1];
+  return { args, startInterval: si ? Number(si) : undefined };
+}
+
+function argValue(args: string[], flag: string): string | undefined {
+  const i = args.indexOf(flag);
+  return i >= 0 ? args[i + 1] : undefined;
 }
 
 /** Install a periodic `doltap sync` (launchd on macOS, crontab elsewhere). */
@@ -163,12 +186,14 @@ export function scheduleStatus(): ScheduleResult {
     if (!existsSync(p)) return { platform: "launchd", installed: false, detail: "not installed" };
     let loaded = false;
     try { loaded = execFileSync("launchctl", ["list"], { encoding: "utf8" }).includes(LABEL); } catch { /* ignore */ }
-    return { platform: "launchd", installed: true, detail: `${p} (${loaded ? "loaded" : "NOT loaded"})` };
+    const si = plistArgs(p).startInterval;
+    return { platform: "launchd", installed: true, detail: `${p} (${loaded ? "loaded" : "NOT loaded"})`, intervalMinutes: si ? Math.round(si / 60) : undefined };
   }
   let current = "";
   try { current = execFileSync("crontab", ["-l"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }); } catch { current = ""; }
   const line = current.split("\n").find((l) => l.includes(cronMarker()));
-  return { platform: "crontab", installed: !!line, detail: line ?? "not installed" };
+  const step = line ? /^\*\/(\d+)\s/.exec(line)?.[1] : undefined;
+  return { platform: "crontab", installed: !!line, detail: line ?? "not installed", intervalMinutes: step ? Number(step) : undefined };
 }
 
 // ------------------------------------------------------------------ always-on HTTP MCP service
@@ -217,5 +242,9 @@ export function httpServiceStatus(): ScheduleResult {
   let line = "";
   try { line = execFileSync("launchctl", ["list"], { encoding: "utf8" }).split("\n").find((l) => l.includes(SERVICE_LABEL)) ?? ""; } catch { /* ignore */ }
   const pid = line.split("\t")[0];
-  return { platform: "launchd", installed: true, detail: pid && pid !== "-" ? `running (pid ${pid})` : "loaded but not running" };
+  const args = plistArgs(p).args;
+  const port = Number(argValue(args, "--port") ?? 8765);
+  const host = argValue(args, "--host") ?? "127.0.0.1";
+  const running = !!pid && pid !== "-";
+  return { platform: "launchd", installed: true, detail: running ? `running (pid ${pid}) on ${host}:${port}` : `loaded but not running (${line ? "" : "not loaded; "}${host}:${port})`, host, port, pid: running ? Number(pid) : undefined };
 }

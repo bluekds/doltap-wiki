@@ -148,17 +148,22 @@ doltap verify <id> --evidence ".."           # draft -> verified; refuses the cr
 doltap deprecate <id> --replaced-by <id>     # sets replaced_by, banner, hub entry
 doltap resolve <id> (--file merged.md | --stdin | --take conflict)   # finish a *.conflict-<host>.md
 doltap tags [list] | tags add <tag> <description> [--group g] | tags remove <tag>
+doltap history <id> [-n 20]               # commits that changed a page: who, when, what
 doltap lint [ids...]
-doltap sync                               # pull, push pending, reindex, refresh hub lists, publish read stats, list conflict files
+doltap sync                               # pull, push pending, reindex, refresh hub lists, publish read stats, list conflict files, rotate logs
 doltap reindex [--full]
 doltap audit [--unreferenced-days 90] [--stale-days 90] [--draft-days 30]
+doltap doctor [--healthz <url>] [--no-services] [--quiet]   # every maintenance check at once; exit 1 on failures
+doltap upgrade [--diff] [--apply]         # compare with the installed version's skeleton; update config and templates, PROTOCOL shown as a diff
 doltap schedule install|status|uninstall  # periodic sync
 doltap serve install [--show-url]|status|uninstall|token [--rotate] [--quiet]   # always-on HTTP MCP service
 doltap serve client add <name> [--read-only] | list | remove <name>   # named tokens: commits carry the name
-doltap integrations install|uninstall claude [--remote [<url>]] [--dry-run]   # --remote without a value reads $DOLTAP_REMOTE_URL
+doltap integrations install|uninstall|status claude [--remote [<url>]] [--dry-run]   # --remote without a value reads $DOLTAP_REMOTE_URL
 ```
 
-Global flags `--root`, `--agent`, `--session`, `--no-sync`, `--json`. Environment: `DOLTAP_ROOT`, `DOLTAP_AGENT`, `DOLTAP_SESSION`, `DOLTAP_NO_SYNC=1`, `DOLTAP_AUTO_PULL_MINUTES` (default 10), `DOLTAP_REMOTE_URL`, `DOLTAP_HTTP_ALLOWED_HOSTS`.
+Global flags `--root`, `--agent`, `--session`, `--no-sync`, `--json`. Environment: `DOLTAP_ROOT`, `DOLTAP_AGENT`, `DOLTAP_SESSION`, `DOLTAP_NO_SYNC=1`, `DOLTAP_AUTO_PULL_MINUTES` (default 10; also how long writes skip the push after the remote was unreachable), `DOLTAP_REMOTE_TIMEOUT_MS` (cap for one pull or push, default 15000), `DOLTAP_REMOTE_URL`, `DOLTAP_HTTP_ALLOWED_HOSTS`.
+
+`doltap doctor` runs the maintainer's session-start checks in one go (repository state, scheduler and HTTP service, last pull, tags.yaml, lint, index, token file modes, log sizes, installed skill version) and prints the command that clears each warning. It is read-only.
 
 `doltap audit` merges read counts from every machine (`wiki/_meta/stats/<host>.json`, published by sync at most every 6 hours) and reports unreferenced pages, stale pages, lingering drafts, orphans, deprecated pages still linked, and conflict files.
 
@@ -169,6 +174,7 @@ Global flags `--root`, `--agent`, `--session`, `--no-sync`, `--json`. Environmen
 | `wiki_search` | Full-text search with category, tag and limit filters |
 | `wiki_get` | A whole page or one section, with its `rev` |
 | `wiki_list`, `wiki_related` | Listing; outlinks, backlinks and shared tags |
+| `wiki_history` | Commits that changed a page: who, when, which action, note |
 | `wiki_template` | Category template |
 | `wiki_upsert` | Create a page (duplicate detection, lint); `replace` + `base_rev` to rewrite one |
 | `wiki_patch_section` | Replace or append one section; `base_rev` refuses a stale edit |

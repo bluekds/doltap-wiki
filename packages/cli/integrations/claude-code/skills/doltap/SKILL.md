@@ -13,6 +13,7 @@ A knowledge base shared by every agent on every machine. Pages are Markdown unde
 2. Read the `summary` and `confidence` of each hit. Open a page with `wiki_get`; pass `section` (e.g. `Pitfalls`, `Steps`, `Solution`) when you only need part of it.
 3. Treat `confidence` as instructions: `verified` = follow it; `draft` = use as a hint and verify; `deprecated` = do not follow, open the page in `replaced_by` instead.
 4. Use `wiki_related` to move from one hit to adjacent pages when the first page is close but not exact.
+5. Before relying on or rewriting a page whose age or author matters, `wiki_history` shows who changed it, when, and the evidence given at verification.
 
 If a `draft` page turned out to be correct, promote it with `wiki_verify` and `evidence` saying what you did and what confirmed it. The session that created the page cannot verify it; that is expected.
 
@@ -40,4 +41,4 @@ All content is English. Writes are linted, committed, and pushed automatically.
 
 ## CLI fallback
 
-When MCP tools are not available, the same operations exist as a CLI: `doltap search <q>`, `doltap get <id> [-s Section]`, `doltap template <cat>`, `doltap add <id> --title .. --summary .. --tags a,b --stdin`, `doltap patch <id> -s Section --content ..`, `doltap verify <id> --evidence ..`, `doltap deprecate <id> --replaced-by <id>`, `doltap resolve <id> --file merged.md`, `doltap tags add <tag> <description>`. Add `--json` for structured output. Set `DOLTAP_AGENT=claude-code` so commits record the client.
+When MCP tools are not available, the same operations exist as a CLI: `doltap search <q>`, `doltap get <id> [-s Section]`, `doltap template <cat>`, `doltap add <id> --title .. --summary .. --tags a,b --stdin`, `doltap patch <id> -s Section --content ..`, `doltap verify <id> --evidence ..`, `doltap deprecate <id> --replaced-by <id>`, `doltap resolve <id> --file merged.md`, `doltap tags add <tag> <description>`, `doltap history <id>`. Add `--json` for structured output. `doltap doctor` runs every health check when something seems off. Set `DOLTAP_AGENT=claude-code` so commits record the client.

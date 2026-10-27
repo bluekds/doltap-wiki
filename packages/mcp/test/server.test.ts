@@ -20,7 +20,7 @@ const parse = (r: Awaited<ReturnType<Client["callTool"]>>) => JSON.parse((r.cont
 describe("mcp server", () => {
   it("exposes tools and resources", async () => {
     const tools = (await client.listTools()).tools.map((t) => t.name).sort();
-    expect(tools).toEqual(["wiki_add_tag", "wiki_audit", "wiki_deprecate", "wiki_get", "wiki_lint", "wiki_list", "wiki_patch_section", "wiki_related", "wiki_resolve_conflict", "wiki_search", "wiki_set_meta", "wiki_sync", "wiki_template", "wiki_upsert", "wiki_verify"]);
+    expect(tools).toEqual(["wiki_add_tag", "wiki_audit", "wiki_deprecate", "wiki_get", "wiki_history", "wiki_lint", "wiki_list", "wiki_patch_section", "wiki_related", "wiki_resolve_conflict", "wiki_search", "wiki_set_meta", "wiki_sync", "wiki_template", "wiki_upsert", "wiki_verify"]);
     const res = (await client.listResources()).resources.map((r) => r.uri).sort();
     expect(res).toEqual(["wiki://index", "wiki://protocol", "wiki://tags"]);
     const proto = await client.readResource({ uri: "wiki://protocol" });
