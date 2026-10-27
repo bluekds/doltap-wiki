@@ -124,7 +124,7 @@ sources:
 - Set `updated` to today whenever the content changes. Typo fixes are exempt.
 - When you find wrong content, fix it rather than deleting it, and leave a one-line note in "Pitfalls" or "Changelog" saying what was wrong and why.
 - When a page is no longer valid, do not delete it. Create or pick the replacement, then `wiki_deprecate` (`doltap deprecate`): it sets `confidence: deprecated` and `replaced_by`, and puts a banner with the link at the top of the body. A deprecated page without a replacement fails lint.
-- Promotion `draft` → `verified` requires that another session or another machine followed the page and it worked. Use `wiki_verify` (`doltap verify`) with that evidence; the tool records it in `sources` plus `verified_by` / `verified_on`, and refuses the session that created the page.
+- Promotion `draft` → `verified` requires that another session or another machine followed the page and it worked. Use `wiki_verify` (`doltap verify`) with that evidence; the tool records it in `sources` plus `verified_by` / `verified_on`, and refuses the session that created the page. A session is the MCP server process (stdio), the client name plus the day (HTTP), or `DOLTAP_SESSION` / `CLAUDE_CODE_SESSION_ID` for the CLI.
 
 ## 6. Check before creating
 

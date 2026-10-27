@@ -278,12 +278,12 @@ server.registerTool(
   {
     title: "Resolve a conflict file",
     description: "After a sync reported conflicts, read the page (wiki_get shows conflict_copies) and the copy, then write the merged body here; the conflict copies are deleted and the result committed. Pass take=conflict to keep the copy's body unchanged.",
-    inputSchema: { id: PageId, body: z.string().optional().describe("Merged markdown body (below the frontmatter)"), take: z.enum(["conflict"]).optional() },
+    inputSchema: { id: PageId, body: z.string().optional().describe("Merged markdown body (below the frontmatter)"), take: z.enum(["conflict"]).optional(), base_rev: z.string().optional().describe("rev from wiki_get; refused as stale if the page changed while you merged") },
   },
   async (a) => {
     try {
       const ro = readOnly(); if (ro) return ro;
-      const r = resolveConflict(cfg, { id: a.id, body: a.body, take: a.take });
+      const r = resolveConflict(cfg, { id: a.id, body: a.body, take: a.take, baseRev: a.base_rev });
       if (r.refused) return { isError: true as const, ...text({ refused: r.refused, issues: r.issues }) };
       return text({ id: r.id, rev: r.rev, warnings: r.issues, pushed: r.sync.pushed, notes: r.sync.messages });
     } catch (e) { return errorText(e); }

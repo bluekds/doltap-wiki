@@ -44,6 +44,7 @@ sources: []
 ### Event-driven
 
 - A `*.conflict-<host>.md` file appears: merge both versions, then `doltap resolve <id> --file merged.md` (or `--take conflict` to keep the copy); it deletes the copy and commits
+- `doltap lint` reports a `symlink` error: someone committed a symbolic link under `wiki/`; it is never read, but remove it (`git rm`) and check who pushed it (`git log -- <path>`)
 - A machine reports a stuck repository: see [[howto/setup-wiki-on-new-machine#Pitfalls]]
 - The HTTP token was exposed (chat, log, screenshot): `doltap serve token --rotate --quiet && doltap serve install` (neither prints the token), then update every remote registration
 

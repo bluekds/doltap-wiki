@@ -250,19 +250,18 @@ program
   .requiredOption("--title <text>")
   .requiredOption("--summary <text>", "1-2 sentences, max 200 chars")
   .option("--tags <list>", "comma-separated, must exist in _meta/tags.yaml")
-  .option("--confidence <level>", "draft|verified", "draft")
   .option("--sources <list>", "comma-separated URLs/ids")
   .option("-f, --file <path>", "markdown body file")
   .option("--stdin", "read body from stdin")
   .option("--force", "create even if similar pages exist")
   .option("--replace", "overwrite an existing page (otherwise an existing id is refused; use patch/meta to edit)")
   .option("--base-rev <rev>", "rev shown by `doltap get`; refused if the page changed since")
-  .action((id: string, o: { title: string; summary: string; tags?: string; confidence: string; sources?: string; file?: string; stdin?: boolean; force?: boolean; replace?: boolean; baseRev?: string }) => {
+  .action((id: string, o: { title: string; summary: string; tags?: string; sources?: string; file?: string; stdin?: boolean; force?: boolean; replace?: boolean; baseRev?: string }) => {
     try {
       const { cfg, json } = cfgFrom();
       const body = o.file || o.stdin ? readContent(o) : undefined;
       const r = upsertPage(cfg, {
-        id, title: o.title, summary: o.summary, confidence: o.confidence, body, force: o.force, replace: o.replace, baseRev: o.baseRev,
+        id, title: o.title, summary: o.summary, body, force: o.force, replace: o.replace, baseRev: o.baseRev,
         tags: o.tags ? o.tags.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
         sources: o.sources ? o.sources.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
       });
@@ -311,7 +310,7 @@ program
 program
   .command("meta <id>")
   .description("update frontmatter: --add-source, --add-tag, --title, --summary (promote with `doltap verify`, deprecate with `doltap deprecate`)")
-  .option("--confidence <level>", `${CONFIDENCE.join("|")} (prefer verify/deprecate, which record evidence and the replacement)`)
+  .option("--confidence <level>", "draft (demote); verified needs `doltap verify`, deprecated needs `doltap deprecate`")
   .option("--add-source <s>", "repeatable", (v: string, acc: string[]) => [...acc, v], [] as string[])
   .option("--add-tag <t>", "repeatable", (v: string, acc: string[]) => [...acc, v], [] as string[])
   .option("--title <text>")
@@ -372,14 +371,15 @@ program
   .option("-f, --file <path>", "merged body file")
   .option("--stdin")
   .option("--take <which>", "conflict: use the conflict copy's body as is")
-  .action((id: string, o: { file?: string; stdin?: boolean; take?: string }) => {
+  .option("--base-rev <rev>", "rev shown by `doltap get`; refused if the page changed since")
+  .action((id: string, o: { file?: string; stdin?: boolean; take?: string; baseRev?: string }) => {
     try {
       const { cfg, json } = cfgFrom();
       if (!o.take) {
         const copies = conflictCopiesOf(cfg, id);
         if (!copies.length) throw new Error(`no conflict copy for ${id}`);
       }
-      const r = resolveConflict(cfg, { id, body: o.take ? undefined : readContent(o), take: o.take === "conflict" ? "conflict" : undefined });
+      const r = resolveConflict(cfg, { id, body: o.take ? undefined : readContent(o), take: o.take === "conflict" ? "conflict" : undefined, baseRev: o.baseRev });
       out(json, r, () => {
         if (r.refused) { console.log(`refused: ${r.refused}`); printIssues(r.issues); process.exitCode = 2; return; }
         console.log(`resolved ${r.id}`);

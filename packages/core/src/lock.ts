@@ -1,4 +1,4 @@
-import { closeSync, existsSync, openSync, statSync, unlinkSync, writeSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, statSync, unlinkSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import type { WikiConfig } from "./config.js";
 
@@ -14,6 +14,18 @@ const sleeper = new Int32Array(new SharedArrayBuffer(4));
 
 function sleep(ms: number): void {
   Atomics.wait(sleeper, 0, 0, ms);
+}
+
+/** Whether the pid recorded in the lock file still runs (EPERM counts as alive: it exists but is not ours). */
+function ownerAlive(path: string): boolean {
+  const pid = Number(readFileSync(path, "utf8").split(/\s/)[0]);
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === "EPERM";
+  }
 }
 
 export function writeLockPath(cfg: WikiConfig): string {
@@ -40,7 +52,8 @@ export function withWriteLock<T>(cfg: WikiConfig, fn: () => T, o: LockOptions = 
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
       try {
-        if (Date.now() - statSync(path).mtimeMs > staleMs) {
+        // Stale means: older than staleMs AND its owner is gone. A live writer (long push, slow remote) keeps the lock.
+        if (Date.now() - statSync(path).mtimeMs > staleMs && !ownerAlive(path)) {
           unlinkSync(path);
           continue;
         }

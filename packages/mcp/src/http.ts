@@ -60,10 +60,41 @@ export function clientsPath(cfg: WikiConfig): string {
   return join(cfg.stateDir, "http-clients.json");
 }
 
+/** Client names land in commit trailers (`[agent:<name>]`), so they are kebab-case tokens only. */
+export const CLIENT_NAME_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
+
 export function loadClients(cfg: WikiConfig): Record<string, HttpClient> {
   const p = clientsPath(cfg);
   if (!existsSync(p)) return {};
-  try { return JSON.parse(readFileSync(p, "utf8")) as Record<string, HttpClient>; } catch { return {}; }
+  try {
+    const raw = JSON.parse(readFileSync(p, "utf8")) as Record<string, HttpClient>;
+    const out: Record<string, HttpClient> = {};
+    for (const [name, c] of Object.entries(raw)) {
+      if (!CLIENT_NAME_RE.test(name) || typeof c?.token !== "string") {
+        process.stderr.write(`doltap mcp http: ignoring client ${JSON.stringify(name)} in http-clients.json (name must match ${CLIENT_NAME_RE})\n`);
+        continue;
+      }
+      out[name] = c;
+    }
+    return out;
+  } catch { return {}; }
+}
+
+/**
+ * Session id for a server process when the environment gives none: one per process for stdio (one agent
+ * session launches one server), so "the session that created a page cannot verify it" holds without setup.
+ */
+let processSession: string | undefined;
+export function defaultSession(): string {
+  const env = process.env.DOLTAP_SESSION ?? process.env.CLAUDE_CODE_SESSION_ID;
+  if (env) return env;
+  processSession ??= `mcp-${randomBytes(6).toString("hex")}`;
+  return processSession;
+}
+
+/** Over HTTP the service runs for weeks and requests are stateless, so a session is the client plus the day. */
+export function httpSession(agent: string): string {
+  return `${agent}@${new Date().toISOString().slice(0, 10)}`;
 }
 
 export function saveClients(cfg: WikiConfig, clients: Record<string, HttpClient>): void {
@@ -180,7 +211,7 @@ export async function startHttpServer(cfg: WikiConfig, o: HttpOptions): Promise<
       } else res.writeHead(400, { "content-type": "text/plain" }).end("bad request\n");
       return;
     }
-    const server = createServer({ ...cfg, agent: client.agent }, { readOnly: client.readOnly });
+    const server = createServer({ ...cfg, agent: client.agent, session: httpSession(client.agent) }, { readOnly: client.readOnly });
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     res.on("close", () => {
       transport.close().catch(() => {});

@@ -1,7 +1,7 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { resolveConfig } from "@bluekds/doltap-core";
 import { createServer } from "./server.js";
-import { serveHttp } from "./http.js";
+import { defaultSession, serveHttp } from "./http.js";
 
 const args = process.argv.slice(2);
 const flag = (name: string): string | undefined => {
@@ -10,7 +10,8 @@ const flag = (name: string): string | undefined => {
 };
 
 // Identity recorded in commit messages. Clients can override via env when launching the server.
-const cfg = resolveConfig({ agent: process.env.DOLTAP_AGENT ?? (args.includes("--http") ? "mcp-http" : "mcp") });
+// The stdio server gets a session of its own (DOLTAP_SESSION / CLAUDE_CODE_SESSION_ID override it); the HTTP server sets one per client and day.
+const cfg = resolveConfig({ agent: process.env.DOLTAP_AGENT ?? (args.includes("--http") ? "mcp-http" : "mcp"), session: args.includes("--http") ? undefined : defaultSession() });
 
 if (args.includes("--http")) {
   await serveHttp(cfg, {

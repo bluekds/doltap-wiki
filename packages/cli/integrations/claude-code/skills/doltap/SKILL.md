@@ -34,7 +34,7 @@ Procedure:
 2. Prefer editing: if `wiki_search` finds the topic, use `wiki_patch_section` (mode `append` for a new pitfall, `replace` to correct a section; `create: true` only for a genuinely new heading). Pass the `rev` from `wiki_get` as `base_rev`; a `stale` refusal means someone else changed the page, so read it again. Only create when nothing fits.
 3. To create: `wiki_template` for the category, fill every section (write `N/A` if one does not apply), then `wiki_upsert` with a `summary` under 200 characters that lets a reader decide without opening the page, 1–3 `tags` from `wiki://tags`, and `[[id]]` links to related pages. Default `confidence` is `draft`.
 4. If `wiki_upsert` is refused with `similar`, edit the listed page instead, or pass `force: true` only when the topic is genuinely different. An existing id is refused too; rewriting a whole page needs `replace: true` plus `base_rev`.
-5. If the result reports `conflicts`, read the page and its copy (`wiki_get` lists `conflict_copies`), merge them, and call `wiki_resolve_conflict` with the merged body (or `take: conflict`). To retire a page, `wiki_deprecate` with its replacement; to use a tag that does not exist yet, `wiki_add_tag` first.
+5. If the result reports `conflicts`, read the page and its copy (`wiki_get` lists `conflict_copies`), merge them, and call `wiki_resolve_conflict` with the merged body (or `take: conflict`) and the page's `rev` as `base_rev`. To retire a page, `wiki_deprecate` with its replacement; to use a tag that does not exist yet, `wiki_add_tag` first.
 
 All content is English. Writes are linted, committed, and pushed automatically.
 
