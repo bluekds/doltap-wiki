@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { randomBytes } from "node:crypto";
@@ -50,6 +51,9 @@ import {
   type SyncReport,
   type WikiConfig,
   scaffoldWiki,
+  doctor,
+  rotateLogs,
+  type DoctorCheck,
 } from "@bluekds/doltap-core";
 
 const program = new Command();
@@ -87,6 +91,14 @@ function syncNotes(sync: SyncReport): string[] {
   const notes = [...sync.messages];
   if (sync.conflicts.length) notes.push(`CONFLICTS saved: ${sync.conflicts.join(", ")}`);
   return notes;
+}
+
+function printChecks(checks: DoctorCheck[], quiet: boolean): void {
+  for (const c of checks) {
+    if (quiet && (c.status === "ok" || c.status === "skip")) continue;
+    console.log(`${c.status.padEnd(4)} ${c.name.padEnd(16)} ${c.detail}`);
+    if (c.fix && c.status !== "ok") console.log(`${"".padEnd(21)}-> ${c.fix}`);
+  }
 }
 
 function printIssues(issues: LintIssue[]): void {
@@ -423,6 +435,7 @@ program.command("lint [ids...]").description("validate pages (exit 1 on errors)"
 program.command("sync").description("pull, push pending commits, reindex, refresh hub lists, report conflict files and broken pages").action(() => {
   try {
     const { cfg, json } = cfgFrom();
+    const rotated = rotateLogs(cfg);
     const report = syncAll(cfg);
     const hubs = refreshHubs(cfg);
     const db = new WikiDb(cfg);
@@ -431,9 +444,10 @@ program.command("sync").description("pull, push pending commits, reindex, refres
     db.close();
     writeIndexMd(cfg);
     const conflicts = listConflictFiles(cfg);
-    out(json, { ...report, reindexed: r.indexed, removed: r.removed, total: r.total, hubListsRefreshed: hubs, brokenPages: r.broken, statsPublished: published, conflictFiles: conflicts }, () => {
+    out(json, { ...report, reindexed: r.indexed, removed: r.removed, total: r.total, hubListsRefreshed: hubs, brokenPages: r.broken, statsPublished: published, conflictFiles: conflicts, logsRotated: rotated }, () => {
       console.log(`pulled: ${report.pulled} pushed: ${report.pushed} offline: ${report.offline} | pages: ${r.total} (reindexed ${r.indexed}, removed ${r.removed})${hubs.length ? ` | hub lists refreshed: ${hubs.join(", ")}` : ""}${published ? " | stats published" : ""}`);
       for (const n of syncNotes(report)) console.log(`note: ${n}`);
+      if (rotated.length) console.log(`note: rotated logs ${rotated.join(", ")}`);
       for (const b of r.broken) console.log(`BROKEN ${b.relPath}: ${b.error}`);
       if (conflicts.length) console.log(`conflict files needing manual merge:\n  ${conflicts.join("\n  ")}`);
     });
@@ -479,6 +493,25 @@ program
         section("unused tags -> doltap tags remove", r.unusedTags.map((id) => ({ id })));
         section("most read", r.mostRead);
       });
+    } catch (e) { fail(e); }
+  });
+
+// ---------------------------------------------------------------- doctor
+program
+  .command("doctor")
+  .description("run every health check of the maintenance routine (repo, sync age, services, lint, tags, index, secrets, logs, integration); exit 1 on failures")
+  .option("--healthz <url>", "also probe a public /healthz URL (no token in it)")
+  .option("--no-services", "skip the scheduler and HTTP service checks")
+  .option("--quiet", "print only warnings and failures")
+  .action(async (o: { healthz?: string; services: boolean; quiet?: boolean }) => {
+    try {
+      const { cfg, json } = cfgFrom();
+      const r = await doctor(cfg, { services: o.services, healthzUrl: o.healthz, extra: o.services ? integrationChecks() : [] });
+      out(json, r, () => {
+        printChecks(r.checks, !!o.quiet);
+        console.log(`${r.failures} failure(s), ${r.warnings} warning(s) on ${r.host} (${r.root})`);
+      });
+      if (!r.ok) process.exitCode = 1;
     } catch (e) { fail(e); }
   });
 
@@ -655,6 +688,36 @@ integrations
       });
     } catch (e) { fail(e); }
   });
+/** Checks on the Claude Code integration: installed skill copy, CLAUDE.md section, MCP registration. */
+function integrationChecks(): DoctorCheck[] {
+  const checks: DoctorCheck[] = [];
+  const packaged = join(INTEGRATIONS_DIR, "claude-code", "skills", "doltap", "SKILL.md");
+  const installed = join(homedir(), ".claude", "skills", "doltap", "SKILL.md");
+  const digest = (p: string) => createHash("sha256").update(readFileSync(p)).digest("hex").slice(0, 12);
+  if (!existsSync(installed)) checks.push({ name: "skill", status: "warn", detail: `no skill at ${installed}`, fix: "doltap integrations install claude" });
+  else if (digest(installed) !== digest(packaged)) checks.push({ name: "skill", status: "warn", detail: `installed skill differs from the one shipped with doltap ${PKG_VERSION}`, fix: "doltap integrations install claude" });
+  else checks.push({ name: "skill", status: "ok", detail: `skill matches doltap ${PKG_VERSION}` });
+  const claudeMd = join(homedir(), ".claude", "CLAUDE.md");
+  if (existsSync(claudeMd) && readFileSync(claudeMd, "utf8").includes("## Doltap")) checks.push({ name: "instructions", status: "ok", detail: `${claudeMd} has a Doltap section` });
+  else checks.push({ name: "instructions", status: "warn", detail: `${claudeMd} has no Doltap section`, fix: "doltap integrations install claude" });
+  if (claudeCli(["--version"], true) === null) { checks.push({ name: "mcp-registration", status: "skip", detail: "claude CLI not on PATH" }); return checks; }
+  const reg = claudeCli(["mcp", "get", "doltap"], true);
+  if (reg === null) checks.push({ name: "mcp-registration", status: "warn", detail: "doltap is not registered with Claude Code", fix: "doltap integrations install claude" });
+  else {
+    const type = /Type:\s*(\w+)/i.exec(reg)?.[1] ?? "registered";
+    checks.push({ name: "mcp-registration", status: "ok", detail: `doltap registered (${maskToken(type)})` });
+  }
+  return checks;
+}
+
+integrations.command("status").description("report whether the installed skill, instruction section and MCP registration match this version").action(() => {
+  try {
+    const json = !!program.opts<GlobalOpts>().json;
+    const checks = integrationChecks();
+    out(json, { checks }, () => printChecks(checks, false));
+  } catch (e) { fail(e); }
+});
+
 integrations
   .command("uninstall <client>")
   .description("remove the skill and the MCP registration (the CLAUDE.md section is left for you to delete)")

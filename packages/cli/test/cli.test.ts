@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -41,5 +41,38 @@ describe("doltap CLI", () => {
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
+  });
+});
+
+describe("doctor and integrations status (0.4)", () => {
+  it("doctor --json --no-services reports checks and exits 1 only on failures", () => {
+    const ok = JSON.parse(cli(["--root", m.a, "doctor", "--json", "--no-services"]));
+    expect(ok.ok).toBe(true);
+    expect(ok.checks.map((c: { name: string }) => c.name)).toEqual(expect.arrayContaining(["repo", "remote", "sync", "lint", "tags", "index", "sessions"]));
+    expect(ok.checks.find((c: { name: string }) => c.name === "skill")).toBeUndefined();
+    sh(m.a, "git", ["checkout", "-q", "--detach"]);
+    let code = 0;
+    let outText = "";
+    try { outText = cli(["--root", m.a, "doctor", "--no-services", "--quiet"]); } catch (e) { const err = e as { status: number; stdout: string }; code = err.status; outText = err.stdout; }
+    expect(code).toBe(1);
+    expect(outText).toContain("fail repo");
+    expect(outText).not.toContain("ok   lint");
+  });
+
+  it("integrations status tells a stale skill copy from a current one", () => {
+    const home = mkdtempSync(join(tmpdir(), "doltap-home-"));
+    try {
+      const none = JSON.parse(cli(["integrations", "status", "--json"], { HOME: home, PATH: "/nonexistent" }));
+      expect(none.checks.find((c: { name: string }) => c.name === "skill")).toMatchObject({ status: "warn", fix: "doltap integrations install claude" });
+      expect(none.checks.find((c: { name: string }) => c.name === "mcp-registration").status).toBe("skip");
+      cli(["--root", m.a, "integrations", "install", "claude"], { HOME: home, PATH: "/nonexistent" });
+      const fresh = JSON.parse(cli(["integrations", "status", "--json"], { HOME: home, PATH: "/nonexistent" }));
+      expect(fresh.checks.find((c: { name: string }) => c.name === "skill").status).toBe("ok");
+      expect(fresh.checks.find((c: { name: string }) => c.name === "instructions").status).toBe("ok");
+      const skill = join(home, ".claude", "skills", "doltap", "SKILL.md");
+      writeFileSync(skill, readFileSync(skill, "utf8") + "\nlocal edit\n");
+      const stale = JSON.parse(cli(["integrations", "status", "--json"], { HOME: home, PATH: "/nonexistent" }));
+      expect(stale.checks.find((c: { name: string }) => c.name === "skill")).toMatchObject({ status: "warn", detail: expect.stringContaining("differs") });
+    } finally { rmSync(home, { recursive: true, force: true }); }
   });
 });
