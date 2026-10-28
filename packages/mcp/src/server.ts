@@ -70,7 +70,7 @@ const INSTRUCTIONS = `Doltap is a shared wiki for agents (howto, patterns, refer
 - Never write secret values (tokens, keys, passwords, connector URLs); record where the secret lives and how to load it. Internal hosts are fine.
 - English only. Tags only from wiki://tags (add one with wiki_add_tag). Hub lists are generated; do not edit them. Deprecate with wiki_deprecate, finish a conflict with wiki_resolve_conflict.`;
 
-const server = new McpServer({ name: "doltap", version: "0.4.1" }, { instructions: INSTRUCTIONS });
+const server = new McpServer({ name: "doltap", version: "0.5.0" }, { instructions: INSTRUCTIONS });
 
 // ------------------------------------------------------------------ resources
 server.registerResource("protocol", "wiki://protocol", { title: "Doltap protocol", description: "Rules for reading, writing, and classifying wiki pages. Read before writing.", mimeType: "text/markdown" }, async (uri) => ({
@@ -89,7 +89,7 @@ server.registerTool(
   "wiki_search",
   {
     title: "Search the wiki",
-    description: "Full-text search over shared knowledge pages (procedures, code patterns, reference facts, decisions). Call this before starting any repetitive task (deploy, build, auth, retry, config) or when you need version-specific facts. Returns id, confidence, tags, summary. Then call wiki_get for the page or a section.",
+    description: "Full-text search over shared knowledge pages (procedures, code patterns, reference facts, decisions). Call this before starting any repetitive task (deploy, build, auth, retry, config) or when you need version-specific facts. Ranked by text match, then verified over draft and recent over stale. Returns id, confidence, tags, summary. Then call wiki_get for the page or a section.",
     inputSchema: {
       query: z.string().describe("Free text; terms are stemmed and prefix-matched"),
       category: CategoryEnum.optional(),

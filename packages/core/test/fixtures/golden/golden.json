@@ -1,0 +1,106 @@
+[
+  {
+    "query": "deploy pypi",
+    "expect": "howto/deploy-pypi",
+    "note": "title match beats a routine page that mentions pypi"
+  },
+  {
+    "query": "trusted publishing release python package",
+    "expect": "howto/deploy-pypi",
+    "note": "body terms"
+  },
+  {
+    "query": "rotate token",
+    "expect": "howto/rotate-http-token"
+  },
+  {
+    "query": "http token leaked",
+    "expect": "howto/rotate-http-token",
+    "note": "pitfall wording"
+  },
+  {
+    "query": "tailscale funnel",
+    "expect": "howto/expose-mcp-tailscale-funnel",
+    "note": "routine and project pages also mention it"
+  },
+  {
+    "query": "expose mcp server https",
+    "expect": "howto/expose-mcp-tailscale-funnel"
+  },
+  {
+    "query": "restart launchd service",
+    "expect": "howto/restart-launchd-service",
+    "note": "the routine page repeats the phrase; the dedicated page wins"
+  },
+  {
+    "query": "launchd",
+    "expect": "howto/restart-launchd-service",
+    "note": "single term; title match over an environment page"
+  },
+  {
+    "query": "sync conflict",
+    "expect": "howto/resolve-sync-conflict",
+    "note": "the routine page says sync and conflict many times"
+  },
+  {
+    "query": "conflict copy merge",
+    "expect": "howto/resolve-sync-conflict"
+  },
+  {
+    "query": "npm publish",
+    "expect": "howto/publish-npm-package"
+  },
+  {
+    "query": "weekly maintenance",
+    "expect": "howto/weekly-maintenance-routine"
+  },
+  {
+    "query": "fts5 bm25 ranking",
+    "expect": "reference/sqlite-fts5-notes"
+  },
+  {
+    "query": "obsidian wikilink backlinks",
+    "expect": "reference/obsidian-conventions"
+  },
+  {
+    "query": "openrouter key check",
+    "expect": "reference/openrouter-api",
+    "note": "the deprecated page has the same words"
+  },
+  {
+    "query": "why markdown git",
+    "expect": "decisions/markdown-in-git"
+  },
+  {
+    "query": "why typescript",
+    "expect": "decisions/typescript-tooling"
+  },
+  {
+    "query": "retry backoff jitter",
+    "expect": "patterns/retry-with-backoff"
+  },
+  {
+    "query": "gateway fallback",
+    "expect": "patterns/gateway-fallback"
+  },
+  {
+    "query": "where does the wiki run",
+    "expect": "projects/demo/_index",
+    "note": "project overview, not a category hub"
+  },
+  {
+    "query": "set up new machine",
+    "expect": "howto/setup-new-machine",
+    "note": "verified and recent beats an old draft on the same topic"
+  },
+  {
+    "query": "git identity write fails",
+    "expect": "howto/setup-new-machine",
+    "note": "pitfall text in the body"
+  },
+  {
+    "query": "set up doltap on a laptop",
+    "expect": "howto/setup-new-machine",
+    "note": "summary wording; the old source-build page never mentions a laptop"
+  }
+]

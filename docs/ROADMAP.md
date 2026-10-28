@@ -1,6 +1,6 @@
 # Roadmap to 1.0
 
-Status as of 0.3.1 (2026-10-27): 15 MCP tools, 3 resources, 22 CLI commands, launchd/cron/schtasks scheduling, Claude Code integration, synchronous git, two independent audits of 0.3.0 fixed in 0.3.1 with reproduction tests.
+Status as of 0.5.0 (2026-10-28): 16 MCP tools, 3 resources, launchd/cron/schtasks scheduling, Claude Code integration, `doctor`/`upgrade`/`history`/`golden` commands, ranked search with a golden regression set, synchronous git, every audit finding covered by a reproduction test.
 
 Versions below are ordering, not dates. Items move between versions when real usage shows a different priority.
 
@@ -29,14 +29,14 @@ Everything a person does by hand today during the daily and weekly checks become
 - Asynchronous git behind the write lock, with a write-latency cap: a dead remote is reported as offline within seconds instead of blocking reads and `/healthz`.
 - Re-check the audit items left open in 0.3.1: a 0.2.0 process erasing `replaced_by` in a 0.3.0 index when versions are mixed, CRLF `tags.yaml` on older Windows wikis, hub refresh and stats on a detached HEAD, sync summary reporting `pushed: false` after a hub-refresh push, resolving a page the upstream deleted.
 
-## 0.5 Search quality
+## 0.5 Search quality (shipped in 0.5.0)
 
 The wiki is worth what its first result is worth.
 
-- Ranking: weight title and summary matches, `verified` pages, and recent updates.
-- Record search queries in stats so the weekly check can list queries whose expected page was not first.
-- A golden query set as a regression test.
-- Embedding search is evaluated only as an optional, local-model feature.
+- Ranking: bm25 scaled by confidence (verified ×1.1, deprecated ×0.5 and last), recency (≤30 days ×1.05, >1 year ×0.9) and title hits (up to ×1.15). Small on purpose: they settle near-ties, not clear text matches.
+- Search log: every search is kept in the per-machine index with the ids returned; `doltap audit` pairs it with the page the same caller opened next and lists the misses. Queries never leave the machine, so the weekly check on the host that serves HTTP sees every remote agent's searches, but not a laptop's local ones.
+- Golden set: `doltap golden` runs `wiki/_meta/golden.json`; the tool repository tests a 23-query set against a vault built to trip naive ranking (a routine page that mentions everything, a deprecated twin, an old draft beside a verified page).
+- Embedding search, evaluated: a local model (`bge-small` or `nomic-embed-text` through transformers.js or node-llama-cpp) costs a 30–130 MB download, native or WASM inference, and 20–80 ms per page at index time; the golden set shows no query that bm25 with stemming and the OR fallback misses for lexical reasons alone. Deferred until the search misses collected by `doltap audit` show semantic gaps (a query whose words never occur on the right page). When it comes, it is an optional `--embeddings` index next to FTS5, never a replacement.
 
 ## 0.6 Clients and access control
 

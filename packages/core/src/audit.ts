@@ -95,6 +95,44 @@ export interface AuditReport {
   /** Tags in tags.yaml that no page uses. */
   unusedTags: string[];
   mostRead: AuditEntry[];
+  /** Searches on this host in the window whose follow-up read was not the first hit (or not a hit at all). */
+  searchMisses: SearchMiss[];
+  /** Searches logged on this host in the window. */
+  searchCount: number;
+}
+
+/**
+ * A query whose answer was not the first result: the page the same caller opened right after
+ * searching was further down (`rank`) or absent (`rank` null). Grouped by query and page.
+ * Only this host's log is used; search queries are never published to the shared repository.
+ */
+export interface SearchMiss {
+  query: string;
+  opened: string;
+  rank: number | null;
+  count: number;
+  last: string;
+}
+
+/** A read within this long after a search counts as its follow-up. */
+export const SEARCH_FOLLOW_UP_MS = 15 * 60 * 1000;
+
+export function searchMisses(db: WikiDb, sinceIso: string, limit = 20): { misses: SearchMiss[]; count: number } {
+  const log = db.searchLog(sinceIso);
+  const grouped = new Map<string, SearchMiss>();
+  for (const s of log) {
+    const next = db.nextAccess(s.agent, s.ts, SEARCH_FOLLOW_UP_MS);
+    if (!next) continue;
+    const i = s.hits.indexOf(next.id);
+    if (i === 0) continue;
+    const key = `${s.query.toLowerCase().trim()}\u0000${next.id}`;
+    const m = grouped.get(key) ?? { query: s.query.trim(), opened: next.id, rank: i < 0 ? null : i + 1, count: 0, last: s.ts.slice(0, 10) };
+    m.count += 1;
+    m.rank = i < 0 ? null : i + 1;
+    if (s.ts.slice(0, 10) > m.last) m.last = s.ts.slice(0, 10);
+    grouped.set(key, m);
+  }
+  return { misses: [...grouped.values()].sort((a, b) => b.count - a.count || a.query.localeCompare(b.query)).slice(0, limit), count: log.length };
 }
 
 function daysAgo(iso: string): number {
@@ -138,6 +176,7 @@ export function audit(cfg: WikiConfig, o: AuditOptions = {}): AuditReport {
       .map((e) => ({ id: e.id, linkedFrom: (inbound.get(e.id) ?? []).filter((s) => !s.endsWith("/_index")) }))
       .filter((x) => x.linkedFrom.length);
     const mostRead = [...entries].sort((a, b) => b.reads - a.reads).filter((e) => e.reads > 0).slice(0, 10);
+    const searches = searchMisses(db, new Date(Date.now() - thresholds.unreferencedDays * 86400000).toISOString());
     return {
       generated: new Date().toISOString(),
       hostsReporting: all.map((s) => s.host),
@@ -150,6 +189,8 @@ export function audit(cfg: WikiConfig, o: AuditOptions = {}): AuditReport {
       conflictFiles: listConflictFiles(cfg),
       unusedTags: loadTags(cfg).map((t) => t.tag).filter((t) => !rows.some((r) => r.tags.includes(t)) && t !== "wiki"),
       mostRead,
+      searchMisses: searches.misses,
+      searchCount: searches.count,
     };
   } finally {
     db.close();

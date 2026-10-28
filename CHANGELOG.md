@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0 (2026-10-28)
+
+Search quality: the first result is what the wiki is worth.
+
+- **Ranking beyond bm25.** The FTS5 score is scaled by small multipliers: verified ×1.1 (deprecated ×0.5 and always last), updated within 30 days ×1.05 / older than a year ×0.9, and up to ×1.15 when the query terms appear in the title. The multipliers decide near-ties and never override a clear text match. `score`, `bm25` and `boost` are returned per hit
+- **Search log and misses.** Every search is recorded in the per-machine index (query, caller, ids returned; pruned after 180 days; never committed). `doltap audit` pairs each search with the page the same caller opened within 15 minutes and lists the queries whose answer was not the first hit ("search misses"), with the rank it had
+- **Golden query set.** `doltap golden [file]` runs `wiki/_meta/golden.json` (`[{query, expect, note?}]`) and exits 1 when a query's page is not first. The tool repository keeps its own 23-query set under test as a regression suite for ranking changes
+- Embedding search was evaluated and deferred (see docs/ROADMAP.md)
+
 ## 0.4.1 (2026-10-28)
 
 - **Fix: a `##` section now includes its `###` sub-sections.** `wiki_get` / `doltap get -s <heading>` returned an empty string for a section whose body started with a sub-heading, and `wiki_patch_section` only replaced the text before the first sub-heading. A section runs until the next heading at its own level or higher; a `###` heading can still be read and patched on its own

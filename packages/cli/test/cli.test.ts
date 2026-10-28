@@ -77,3 +77,21 @@ describe("doctor and integrations status (0.4)", () => {
     } finally { rmSync(home, { recursive: true, force: true }); }
   });
 });
+
+describe("golden (0.5)", () => {
+  it("golden runs the default set, prints misses and exits 1 on a miss", () => {
+    expect(cli(["--root", m.a, "golden"])).toContain("no golden set");
+    const file = join(m.a, "wiki", "_meta", "golden.json");
+    writeFileSync(file, JSON.stringify([{ query: "obsidian backlink", expect: "reference/obsidian-conventions" }]));
+    expect(cli(["--root", m.a, "golden"])).toContain("1/1 golden queries first");
+    writeFileSync(file, JSON.stringify([{ query: "obsidian backlink", expect: "Home", note: "wrong" }]));
+    let code = 0; let outText = "";
+    try { outText = cli(["--root", m.a, "golden"]); } catch (e) { const err = e as { status: number; stdout: string }; code = err.status; outText = err.stdout; }
+    expect(code).toBe(1);
+    expect(outText).toContain("miss  \"obsidian backlink\"");
+    expect(outText).toContain("# wrong");
+    let jsonOut = "";
+    try { jsonOut = cli(["--root", m.a, "golden", "--json", file]); } catch (e) { jsonOut = (e as { stdout: string }).stdout; }
+    expect(JSON.parse(jsonOut).misses).toHaveLength(1);
+  });
+});

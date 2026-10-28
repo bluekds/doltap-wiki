@@ -16,7 +16,11 @@ function withDb<T>(cfg: WikiConfig, fn: (db: WikiDb) => T): { result: T; sync: S
 }
 
 export function search(cfg: WikiConfig, query: string, o: SearchOptions = {}): { hits: SearchHit[]; sync: SyncReport } {
-  const { result, sync } = withDb(cfg, (db) => db.search(query, o));
+  const { result, sync } = withDb(cfg, (db) => {
+    const hits = db.search(query, o);
+    db.logSearch(query, hits.map((h) => h.id));
+    return hits;
+  });
   return { hits: result, sync };
 }
 
