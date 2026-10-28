@@ -57,6 +57,7 @@ import {
   planUpgrade,
   rotateLogs,
   type DoctorCheck,
+  runGolden,
 } from "@bluekds/doltap-core";
 
 const program = new Command();
@@ -509,7 +510,26 @@ program
         section("conflict files -> merge (doltap resolve)", r.conflictFiles.map((id) => ({ id })));
         section("unused tags -> doltap tags remove", r.unusedTags.map((id) => ({ id })));
         section("most read", r.mostRead);
+        console.log(`search misses (${r.searchMisses.length} of ${r.searchCount} searches on this host) -> reword title/summary or add a page`);
+        for (const m of r.searchMisses) console.log(`  "${m.query}" -> opened ${m.opened} (${m.rank ? `rank ${m.rank}` : "not returned"})  x${m.count}  last ${m.last}`);
       });
+    } catch (e) { fail(e); }
+  });
+
+// ---------------------------------------------------------------- golden
+program
+  .command("golden [file]")
+  .description("run the golden query set (default wiki/_meta/golden.json: [{query, expect}]) and list queries whose page is not first; exit 1 on misses")
+  .action((file: string | undefined) => {
+    try {
+      const { cfg, json } = cfgFrom();
+      const r = runGolden(cfg, file ? resolve(file) : undefined);
+      out(json, r, () => {
+        if (!r.file) { console.log("no golden set: create wiki/_meta/golden.json as a JSON array of {query, expect}"); return; }
+        for (const m of r.misses) console.log(`miss  "${m.query}" -> ${m.got.slice(0, 3).join(", ") || "(none)"}  expected ${m.expect}${m.rank ? ` (rank ${m.rank})` : " (not returned)"}${m.note ? `  # ${m.note}` : ""}`);
+        console.log(`${r.total - r.misses.length}/${r.total} golden queries first`);
+      });
+      if (r.misses.length) process.exit(1);
     } catch (e) { fail(e); }
   });
 

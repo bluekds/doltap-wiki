@@ -135,7 +135,7 @@ That session then runs the checks at the given times and reports back. Deprecati
 <summary><b>CLI and MCP tool reference</b></summary>
 
 ```sh
-doltap search <query> [-c category] [-t tag] [-n limit] [--json]
+doltap search <query> [-c category] [-t tag] [-n limit] [--json]   # text match, then verified, recent, title hits
 doltap get <id> [-s "Section"]
 doltap list [-c category] [-t tag]
 doltap related <id>
@@ -152,7 +152,8 @@ doltap history <id> [-n 20]               # commits that changed a page: who, wh
 doltap lint [ids...]
 doltap sync                               # pull, push pending, reindex, refresh hub lists, publish read stats, list conflict files, rotate logs
 doltap reindex [--full]
-doltap audit [--unreferenced-days 90] [--stale-days 90] [--draft-days 30]
+doltap audit [--unreferenced-days 90] [--stale-days 90] [--draft-days 30]   # also search misses: queries whose answer was not first
+doltap golden [file]                      # every query in wiki/_meta/golden.json must return its page first; exit 1 otherwise
 doltap doctor [--healthz <url>] [--no-services] [--quiet]   # every maintenance check at once; exit 1 on failures
 doltap upgrade [--diff] [--apply]         # compare with the installed version's skeleton; update config and templates, PROTOCOL shown as a diff
 doltap schedule install|status|uninstall  # periodic sync
@@ -165,13 +166,15 @@ Global flags `--root`, `--agent`, `--session`, `--no-sync`, `--json`. Environmen
 
 `doltap doctor` runs the maintainer's session-start checks in one go (repository state, scheduler and HTTP service, last pull, tags.yaml, lint, index, token file modes, log sizes, installed skill version) and prints the command that clears each warning. It is read-only.
 
-`doltap audit` merges read counts from every machine (`wiki/_meta/stats/<host>.json`, published by sync at most every 6 hours) and reports unreferenced pages, stale pages, lingering drafts, orphans, deprecated pages still linked, and conflict files.
+`doltap audit` merges read counts from every machine (`wiki/_meta/stats/<host>.json`, published by sync at most every 6 hours) and reports unreferenced pages, stale pages, lingering drafts, orphans, deprecated pages still linked, and conflict files. From this machine's search log (kept only in `.doltap/index.sqlite`, never committed) it also lists queries where the page opened within 15 minutes of the search was not the first hit: a cue to reword a title or summary, or to add a page.
+
+Ranking is FTS5 bm25 (title, summary and tags weighted above body) scaled by small multipliers: verified ×1.1, deprecated ×0.5 and always last, updated within 30 days ×1.05, untouched for a year ×0.9, and up to ×1.15 when the query terms appear in the title. The multipliers decide near-ties and never override a clear text match. Keep `[{"query", "expect"}]` in `wiki/_meta/golden.json` and `doltap golden` checks that each expected page comes first.
 
 **MCP tools**
 
 | Tool | Purpose |
 |---|---|
-| `wiki_search` | Full-text search with category, tag and limit filters |
+| `wiki_search` | Full-text search with category, tag and limit filters; verified, recent and title hits rank higher |
 | `wiki_get` | A whole page or one section, with its `rev` |
 | `wiki_list`, `wiki_related` | Listing; outlinks, backlinks and shared tags |
 | `wiki_history` | Commits that changed a page: who, when, which action, note |

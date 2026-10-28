@@ -133,7 +133,7 @@ flowchart LR
 <summary><b>CLI와 MCP 도구 레퍼런스</b></summary>
 
 ```sh
-doltap search <query> [-c category] [-t tag] [-n limit] [--json]
+doltap search <query> [-c category] [-t tag] [-n limit] [--json]   # 텍스트 일치 → verified·최근 갱신·제목 일치 순
 doltap get <id> [-s "Section"]
 doltap list [-c category] [-t tag]
 doltap related <id>
@@ -150,7 +150,8 @@ doltap history <id> [-n 20]               # 페이지를 바꾼 commit: 누가, 
 doltap lint [ids...]
 doltap sync                               # pull, 밀린 push, reindex, 읽기 통계 발행, 충돌 파일 목록, 로그 회전
 doltap reindex [--full]
-doltap audit [--unreferenced-days 90] [--stale-days 90] [--draft-days 30]
+doltap audit [--unreferenced-days 90] [--stale-days 90] [--draft-days 30]   # 검색 miss(답이 1위가 아니었던 쿼리)도 보고
+doltap golden [file]                      # wiki/_meta/golden.json의 쿼리마다 기대 페이지가 1위인지; 아니면 exit 1
 doltap doctor [--healthz <url>] [--no-services] [--quiet]   # 유지보수 점검 전부: 실패가 있으면 exit 1
 doltap upgrade [--diff] [--apply]         # 설치된 버전의 스켈레톤과 비교; 설정·템플릿 갱신, PROTOCOL은 diff만
 doltap schedule install|status|uninstall  # 주기적 sync
@@ -163,13 +164,15 @@ doltap integrations install|uninstall|status claude [--remote [<url>]] [--dry-ru
 
 `doltap doctor`는 관리자 루틴의 시작 점검(저장소 상태, 스케줄러와 HTTP 서비스, 마지막 pull 시각, tags.yaml, lint, 색인, 토큰 파일 권한, 로그 크기, 설치된 skill 버전)을 한 번에 돌리고 고칠 명령을 함께 보여 줍니다. 읽기 전용입니다.
 
-`doltap audit`는 모든 머신의 읽기 통계(`wiki/_meta/stats/<host>.json`, sync가 6시간에 한 번 발행)를 합쳐서 아무도 읽지 않는 페이지, 오래된 페이지, 오래 머문 draft, 고아 페이지, 아직 링크되는 deprecated 페이지, 충돌 파일을 보고합니다.
+`doltap audit`는 모든 머신의 읽기 통계(`wiki/_meta/stats/<host>.json`, sync가 6시간에 한 번 발행)를 합쳐서 아무도 읽지 않는 페이지, 오래된 페이지, 오래 머문 draft, 고아 페이지, 아직 링크되는 deprecated 페이지, 충돌 파일을 보고합니다. 이 머신의 검색 로그(`.doltap/index.sqlite`에만 남고 git에는 올라가지 않음)에서 검색 직후 15분 안에 연 페이지가 1위가 아니었던 쿼리도 함께 보여 줍니다. 제목이나 요약을 고치거나 페이지를 추가할 단서입니다.
+
+검색 순위는 FTS5 bm25(제목·요약·태그를 본문보다 가중)에 작은 계수를 곱합니다. verified ×1.1, deprecated는 ×0.5에 항상 마지막, 30일 안에 갱신 ×1.05, 1년 넘게 방치 ×0.9, 쿼리 단어가 제목에 있으면 최대 ×1.15. 계수는 근소한 차이만 가르고 명확한 텍스트 일치를 뒤집지 않습니다. `wiki/_meta/golden.json`에 `[{"query", "expect"}]`를 두면 `doltap golden`이 기대 페이지가 1위인지 확인합니다.
 
 **MCP 도구**
 
 | 도구 | 역할 |
 |---|---|
-| `wiki_search` | 전문 검색 (카테고리, 태그, 개수 필터) |
+| `wiki_search` | 전문 검색 (카테고리, 태그, 개수 필터); verified·최근 갱신·제목 일치 가중 |
 | `wiki_get` | 페이지 전체 또는 한 섹션, `rev` 포함 |
 | `wiki_list`, `wiki_related` | 목록, 연결된 페이지(링크, 백링크, 공유 태그) |
 | `wiki_history` | 페이지를 바꾼 commit 목록 (누가, 언제, 어떤 작업, 근거) |

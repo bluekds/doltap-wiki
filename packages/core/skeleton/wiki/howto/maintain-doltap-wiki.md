@@ -31,7 +31,7 @@ sources: []
 1. Review pages added or changed in the last week: `git log --since="1 week ago" --format='%h %s' -- wiki/`, then `doltap get` each. Check category fit, a summary that stands on its own, sensible tags, links to related pages, no secrets, no session-log content. Fix with `doltap patch` / `doltap meta`
 2. `doltap audit`: for each lingering draft decide promote / leave / propose deprecation. Promote only with evidence (someone followed the page and it worked): `doltap verify <id> --evidence "<what confirmed it>"`; deprecate with `doltap deprecate <id> --replaced-by <new-id>`
 3. Check that every category hub's "Manual list" matches the pages on disk
-4. Spot-check search with 3 queries an agent would realistically type; note pages that should rank first but do not
+4. `doltap audit` also lists search misses (queries where the page opened next was not the first hit): reword the title or summary of the page that should have won, or add the missing page. Then `doltap golden` (`wiki/_meta/golden.json`, `[{query, expect}]`); add a query to the set when a miss is fixed so it stays fixed
 5. Look at `wiki/_meta/stats/*.json`: a machine that stopped reporting usually has a broken scheduler
 
 ### Monthly

@@ -19,7 +19,12 @@ export interface PageRow {
 }
 
 export interface SearchHit extends PageRow {
+  /** Final ranking score: bm25 scaled by confidence and recency. Lower is better. */
   score: number;
+  /** Raw bm25 from FTS5 (title, summary and tags weighted above body). Lower is better. */
+  bm25: number;
+  /** Multiplier applied to bm25: verified pages and recent updates rank higher, deprecated pages lower. */
+  boost: number;
   snippet: string;
   /** Query terms found in the page (title, summary, tags or body). All of them for an exact match; fewer for a fallback hit. */
   matched: string[];
@@ -33,6 +38,35 @@ export interface SearchOptions {
   includeDeprecated?: boolean;
   /** Also return `Home` and `<category>/_index` pages. Off by default: their summaries only repeat other pages. */
   includeHubs?: boolean;
+  /** Reference time for the recency boost (ms since epoch). Defaults to now; tests pin it. */
+  now?: number;
+}
+
+/**
+ * Ranking beyond bm25. bm25 differences between candidate pages are small (a one-word query separates
+ * them by a few percent), so every multiplier stays small too; together they decide near-ties, they do
+ * not override a clear text match.
+ *
+ * Multiplier for a page's confidence: a verified page outranks a draft with the same text; deprecated pages sink.
+ */
+export const CONFIDENCE_BOOST: Record<string, number> = { verified: 1.1, draft: 1.0, deprecated: 0.5 };
+
+/** Query terms found in the title lift a page by up to this share (all terms in the title: ×1.15). */
+export const TITLE_BOOST = 0.15;
+
+/** Multiplier by age of `updated`: fresh pages get a small lift, pages untouched for a year a small penalty. */
+export function recencyBoost(updated: string, now: number): number {
+  const days = (now - Date.parse(updated)) / 86400000;
+  if (!Number.isFinite(days)) return 1.0;
+  if (days <= 30) return 1.05;
+  if (days <= 180) return 1.0;
+  if (days <= 365) return 0.95;
+  return 0.9;
+}
+
+/** Does `text` contain `token` as a word prefix (the same notion of a hit as the FTS prefix query)? */
+function containsToken(text: string, token: string): boolean {
+  return new RegExp(`(^|[^\\p{L}\\p{N}_])${token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "u").test(text);
 }
 
 export interface BrokenPage {
@@ -73,7 +107,24 @@ CREATE TABLE IF NOT EXISTS access_log (
   ts TEXT NOT NULL,
   agent TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS search_log (
+  ts TEXT NOT NULL,
+  agent TEXT NOT NULL,
+  query TEXT NOT NULL,
+  hits TEXT NOT NULL
+);
 `;
+
+/** Search queries older than this are dropped from the local log on the next search. Never leaves the machine. */
+export const SEARCH_LOG_DAYS = 180;
+
+export interface SearchLogEntry {
+  ts: string;
+  agent: string;
+  query: string;
+  /** Page ids returned, in rank order. */
+  hits: string[];
+}
 
 const STOPWORDS = new Set(
   "the a an and or of to in on for with without from by at as is are was be this that it its into via when how what why use using used one two new set get".split(" "),
@@ -262,7 +313,7 @@ export class WikiDb {
     return tokens.map((t) => `"${t.replace(/"/g, "")}"*`).join(op === "OR" ? " OR " : " ");
   }
 
-  private searchOnce(fts: string, o: SearchOptions, limit: number): (SearchHit & { text: string })[] {
+  private searchOnce(fts: string, tokens: string[], o: SearchOptions, limit: number): (SearchHit & { text: string })[] {
     const where: string[] = ["pages_fts MATCH ?"];
     const args: (string | number)[] = [fts];
     if (o.category) { where.push("p.category = ?"); args.push(o.category); }
@@ -280,15 +331,22 @@ export class WikiDb {
       WHERE ${where.join(" AND ")}
       ORDER BY score LIMIT ?`;
     args.push(limit);
+    const now = o.now ?? Date.now();
     return (this.db.prepare(sql).all(...args) as Record<string, unknown>[]).map((r) => {
       const row = this.rowToPage(r);
-      return { ...row, score: Number(r.score), snippet: String(r.snippet), matched: [], text: `${row.title} ${row.summary} ${row.tags.join(" ")} ${String(r.body)}`.toLowerCase() };
+      const bm25 = Number(r.score);
+      const title = row.title.toLowerCase();
+      const inTitle = tokens.filter((t) => containsToken(title, t)).length / tokens.length;
+      const boost = (CONFIDENCE_BOOST[row.confidence] ?? 1.0) * recencyBoost(row.updated, now) * (1 + TITLE_BOOST * inTitle);
+      return { ...row, score: bm25 * boost, bm25, boost, snippet: String(r.snippet), matched: [], text: `${row.title} ${row.summary} ${row.tags.join(" ")} ${String(r.body)}`.toLowerCase() };
     });
   }
 
   /**
    * Full-text search. Every term must match first (precise); when that yields fewer than `limit` hits,
-   * pages matching some of the terms are appended, ranked by how many terms they contain and then bm25.
+   * pages matching some of the terms are appended, ranked by how many terms they contain and then by score.
+   * The score is bm25 scaled by confidence and recency (see CONFIDENCE_BOOST, recencyBoost); deprecated
+   * pages, when included at all, come after every live page.
    * A natural-language query with one word the wiki never uses therefore still finds the right page.
    */
   search(query: string, o: SearchOptions = {}): SearchHit[] {
@@ -296,17 +354,17 @@ export class WikiDb {
     if (!tokens.length) return [];
     const limit = o.limit ?? 10;
     const hits = new Map<string, SearchHit & { text: string; exact: boolean }>();
-    for (const h of this.searchOnce(WikiDb.toFtsQuery(query, "AND"), o, limit)) hits.set(h.id, { ...h, exact: true });
+    for (const h of this.searchOnce(WikiDb.toFtsQuery(query, "AND"), tokens, o, limit)) hits.set(h.id, { ...h, exact: true });
     // Fallback hits must still contain at least half of the terms (and at least two), so a single common word never drags in noise.
     const minMatched = Math.max(2, Math.ceil(tokens.length / 2));
     if (hits.size < limit && tokens.length > 2) {
-      for (const h of this.searchOnce(WikiDb.toFtsQuery(query, "OR"), o, limit * 3)) if (!hits.has(h.id)) hits.set(h.id, { ...h, exact: false });
+      for (const h of this.searchOnce(WikiDb.toFtsQuery(query, "OR"), tokens, o, limit * 3)) if (!hits.has(h.id)) hits.set(h.id, { ...h, exact: false });
     }
-    const matchedIn = (text: string) => tokens.filter((t) => new RegExp(`(^|[^\\p{L}\\p{N}_])${t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "u").test(text));
+    const matchedIn = (text: string) => tokens.filter((t) => containsToken(text, t));
     return [...hits.values()]
       .map((h) => ({ ...h, matched: h.exact ? tokens : matchedIn(h.text) }))
       .filter((h) => h.exact || h.matched.length >= minMatched)
-      .sort((a, b) => Number(b.exact) - Number(a.exact) || b.matched.length - a.matched.length || a.score - b.score)
+      .sort((a, b) => Number(b.exact) - Number(a.exact) || b.matched.length - a.matched.length || Number(a.confidence === "deprecated") - Number(b.confidence === "deprecated") || a.score - b.score)
       .slice(0, limit)
       .map(({ text: _t, exact: _e, ...hit }) => hit);
   }
@@ -339,7 +397,7 @@ export class WikiDb {
       })
       .filter((x) => x.shared >= minShared && x.overlap >= minOverlap)
       .sort((a, b) => b.overlap - a.overlap);
-    return scored.slice(0, limit).map((x) => ({ ...x.hit, score: -x.overlap, snippet: `${x.shared}/${probe.size} tokens shared`, matched: x.matched }));
+    return scored.slice(0, limit).map((x) => ({ ...x.hit, score: -x.overlap, bm25: x.hit.score, boost: 1, snippet: `${x.shared}/${probe.size} tokens shared`, matched: x.matched }));
   }
 
   outlinks(id: string): string[] {
@@ -352,6 +410,25 @@ export class WikiDb {
 
   logAccess(id: string): void {
     this.db.prepare("INSERT INTO access_log (id, ts, agent) VALUES (?,?,?)").run(id, new Date().toISOString(), this.cfg.agent);
+  }
+
+  /** Record a search in the per-machine index (not in git): query text, caller and the ids returned, in order. */
+  logSearch(query: string, hitIds: string[]): void {
+    const cutoff = new Date(Date.now() - SEARCH_LOG_DAYS * 86400000).toISOString();
+    this.db.prepare("DELETE FROM search_log WHERE ts < ?").run(cutoff);
+    this.db.prepare("INSERT INTO search_log (ts, agent, query, hits) VALUES (?,?,?,?)").run(new Date().toISOString(), this.cfg.agent, query, JSON.stringify(hitIds));
+  }
+
+  searchLog(sinceIso: string): SearchLogEntry[] {
+    const rows = this.db.prepare("SELECT ts, agent, query, hits FROM search_log WHERE ts >= ? ORDER BY ts").all(sinceIso) as { ts: string; agent: string; query: string; hits: string }[];
+    return rows.map((r) => ({ ts: r.ts, agent: r.agent, query: r.query, hits: JSON.parse(r.hits) as string[] }));
+  }
+
+  /** The first page `agent` opened after `tsIso` and within `withinMs`, if any. */
+  nextAccess(agent: string, tsIso: string, withinMs: number): { id: string; ts: string } | null {
+    const until = new Date(Date.parse(tsIso) + withinMs).toISOString();
+    const r = this.db.prepare("SELECT id, ts FROM access_log WHERE agent = ? AND ts > ? AND ts <= ? ORDER BY ts LIMIT 1").get(agent, tsIso, until) as { id: string; ts: string } | undefined;
+    return r ?? null;
   }
 
   accessCounts(sinceIso: string): Map<string, number> {
