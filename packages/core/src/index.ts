@@ -16,3 +16,4 @@ export * from "./doctor.js";
 export * from "./history.js";
 export * from "./upgrade.js";
 export * from "./golden.js";
+export * from "./calls.js";

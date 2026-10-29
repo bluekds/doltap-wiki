@@ -1,4 +1,4 @@
-import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
+import { execFile, execFileSync, type ExecFileSyncOptions } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, sep } from "node:path";
 import type { WikiConfig } from "./config.js";
@@ -257,6 +257,11 @@ export function commitAndPush(cfg: WikiConfig, paths: string[], message: string,
   }
   git(cfg, ["commit", "--quiet", "-m", message]);
   if (cfg.noSync || !hasRemote(cfg)) return report;
+  if (cfg.deferPush) {
+    writeSyncState(cfg, { pendingPush: true });
+    report.messages.push("push deferred to the background flusher");
+    return report;
+  }
   if (deferForBackoff(cfg, report, "push")) {
     writeSyncState(cfg, { pendingPush: true });
     return report;
@@ -289,6 +294,44 @@ export function pushPending(cfg: WikiConfig, report: SyncReport = emptyReport())
     report.pushed = true;
     writeSyncState(cfg, { pendingPush: false, lastOffline: null });
   } else if (!reportRemoteFailure(cfg, report, "push", res.stderr)) report.messages.push(redactCredentials(`push failed: ${res.stderr}`));
+  return report;
+}
+
+/**
+ * Background push for a long-running process (the HTTP server): `git push` runs as a child process without
+ * blocking the event loop, so requests keep being served. No wiki write lock is taken: a commit made during
+ * the push simply stays pending and the next call pushes it. A rejected push (someone else pushed first)
+ * pulls under the lock, then pushes once more.
+ */
+export async function pushPendingAsync(cfg: WikiConfig): Promise<SyncReport> {
+  const report = emptyReport();
+  if (cfg.noSync || !isRepo(cfg) || !hasRemote(cfg)) return report;
+  const ahead = git(cfg, ["rev-list", "--count", "@{u}..HEAD"], { allowFail: true });
+  if (!ahead.ok || ahead.stdout === "0") {
+    if (readSyncState(cfg).pendingPush) writeSyncState(cfg, { pendingPush: false });
+    return report;
+  }
+  if (deferForBackoff(cfg, report, "push")) return report;
+  const run = () =>
+    new Promise<GitResult>((resolve) => {
+      execFile("git", ["push", "--quiet"], { cwd: cfg.root, encoding: "utf8", timeout: cfg.remoteTimeoutMs, env: { ...process.env, GIT_EDITOR: ":", GIT_TERMINAL_PROMPT: "0" } }, (err, stdout, stderr) =>
+        resolve({ ok: !err, stdout: String(stdout ?? "").trim(), stderr: String(stderr ?? "").trim() || (err ? String(err.message) : "") }),
+      );
+    });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const res = await run();
+    if (res.ok) {
+      report.pushed = true;
+      // A commit made while the push ran is still ahead: leave it pending for the next pass.
+      const left = git(cfg, ["rev-list", "--count", "@{u}..HEAD"], { allowFail: true });
+      writeSyncState(cfg, { pendingPush: left.ok && left.stdout !== "0", lastOffline: null });
+      return report;
+    }
+    if (reportRemoteFailure(cfg, report, "push", res.stderr)) return report;
+    report.messages.push(redactCredentials(`push rejected, pulling first: ${res.stderr.split("\n").find((l) => /rejected|fetch first|non-fast-forward/i.test(l)) ?? res.stderr.slice(0, 120)}`));
+    if (attempt === 0) withWriteLock(cfg, () => pull(cfg, report, { force: true }));
+  }
+  report.messages.push("push failed after a pull (commit kept locally; the scheduler retries)");
   return report;
 }
 

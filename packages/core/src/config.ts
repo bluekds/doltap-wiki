@@ -20,6 +20,8 @@ export interface WikiConfig {
   autoPullMinutes: number;
   /** Upper bound for one pull or push, ms. A write never waits longer than this for the remote. */
   remoteTimeoutMs: number;
+  /** Commit only and leave the push to a background flusher (the HTTP server). The write returns as soon as the commit is made. */
+  deferPush: boolean;
 }
 
 export const CATEGORIES = ["howto", "patterns", "reference", "decisions", "projects"] as const;
@@ -62,6 +64,7 @@ export interface ConfigOverrides {
   noSync?: boolean;
   autoPullMinutes?: number;
   remoteTimeoutMs?: number;
+  deferPush?: boolean;
 }
 
 /**
@@ -92,6 +95,7 @@ export function resolveConfig(o: ConfigOverrides = {}): WikiConfig {
     noSync: o.noSync ?? env.DOLTAP_NO_SYNC === "1",
     autoPullMinutes: o.autoPullMinutes ?? Number(env.DOLTAP_AUTO_PULL_MINUTES ?? 10),
     remoteTimeoutMs: o.remoteTimeoutMs ?? Number(env.DOLTAP_REMOTE_TIMEOUT_MS ?? 15000),
+    deferPush: o.deferPush ?? env.DOLTAP_DEFER_PUSH === "1",
   };
 }
 

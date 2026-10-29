@@ -20,7 +20,7 @@ mkdir -p ~/.claude/skills/doltap && cp skills/doltap/SKILL.md ~/.claude/skills/d
 cat CLAUDE.md.snippet >> ~/.claude/CLAUDE.md
 ```
 
-Other MCP clients: run `doltap-mcp` over stdio with the same two environment variables. The resource `wiki://protocol` carries the full rules, so a client without skills still gets them.
+Other MCP clients: `doltap integrations install codex|cursor|gemini` writes the server into that client's user-level config (`--remote <url>` for the always-on endpoint) and `doltap integrations install generic` prints the JSON for anything else; run `doltap-mcp` over stdio with the same two environment variables. The resource `wiki://protocol` carries the full rules, so a client without skills still gets them.
 
 ## Windows (PowerShell)
 

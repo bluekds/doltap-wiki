@@ -78,6 +78,7 @@ For Claude Code, first preview, then apply (user scope: every project on this ma
 cd ~
 doltap integrations install claude --dry-run    # check that the DOLTAP_ROOT shown is ~/.doltap
 doltap integrations install claude
+# Codex CLI, Cursor or Gemini CLI on this machine: doltap integrations install codex|cursor|gemini (same --remote and --dry-run flags)
 ```
 
 This writes the skill to `~/.claude/skills/doltap/`, appends a `## Doltap Wiki` section to `~/.claude/CLAUDE.md` (once), and registers the MCP server, replacing any existing user-scope `doltap` registration.

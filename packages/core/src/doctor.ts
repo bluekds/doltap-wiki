@@ -162,6 +162,7 @@ function secretsChecks(cfg: WikiConfig, checks: DoctorCheck[]): void {
   const clients = join(cfg.stateDir, "http-clients.json");
   if (!existsSync(token) && !existsSync(clients)) { checks.push({ name: "secrets", status: "skip", detail: "no HTTP token on this machine" }); return; }
   const problems: string[] = [];
+  const expiry: string[] = [];
   if (platform() !== "win32") {
     for (const p of [token, clients]) {
       if (!existsSync(p)) continue;
@@ -175,14 +176,19 @@ function secretsChecks(cfg: WikiConfig, checks: DoctorCheck[]): void {
   }
   if (existsSync(clients)) {
     try {
-      const recs = JSON.parse(readFileSync(clients, "utf8")) as Record<string, { token?: string }>;
+      const recs = JSON.parse(readFileSync(clients, "utf8")) as Record<string, { token?: string; expires?: string }>;
+      const today = new Date().toISOString().slice(0, 10);
+      const soon = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
       for (const [name, rec] of Object.entries(recs)) {
         if (!CLIENT_NAME_RE.test(name)) problems.push(`client "${name.slice(0, 20)}" has an invalid name (ignored by the server)`);
         else if (!/^[0-9a-f]{32,}$/.test(rec?.token ?? "")) problems.push(`client ${name} has no usable token`);
+        else if (rec.expires && rec.expires < today) expiry.push(`${name} expired ${rec.expires}`);
+        else if (rec.expires && rec.expires <= soon) expiry.push(`${name} expires ${rec.expires}`);
       }
     } catch (e) { problems.push(`http-clients.json does not parse: ${(e as Error).message.split("\n")[0]}`); }
   }
   if (problems.length) checks.push({ name: "secrets", status: "fail", detail: problems.join("; "), fix: "chmod 600 the files; recreate bad client entries with doltap serve client add" });
+  else if (expiry.length) checks.push({ name: "secrets", status: "warn", detail: `token files ok; client tokens: ${expiry.join(", ")}`, fix: "doltap serve client extend <name> --expires <days>, or remove the client" });
   else checks.push({ name: "secrets", status: "ok", detail: "token files private and well-formed" });
 }
 
