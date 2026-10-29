@@ -118,7 +118,7 @@ flowchart LR
 ## 여러 머신, 원격 접속
 
 - 머신마다 `doltap init --repo …`로 clone을 두면 같은 git 원격을 공유합니다. `doltap schedule install`이 10분마다 pull해서 읽기가 느린 네트워크에 막히지 않습니다.
-- clone을 두기 싫은 머신(노트북, claude.ai 웹)은 **원격 접속**을 씁니다. 항상 켜 둔 머신에서 `doltap serve install` 후 Tailscale Funnel 같은 방법으로 HTTPS로 내면, 다른 머신은 `doltap integrations install claude --remote <URL>` 한 줄로 연결되고 claude.ai에는 커스텀 커넥터로 등록합니다. 보안 모델은 아래 "보안"을 보세요.
+- clone을 두기 싫은 머신(노트북, claude.ai 웹)은 **원격 접속**을 씁니다. 항상 켜 둔 머신에서 `doltap serve install` 후 Tailscale Funnel 같은 방법으로 HTTPS로 내면, 다른 머신은 `doltap integrations install claude --remote <URL>` 한 줄로 연결되고(Codex CLI, Cursor, Gemini CLI는 `codex|cursor|gemini`, 그 밖의 클라이언트는 `generic`으로 JSON 스니펫) claude.ai에는 커스텀 커넥터로 등록합니다. 보안 모델은 아래 "보안"을 보세요.
 - 충돌은 자동 병합하지 않습니다. `doltap sync`와 `doltap audit`가 충돌 파일을 알려 주면 두 버전을 합쳐 `doltap resolve <id> --file merged.md`(MCP는 `wiki_resolve_conflict`)로 마무리하면 복사본 삭제와 commit까지 됩니다. 태그 목록 `_meta/tags.yaml`만은 `.gitattributes`의 `merge=union`으로 자동 병합됩니다. 0.3.0 이전에 만든 위키는 `.gitattributes`에 `wiki/_meta/tags.yaml merge=union` 한 줄을 추가하세요.
 
 ## 관리자 에이전트 (선택)
@@ -156,11 +156,12 @@ doltap doctor [--healthz <url>] [--no-services] [--quiet]   # 유지보수 점�
 doltap upgrade [--diff] [--apply]         # 설치된 버전의 스켈레톤과 비교; 설정·템플릿 갱신, PROTOCOL은 diff만
 doltap schedule install|status|uninstall  # 주기적 sync
 doltap serve install [--show-url]|status|uninstall|token [--rotate] [--quiet]   # 상시 HTTP MCP 서비스
-doltap serve client add <name> [--read-only] | list | remove <name>   # 이름 붙은 토큰: commit에 이름이 남음
-doltap integrations install|uninstall|status claude [--remote [<url>]] [--dry-run]   # --remote에 값을 빼면 $DOLTAP_REMOTE_URL을 읽음
+doltap serve client add <name> [--read-only] [--expires <days|date>] | list | extend <name> --expires … | remove <name>   # 이름 붙은 토큰: commit에 이름이 남음
+doltap serve calls [--since 7] [-n 20]      # 어느 클라이언트가 어떤 도구를 불렀는지 (.doltap/logs/http-calls.log)
+doltap integrations install|uninstall|status claude|codex|cursor|gemini|generic [--remote [<url>]] [--dry-run]   # --remote에 값을 빼면 $DOLTAP_REMOTE_URL을 읽음
 ```
 
-전역 옵션 `--root`, `--agent`, `--session`, `--no-sync`, `--json`. 환경변수 `DOLTAP_ROOT`, `DOLTAP_AGENT`, `DOLTAP_SESSION`, `DOLTAP_NO_SYNC=1`, `DOLTAP_AUTO_PULL_MINUTES`(기본 10; 원격이 안 닿을 때 push를 건너뛰는 시간이기도 함), `DOLTAP_REMOTE_TIMEOUT_MS`(pull/push 한 번의 상한, 기본 15000), `DOLTAP_REMOTE_URL`, `DOLTAP_HTTP_ALLOWED_HOSTS`.
+전역 옵션 `--root`, `--agent`, `--session`, `--no-sync`, `--json`. 환경변수 `DOLTAP_ROOT`, `DOLTAP_AGENT`, `DOLTAP_SESSION`, `DOLTAP_NO_SYNC=1`, `DOLTAP_AUTO_PULL_MINUTES`(기본 10; 원격이 안 닿을 때 push를 건너뛰는 시간이기도 함), `DOLTAP_REMOTE_TIMEOUT_MS`(pull/push 한 번의 상한, 기본 15000), `DOLTAP_REMOTE_URL`, `DOLTAP_HTTP_ALLOWED_HOSTS`, `DOLTAP_DEFER_PUSH=0`(HTTP 서버의 백그라운드 push 끄기).
 
 `doltap doctor`는 관리자 루틴의 시작 점검(저장소 상태, 스케줄러와 HTTP 서비스, 마지막 pull 시각, tags.yaml, lint, 색인, 토큰 파일 권한, 로그 크기, 설치된 skill 버전)을 한 번에 돌리고 고칠 명령을 함께 보여 줍니다. 읽기 전용입니다.
 
@@ -196,7 +197,7 @@ doltap integrations install|uninstall|status claude [--remote [<url>]] [--dry-ru
 - 페이지 id는 모든 경로에서 검증되므로(`<category>/<slug>` 문자만 허용) 요청이 `wiki/` 밖의 파일을 가리킬 수 없습니다. 심볼릭 링크인 페이지 파일은 읽지도 색인하지도 않습니다(공유 원격을 통해 커밋된 링크가 서비스 머신의 임의 파일을 가리킬 수 있으므로). lint가 이를 오류로 보고합니다.
 - 서비스는 기본으로 127.0.0.1에만 바인딩합니다. 인터넷에 내는 것은 Tailscale Funnel 같은 바깥 계층의 선택입니다.
 - 위키 내용은 git 이력에 영구히 남고, 에이전트가 읽은 페이지는 그 에이전트의 모델 제공사로 전송됩니다. 비밀값을 적지 않는 이유입니다.
-- 원격으로 쓴 commit은 서버 머신 이름과, 이름 붙은 토큰(`doltap serve client add <name>`)을 쓰면 그 이름으로 기록됩니다. `--read-only` 토큰은 검색과 읽기만 됩니다.
+- 원격으로 쓴 commit은 서버 머신 이름과, 이름 붙은 토큰(`doltap serve client add <name>`)을 쓰면 그 이름으로 기록됩니다. `--read-only` 토큰은 검색과 읽기만 되고, `--expires`로 만료일을 두면 그날 이후 404입니다(`doctor`가 일주일 전에 경고). 세션은 MCP 세션 id 단위(`[session:<client>/<id>]`)라 페이지를 만든 대화가 그 페이지를 verify할 수 없습니다. 서버는 요청마다 시간·클라이언트·도구·상태를 `.doltap/logs/http-calls.log`에 남기며 인자나 토큰은 기록하지 않습니다(`doltap serve calls`). 쓰기 응답은 commit 직후 돌아오고 push는 뒤에서 이어집니다.
 
 </details>
 

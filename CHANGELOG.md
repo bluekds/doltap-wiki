@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.0 (2026-10-29)
+
+Clients and access control.
+
+- **More agent clients.** `doltap integrations install codex|cursor|gemini` writes the `doltap` server into the client's user-level config (`~/.codex/config.toml`, `~/.cursor/mcp.json`, `~/.gemini/settings.json`), stdio with the clone or `--remote <url>` for the always-on endpoint, and appends the Doltap section to `~/.codex/AGENTS.md` / `~/.gemini/GEMINI.md` (Cursor gets the text to paste into User Rules). `install generic` prints the JSON for any other MCP client. `integrations status` and `doctor` report every client; `uninstall <client>` removes the entry
+- **MCP sessions over HTTP.** A client that initializes gets an `Mcp-Session-Id` and keeps one server for the conversation; its writes carry `[session:<client>/<id>]`, so "the session that created a page cannot verify it" now means that conversation, not the whole day. Requests without a session id are still served statelessly with `<client>@<day>`. Idle sessions close after 2 hours
+- **Client token expiry.** `doltap serve client add <name> --expires <days|date>`, `client extend <name> --expires …|never`; `client list` shows the days left; an expired token answers 404; `doctor` warns a week ahead
+- **Call log.** The HTTP server appends one line per request to `.doltap/logs/http-calls.log` (time, client, method, tool, status, duration; never arguments or tokens; rotated with the other logs). `doltap serve calls [--since 7] [-n 20]` summarises per client and tool
+- **Background push in the HTTP server.** A write returns as soon as its commit is made; the push runs as a child process a moment later (`DOLTAP_DEFER_PUSH=0` restores synchronous pushes). A rejected push pulls and retries; a commit made during a push is pushed by the next pass. The scheduler's sync still covers a server that died before pushing
+- Per-category write scope and OAuth 2.1 were evaluated and left out (see docs/ROADMAP.md)
+
 ## 0.5.0 (2026-10-28)
 
 Search quality: the first result is what the wiki is worth.

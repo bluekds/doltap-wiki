@@ -48,7 +48,8 @@ sources: []
 - `doltap history <id>` shows who changed a page and when, with the evidence recorded at verification; use it before questioning or rewriting someone's page
 - `doltap lint` reports a `symlink` error: someone committed a symbolic link under `wiki/`; it is never read, but remove it (`git rm`) and check who pushed it (`git log -- <path>`)
 - A machine reports a stuck repository: see [[howto/setup-wiki-on-new-machine#Pitfalls]]
-- The HTTP token was exposed (chat, log, screenshot): `doltap serve token --rotate --quiet && doltap serve install` (neither prints the token), then update every remote registration
+- The HTTP token was exposed (chat, log, screenshot): `doltap serve token --rotate --quiet && doltap serve install` (neither prints the token), then update every remote registration. A named client token that leaked: `doltap serve client remove <name>` and issue a new one; give new tokens an `--expires`
+- `doltap doctor` warns that a client token expires within a week: `doltap serve client extend <name> --expires <days>`, or remove the client if it is gone. `doltap serve calls --since 30` shows which clients still call
 
 ### Running it from a scheduled agent session
 

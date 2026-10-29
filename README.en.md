@@ -120,7 +120,7 @@ flowchart LR
 ## Several machines, remote access
 
 - Each machine with `doltap init --repo …` shares the same git remote. `doltap schedule install` pulls every 10 minutes so reads never block on a slow network.
-- Machines without a clone (a laptop, claude.ai on the web) use **remote access**: on an always-on machine run `doltap serve install` and publish it over HTTPS (Tailscale Funnel, for example); other machines connect with `doltap integrations install claude --remote <URL>`, and claude.ai registers it as a custom connector. See "Security" below for the model.
+- Machines without a clone (a laptop, claude.ai on the web) use **remote access**: on an always-on machine run `doltap serve install` and publish it over HTTPS (Tailscale Funnel, for example); other machines connect with `doltap integrations install claude --remote <URL>` (Codex CLI, Cursor and Gemini CLI with `codex|cursor|gemini`; any other MCP client gets a JSON snippet from `generic`), and claude.ai registers it as a custom connector. See "Security" below for the model.
 - Conflicts are never auto-merged. `doltap sync` and `doltap audit` list conflict files; merge the two versions and finish with `doltap resolve <id> --file merged.md` (`wiki_resolve_conflict` over MCP), which deletes the copy and commits. Only the tag vocabulary `_meta/tags.yaml` merges automatically through `merge=union` in `.gitattributes`; wikis created before 0.3.0 need the line `wiki/_meta/tags.yaml merge=union` added there.
 
 ## A maintainer agent (optional)
@@ -158,11 +158,12 @@ doltap doctor [--healthz <url>] [--no-services] [--quiet]   # every maintenance 
 doltap upgrade [--diff] [--apply]         # compare with the installed version's skeleton; update config and templates, PROTOCOL shown as a diff
 doltap schedule install|status|uninstall  # periodic sync
 doltap serve install [--show-url]|status|uninstall|token [--rotate] [--quiet]   # always-on HTTP MCP service
-doltap serve client add <name> [--read-only] | list | remove <name>   # named tokens: commits carry the name
-doltap integrations install|uninstall|status claude [--remote [<url>]] [--dry-run]   # --remote without a value reads $DOLTAP_REMOTE_URL
+doltap serve client add <name> [--read-only] [--expires <days|date>] | list | extend <name> --expires … | remove <name>   # named tokens: commits carry the name
+doltap serve calls [--since 7] [-n 20]      # which client called which tool (.doltap/logs/http-calls.log)
+doltap integrations install|uninstall|status claude|codex|cursor|gemini|generic [--remote [<url>]] [--dry-run]   # --remote without a value reads $DOLTAP_REMOTE_URL
 ```
 
-Global flags `--root`, `--agent`, `--session`, `--no-sync`, `--json`. Environment: `DOLTAP_ROOT`, `DOLTAP_AGENT`, `DOLTAP_SESSION`, `DOLTAP_NO_SYNC=1`, `DOLTAP_AUTO_PULL_MINUTES` (default 10; also how long writes skip the push after the remote was unreachable), `DOLTAP_REMOTE_TIMEOUT_MS` (cap for one pull or push, default 15000), `DOLTAP_REMOTE_URL`, `DOLTAP_HTTP_ALLOWED_HOSTS`.
+Global flags `--root`, `--agent`, `--session`, `--no-sync`, `--json`. Environment: `DOLTAP_ROOT`, `DOLTAP_AGENT`, `DOLTAP_SESSION`, `DOLTAP_NO_SYNC=1`, `DOLTAP_AUTO_PULL_MINUTES` (default 10; also how long writes skip the push after the remote was unreachable), `DOLTAP_REMOTE_TIMEOUT_MS` (cap for one pull or push, default 15000), `DOLTAP_REMOTE_URL`, `DOLTAP_HTTP_ALLOWED_HOSTS`, `DOLTAP_DEFER_PUSH=0` (synchronous pushes in the HTTP server).
 
 `doltap doctor` runs the maintainer's session-start checks in one go (repository state, scheduler and HTTP service, last pull, tags.yaml, lint, index, token file modes, log sizes, installed skill version) and prints the command that clears each warning. It is read-only.
 
@@ -198,7 +199,7 @@ Resources: `wiki://protocol`, `wiki://index`, `wiki://tags`.
 - Page ids are validated everywhere (`<category>/<slug>` characters only), so a request cannot name a file outside `wiki/`. Page files that are symbolic links are never read or indexed (one committed through the shared remote could point at any file on the service host); lint reports them.
 - The service binds to 127.0.0.1 by default. Exposing it to the internet is a deliberate step in an outer layer such as Tailscale Funnel.
 - Wiki content lives forever in git history, and every page an agent reads is sent to that agent's model provider. That is why secret values never go in.
-- Commits made through the remote server carry the server's hostname and the client name when a named token is used (`doltap serve client add <name>`); `--read-only` tokens can search and read but not write.
+- Commits made through the remote server carry the server's hostname and the client name when a named token is used (`doltap serve client add <name>`); `--read-only` tokens can search and read but not write, and `--expires` makes a token answer 404 after that day (`doctor` warns a week ahead). Sessions are MCP sessions (`[session:<client>/<id>]`), so the conversation that created a page cannot verify it. The server logs time, client, tool and status of every request to `.doltap/logs/http-calls.log`, never arguments or tokens (`doltap serve calls`). A write returns right after its commit; the push follows in the background.
 
 </details>
 

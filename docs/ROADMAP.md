@@ -1,6 +1,6 @@
 # Roadmap to 1.0
 
-Status as of 0.5.0 (2026-10-28): 16 MCP tools, 3 resources, launchd/cron/schtasks scheduling, Claude Code integration, `doctor`/`upgrade`/`history`/`golden` commands, ranked search with a golden regression set, synchronous git, every audit finding covered by a reproduction test.
+Status as of 0.6.0 (2026-10-29): 16 MCP tools, 3 resources, launchd/cron/schtasks scheduling, Claude Code / Codex / Cursor / Gemini CLI integration, MCP sessions with per-client tokens, expiry and a call log, background push in the HTTP server, `doctor`/`upgrade`/`history`/`golden` commands, ranked search with a golden regression set, every audit finding covered by a reproduction test.
 
 Versions below are ordering, not dates. Items move between versions when real usage shows a different priority.
 
@@ -38,13 +38,14 @@ The wiki is worth what its first result is worth.
 - Golden set: `doltap golden` runs `wiki/_meta/golden.json`; the tool repository tests a 23-query set against a vault built to trip naive ranking (a routine page that mentions everything, a deprecated twin, an old draft beside a verified page).
 - Embedding search, evaluated: a local model (`bge-small` or `nomic-embed-text` through transformers.js or node-llama-cpp) costs a 30–130 MB download, native or WASM inference, and 20–80 ms per page at index time; the golden set shows no query that bm25 with stemming and the OR fallback misses for lexical reasons alone. Deferred until the search misses collected by `doltap audit` show semantic gaps (a query whose words never occur on the right page). When it comes, it is an optional `--embeddings` index next to FTS5, never a replacement.
 
-## 0.6 Clients and access control
+## 0.6 Clients and access control (shipped in 0.6.0)
 
-- `integrations install` for Codex CLI, Cursor, Gemini CLI, and a generic JSON snippet.
-- Client tokens gain an expiry and a call log (which client called which tool).
-- HTTP sessions move from "client name plus day" to the MCP session id. The 0.3.1 scheme only stops a client from promoting a page it created the same day.
-- Per-category write scope only if a real need appears.
-- OAuth 2.1 for the claude.ai connector evaluated as an option. The path token stays the default.
+- `integrations install codex|cursor|gemini|generic`: user-level config files (TOML for Codex, JSON for Cursor and Gemini), stdio or `--remote`, instruction section where the client has a global file. Claude Code keeps its CLI path. Config formats were taken from each vendor's documentation at the time; the Gemini CLI page already announced a successor product, so that entry may need renaming later.
+- Client tokens: `--expires`, `extend`, 404 after expiry, `doctor` warning a week ahead. Call log in `.doltap/logs/http-calls.log` with `serve calls`.
+- HTTP sessions are MCP sessions (`Mcp-Session-Id`, `[session:<client>/<id>]`), stateless fallback for clients that send none.
+- Background push in the HTTP server (moved here from 0.4): the write returns after its commit; a child process pushes; rejected pushes pull and retry; the scheduler covers a crash before the push.
+- Per-category write scope, evaluated: no client has asked for it; read-only tokens cover the one real case (a viewer that must not write). Left out until a request appears.
+- OAuth 2.1, evaluated: the claude.ai connector supports it, but it needs a public authorization server or a dynamic-client-registration endpoint on the wiki host, a browser login on every machine, and token storage in each client. The path token is one secret, rotated with one command, masked by every CLI path, and now per client with expiry and a call log. Revisit when a team wiki needs per-person identity from an existing IdP.
 
 ## 0.7 Content lifecycle
 

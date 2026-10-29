@@ -7,6 +7,7 @@ import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { ALL_CLIENTS, FILE_CLIENTS, genericSnippets, register, registrations, unregister, type FileClient } from "./integrations.js";
 
 /** Read at runtime so `--version` always matches the installed package. */
 const PKG_VERSION: string = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
@@ -58,6 +59,9 @@ import {
   rotateLogs,
   type DoctorCheck,
   runGolden,
+  readCalls,
+  summarizeCalls,
+  callLogPath,
 } from "@bluekds/doltap-core";
 
 const program = new Command();
@@ -636,8 +640,35 @@ serve.command("token").description("print the secret path token (rotate with --r
   } catch (e) { fail(e); }
 });
 
+serve.command("calls").description("who called which tool over HTTP, from .doltap/logs/http-calls.log (no arguments or tokens are logged)").option("--since <days>", "window in days", "7").option("-n, --limit <n>", "recent lines to print", "20").action((o: { since: string; limit: string }) => {
+  try {
+    const { cfg, json } = cfgFrom();
+    const since = new Date(Date.now() - Number(o.since) * 86400000).toISOString();
+    const calls = readCalls(cfg, since);
+    const summary = summarizeCalls(calls);
+    const recent = calls.slice(-Number(o.limit));
+    out(json, { since, calls: calls.length, summary, recent }, () => {
+      if (!calls.length) { console.log(`no HTTP calls in the last ${o.since} day(s) (${callLogPath(cfg)})`); return; }
+      console.log(`${calls.length} call(s) in the last ${o.since} day(s)`);
+      for (const r of summary) console.log(`  ${r.client.padEnd(16)} ${String(r.calls).padStart(5)} calls  ${r.errors ? `${r.errors} not 2xx  ` : ""}last ${r.last.slice(0, 16)}  ${r.tools.slice(0, 4).map(([t, n]) => `${t} ${n}`).join(", ")}`);
+      console.log("recent:");
+      for (const c of recent) console.log(`  ${c.ts.slice(0, 19)} ${c.client.padEnd(16)} ${c.method.padEnd(12)} ${c.tool.padEnd(22)} ${c.status.padEnd(8)} ${c.ms} ms`);
+    });
+  } catch (e) { fail(e); }
+});
+
 // Named HTTP client tokens (.doltap/http-clients.json, read by doltap-mcp --http on each request).
-interface HttpClientRec { token: string; readOnly: boolean; created: string }
+interface HttpClientRec { token: string; readOnly: boolean; created: string; expires?: string }
+/** `--expires 90` (days from today) or `--expires 2027-01-31`; returns YYYY-MM-DD. */
+function expiryDate(v: string): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+  const days = Number(v.replace(/d$/, ""));
+  if (!Number.isInteger(days) || days <= 0) throw new Error("--expires takes a number of days (e.g. 90) or a date (YYYY-MM-DD)");
+  return new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
+}
+function daysLeft(expires: string | undefined): number | null {
+  return expires ? Math.ceil((Date.parse(expires + "T23:59:59Z") - Date.now()) / 86400000) : null;
+}
 function clientsFile(cfg: WikiConfig): string { return join(cfg.stateDir, "http-clients.json"); }
 function loadClientRecs(cfg: WikiConfig): Record<string, HttpClientRec> {
   const p = clientsFile(cfg);
@@ -649,16 +680,16 @@ function saveClientRecs(cfg: WikiConfig, recs: Record<string, HttpClientRec>): v
   chmodSync(p, 0o600);
 }
 const client = serve.command("client").description("named tokens for remote clients: commits carry the name, --read-only tokens cannot write");
-client.command("add <name>").description("create a token for a client and print it (pipe it to the clipboard; it is not shown again)").option("--read-only").action((name: string, o: { readOnly?: boolean }) => {
+client.command("add <name>").description("create a token for a client and print it (pipe it to the clipboard; it is not shown again)").option("--read-only").option("--expires <days|date>", "last day the token works: days from today or YYYY-MM-DD (default: never)").action((name: string, o: { readOnly?: boolean; expires?: string }) => {
   try {
     const { cfg } = cfgFrom();
     if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(name)) throw new Error("client name must be kebab-case");
     const recs = loadClientRecs(cfg);
     if (recs[name]) throw new Error(`client ${name} exists; remove it first to issue a new token`);
     const token = randomBytes(32).toString("hex");
-    recs[name] = { token, readOnly: !!o.readOnly, created: new Date().toISOString().slice(0, 10) };
+    recs[name] = { token, readOnly: !!o.readOnly, created: new Date().toISOString().slice(0, 10), ...(o.expires ? { expires: expiryDate(o.expires) } : {}) };
     saveClientRecs(cfg, recs);
-    console.error(`client ${name} added (${o.readOnly ? "read-only" : "full access"}); the token follows on stdout`);
+    console.error(`client ${name} added (${o.readOnly ? "read-only" : "full access"}${recs[name].expires ? `, expires ${recs[name].expires}` : ""}); the token follows on stdout`);
     process.stdout.write(token + "\n");
   } catch (e) { fail(e); }
 });
@@ -666,8 +697,21 @@ client.command("list").action(() => {
   try {
     const { cfg, json } = cfgFrom();
     const recs = loadClientRecs(cfg);
-    const rows = Object.entries(recs).map(([name, r]) => ({ name, readOnly: r.readOnly, created: r.created }));
-    out(json, rows, () => { if (!rows.length) console.log("(no named clients; only the default token)"); for (const r of rows) console.log(`${r.name.padEnd(20)} ${r.readOnly ? "read-only" : "full     "} ${r.created}`); });
+    const rows = Object.entries(recs).map(([name, r]) => ({ name, readOnly: r.readOnly, created: r.created, expires: r.expires ?? null, daysLeft: daysLeft(r.expires) }));
+    out(json, rows, () => {
+      if (!rows.length) console.log("(no named clients; only the default token)");
+      for (const r of rows) console.log(`${r.name.padEnd(20)} ${r.readOnly ? "read-only" : "full     "} created ${r.created}  ${r.expires ? (r.daysLeft! < 0 ? `EXPIRED ${r.expires}` : `expires ${r.expires} (${r.daysLeft} d)`) : "never expires"}`);
+    });
+  } catch (e) { fail(e); }
+});
+client.command("extend <name>").description("set a new expiry for a client token (the token itself stays)").requiredOption("--expires <days|date>", "days from today or YYYY-MM-DD; \"never\" removes the expiry").action((name: string, o: { expires: string }) => {
+  try {
+    const { cfg } = cfgFrom();
+    const recs = loadClientRecs(cfg);
+    if (!recs[name]) throw new Error(`no client named ${name}`);
+    if (o.expires === "never") delete recs[name].expires; else recs[name].expires = expiryDate(o.expires);
+    saveClientRecs(cfg, recs);
+    console.log(`client ${name} now ${recs[name].expires ? `expires ${recs[name].expires}` : "never expires"}`);
   } catch (e) { fail(e); }
 });
 client.command("remove <name>").action((name: string) => {
@@ -696,19 +740,45 @@ function claudeCli(args: string[], allowFail = false): string | null {
 }
 
 const integrations = program.command("integrations").description("install the skill, global instruction and MCP registration for an agent client");
+const stdioSpecFor = (root: string, agent: string) => { const [command, ...args] = stdioMcpCommand(); return { command, args, env: { DOLTAP_ROOT: root, DOLTAP_AGENT: agent } }; };
 integrations
   .command("install <client>")
-  .description("supported clients: claude (Claude Code, user scope: every project on this machine)")
+  .description(`supported clients: ${ALL_CLIENTS.join(", ")} (claude = Claude Code via its CLI; codex, cursor, gemini = their user-level config file; generic = print JSON for any other MCP client)`)
   .option("--remote [url]", "register the always-on HTTPS endpoint instead of the local stdio server; omit the value to read it from $DOLTAP_REMOTE_URL (keeps the token out of shell history)")
   .option("--dry-run", "print what would change without writing anything")
-  .action((client: string, o: { remote?: string | true; dryRun?: boolean }) => {
+  .option("--show-url", "with generic: print the remote URL unmasked")
+  .action((client: string, o: { remote?: string | true; dryRun?: boolean; showUrl?: boolean }) => {
     try {
-      if (client !== "claude") throw new Error(`unsupported client: ${client} (supported: claude)`);
+      if (!(ALL_CLIENTS as readonly string[]).includes(client)) throw new Error(`unsupported client: ${client} (supported: ${ALL_CLIENTS.join(", ")})`);
       if (o.remote === true) {
         o.remote = process.env.DOLTAP_REMOTE_URL;
         if (!o.remote) throw new Error("--remote given without a URL and $DOLTAP_REMOTE_URL is not set");
       }
       const json = !!program.opts<GlobalOpts>().json;
+      if (client === "generic") {
+        const root = o.remote ? null : cfgFrom().cfg.root;
+        const snippets = genericSnippets(stdioSpecFor(root ?? "<wiki-root>", "<client-name>"), o.remote ? (o.showUrl ? o.remote : maskToken(o.remote)) : null);
+        out(json, { client, stdio: snippets.stdio, http: snippets.http }, () => {
+          console.log("# stdio (local clone; set DOLTAP_AGENT to the client's name, it lands in commit trailers):");
+          console.log(snippets.stdio);
+          if (snippets.http) { console.log("\n# streamable HTTP (always-on endpoint; the token is in the URL, keep the file private):"); console.log(snippets.http); }
+          else console.log("\n# for the always-on endpoint, run again with --remote <url> (or --remote with $DOLTAP_REMOTE_URL set)");
+          console.log("\n# instructions for the agent: the MCP resource wiki://protocol, or the section printed by `doltap integrations install cursor --dry-run`");
+        });
+        return;
+      }
+      if (client !== "claude") {
+        const fc = client as FileClient;
+        const root = o.remote ? null : cfgFrom().cfg.root;
+        const r = register(fc, o.remote ? { remoteUrl: o.remote } : { stdio: stdioSpecFor(root!, fc) }, !!o.dryRun);
+        out(json, { client, dryRun: !!o.dryRun, registered: !o.dryRun, file: r.file, instructionsFile: r.instructionsFile ?? null, actions: [maskToken(r.summary)] }, () => {
+          console.log(root ? `wiki root: ${root}` : "remote endpoint (no local clone)");
+          console.log(`${o.dryRun ? "would " : ""}${maskToken(r.summary)}`);
+          if (r.manual) console.log(`\n${r.manual}`);
+          if (!o.dryRun) console.log(`done: new ${fc} sessions will see the doltap server`);
+        });
+        return;
+      }
       const src = join(INTEGRATIONS_DIR, "claude-code");
       const skillDir = join(homedir(), ".claude", "skills", "doltap");
       const claudeMd = join(homedir(), ".claude", "CLAUDE.md");
@@ -754,9 +824,10 @@ integrations
       });
     } catch (e) { fail(e); }
   });
-/** Checks on the Claude Code integration: installed skill copy, CLAUDE.md section, MCP registration. */
+/** Checks on the Claude Code integration: installed skill copy, CLAUDE.md section, MCP registration. Other clients: whether their config file names doltap. */
 function integrationChecks(): DoctorCheck[] {
   const checks: DoctorCheck[] = [];
+  for (const r of registrations()) checks.push(r.transport ? { name: r.client, status: "ok", detail: `doltap registered (${r.transport}) in ${r.file}` } : { name: r.client, status: "skip", detail: `not registered (doltap integrations install ${r.client})` });
   const packaged = join(INTEGRATIONS_DIR, "claude-code", "skills", "doltap", "SKILL.md");
   const installed = join(homedir(), ".claude", "skills", "doltap", "SKILL.md");
   const digest = (p: string) => createHash("sha256").update(readFileSync(p)).digest("hex").slice(0, 12);
@@ -786,10 +857,11 @@ integrations.command("status").description("report whether the installed skill, 
 
 integrations
   .command("uninstall <client>")
-  .description("remove the skill and the MCP registration (the CLAUDE.md section is left for you to delete)")
+  .description("remove the skill and the MCP registration (instruction sections are left for you to delete)")
   .action((client: string) => {
     try {
-      if (client !== "claude") throw new Error(`unsupported client: ${client} (supported: claude)`);
+      if ((FILE_CLIENTS as string[]).includes(client)) { console.log(unregister(client as FileClient)); return; }
+      if (client !== "claude") throw new Error(`unsupported client: ${client} (supported: ${ALL_CLIENTS.filter((c) => c !== "generic").join(", ")})`);
       const skillDir = join(homedir(), ".claude", "skills", "doltap");
       rmSync(skillDir, { recursive: true, force: true });
       const removed = claudeCli(["mcp", "remove", "-s", "user", "doltap"], true) !== null;

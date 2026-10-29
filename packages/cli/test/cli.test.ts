@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -93,5 +93,97 @@ describe("golden (0.5)", () => {
     let jsonOut = "";
     try { jsonOut = cli(["--root", m.a, "golden", "--json", file]); } catch (e) { jsonOut = (e as { stdout: string }).stdout; }
     expect(JSON.parse(jsonOut).misses).toHaveLength(1);
+  });
+});
+
+describe("clients, call log and integrations (0.6)", () => {
+  it("client add --expires, list, extend and doctor's expiry warning", () => {
+    const token = cli(["--root", m.a, "serve", "client", "add", "laptop", "--expires", "30"]);
+    expect(token).toMatch(/^[0-9a-f]{64}$/);
+    const list = JSON.parse(cli(["--root", m.a, "serve", "client", "list", "--json"])) as { name: string; expires: string | null; daysLeft: number | null }[];
+    expect(list[0]).toMatchObject({ name: "laptop" });
+    expect(list[0].expires).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(list[0].daysLeft).toBeGreaterThanOrEqual(29);
+    expect(cli(["--root", m.a, "serve", "client", "extend", "laptop", "--expires", "2026-01-31"])).toContain("expires 2026-01-31");
+    expect(cli(["--root", m.a, "serve", "client", "list"])).toContain("EXPIRED 2026-01-31");
+    const doc = JSON.parse(cli(["--root", m.a, "doctor", "--json", "--no-services"])) as { checks: { name: string; status: string; detail: string }[] };
+    const secrets = doc.checks.find((c) => c.name === "secrets")!;
+    expect(secrets.status).toBe("warn");
+    expect(secrets.detail).toContain("laptop expired 2026-01-31");
+    expect(cli(["--root", m.a, "serve", "client", "extend", "laptop", "--expires", "never"])).toContain("never expires");
+    expect(cli(["--root", m.a, "serve", "client", "list"])).toContain("never expires");
+    expect(() => cli(["--root", m.a, "serve", "client", "add", "other", "--expires", "soon"])).toThrow(/days/);
+  });
+
+  it("serve calls summarises the HTTP call log", () => {
+    expect(cli(["--root", m.a, "serve", "calls"])).toContain("no HTTP calls");
+    const dir = join(m.a, ".doltap", "logs");
+    mkdirSync(dir, { recursive: true });
+    const ts = new Date().toISOString();
+    writeFileSync(join(dir, "http-calls.log"), `${ts} laptop tools/call wiki_search 200 12\n${ts} laptop tools/call wiki_get 200 8\n${ts} old - - expired 1\n${ts} laptop tools/call wiki_search 200 9\n`);
+    const r = JSON.parse(cli(["--root", m.a, "serve", "calls", "--json"])) as { calls: number; summary: { client: string; calls: number; errors: number; tools: [string, number][] }[] };
+    expect(r.calls).toBe(4);
+    expect(r.summary[0]).toMatchObject({ client: "laptop", calls: 3, errors: 0 });
+    expect(r.summary[0].tools[0]).toEqual(["wiki_search", 2]);
+    expect(r.summary[1]).toMatchObject({ client: "old", calls: 1, errors: 1 });
+    const text = cli(["--root", m.a, "serve", "calls", "-n", "2"]);
+    expect(text).toContain("4 call(s)");
+    expect(text).toContain("wiki_search 2");
+  });
+
+  it("integrations install writes cursor, gemini and codex configs, status sees them, uninstall removes them", () => {
+    const home = mkdtempSync(join(tmpdir(), "doltap-home-"));
+    const env = { HOME: home, USERPROFILE: home, PATH: "/nonexistent" };
+    const token = "ef".repeat(32);
+    const remote = `https://box.tail1234.ts.net/${token}/mcp`;
+    // Cursor: stdio entry with env; the instruction text is printed for the settings UI.
+    const cur = cli(["--root", m.a, "integrations", "install", "cursor"], env);
+    expect(cur).toContain("add mcpServers.doltap");
+    expect(cur).toContain("User Rules");
+    const cursorCfg = JSON.parse(readFileSync(join(home, ".cursor", "mcp.json"), "utf8")) as { mcpServers: { doltap: { command: string; env: Record<string, string> } } };
+    expect(cursorCfg.mcpServers.doltap.env).toMatchObject({ DOLTAP_ROOT: m.a, DOLTAP_AGENT: "cursor" });
+    expect(cursorCfg.mcpServers.doltap.command).toBeTruthy();
+    // Gemini: remote entry uses httpUrl; GEMINI.md gets the section once; the token is never printed.
+    mkdirSync(join(home, ".gemini"), { recursive: true });
+    writeFileSync(join(home, ".gemini", "settings.json"), JSON.stringify({ theme: "dark", mcpServers: { other: { command: "x" } } }));
+    const gem = cli(["--root", m.a, "integrations", "install", "gemini", "--remote", remote], env);
+    expect(gem).not.toContain(token);
+    const gemCfg = JSON.parse(readFileSync(join(home, ".gemini", "settings.json"), "utf8")) as { theme: string; mcpServers: Record<string, Record<string, string>> };
+    expect(gemCfg.theme).toBe("dark");
+    expect(gemCfg.mcpServers.other).toEqual({ command: "x" });
+    expect(gemCfg.mcpServers.doltap).toEqual({ httpUrl: remote });
+    expect(readFileSync(join(home, ".gemini", "GEMINI.md"), "utf8")).toContain("## Doltap Wiki");
+    cli(["--root", m.a, "integrations", "install", "gemini", "--remote", remote], env);
+    expect(readFileSync(join(home, ".gemini", "GEMINI.md"), "utf8").match(/## Doltap Wiki/g)).toHaveLength(1);
+    // Codex: TOML block replaces an older doltap block and keeps other tables.
+    mkdirSync(join(home, ".codex"), { recursive: true });
+    writeFileSync(join(home, ".codex", "config.toml"), 'model = "o3"\n\n[mcp_servers.doltap]\ncommand = "old"\n\n[mcp_servers.doltap.env]\nX = "1"\n\n[mcp_servers.other]\ncommand = "keep"\n');
+    const cod = cli(["--root", m.a, "integrations", "install", "codex"], env);
+    expect(cod).toContain("replace [mcp_servers.doltap]");
+    const toml = readFileSync(join(home, ".codex", "config.toml"), "utf8");
+    expect(toml).toContain('model = "o3"');
+    expect(toml).toContain("[mcp_servers.other]\ncommand = \"keep\"");
+    expect(toml).not.toContain('command = "old"');
+    expect(toml).toContain('DOLTAP_AGENT = "codex"');
+    expect(toml.match(/\[mcp_servers\.doltap\]/g)).toHaveLength(1);
+    expect(readFileSync(join(home, ".codex", "AGENTS.md"), "utf8")).toContain("## Doltap Wiki");
+    // status lists all three; generic prints masked JSON.
+    const st = JSON.parse(cli(["--root", m.a, "integrations", "status", "--json"], env)) as { checks: { name: string; status: string; detail: string }[] };
+    expect(st.checks.find((c) => c.name === "cursor")).toMatchObject({ status: "ok" });
+    expect(st.checks.find((c) => c.name === "gemini")?.detail).toContain("http");
+    expect(st.checks.find((c) => c.name === "codex")?.detail).toContain("stdio");
+    const gen = cli(["--root", m.a, "integrations", "install", "generic", "--remote", remote], env);
+    expect(gen).toContain('"DOLTAP_AGENT": "<client-name>"');
+    expect(gen).toContain("<token>");
+    expect(gen).not.toContain(token);
+    expect(cli(["--root", m.a, "integrations", "install", "generic", "--remote", remote, "--show-url"], env)).toContain(token);
+    // uninstall
+    expect(cli(["--root", m.a, "integrations", "uninstall", "codex"], env)).toContain("removed [mcp_servers.doltap]");
+    expect(readFileSync(join(home, ".codex", "config.toml"), "utf8")).toContain("[mcp_servers.other]");
+    expect(cli(["--root", m.a, "integrations", "uninstall", "gemini"], env)).toContain("removed mcpServers.doltap");
+    expect((JSON.parse(readFileSync(join(home, ".gemini", "settings.json"), "utf8")) as { mcpServers: Record<string, unknown> }).mcpServers.doltap).toBeUndefined();
+    const st2 = JSON.parse(cli(["--root", m.a, "integrations", "status", "--json"], env)) as { checks: { name: string; status: string }[] };
+    expect(st2.checks.find((c) => c.name === "codex")?.status).toBe("skip");
+    rmSync(home, { recursive: true, force: true });
   });
 });

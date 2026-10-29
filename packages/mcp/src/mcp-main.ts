@@ -11,9 +11,15 @@ const flag = (name: string): string | undefined => {
 
 // Identity recorded in commit messages. Clients can override via env when launching the server.
 // The stdio server gets a session of its own (DOLTAP_SESSION / CLAUDE_CODE_SESSION_ID override it); the HTTP server sets one per client and day.
-const cfg = resolveConfig({ agent: process.env.DOLTAP_AGENT ?? (args.includes("--http") ? "mcp-http" : "mcp"), session: args.includes("--http") ? undefined : defaultSession() });
+// The HTTP server pushes in the background (DOLTAP_DEFER_PUSH=0 restores synchronous pushes); stdio servers push with each write.
+const http = args.includes("--http");
+const cfg = resolveConfig({
+  agent: process.env.DOLTAP_AGENT ?? (http ? "mcp-http" : "mcp"),
+  session: http ? undefined : defaultSession(),
+  deferPush: http ? process.env.DOLTAP_DEFER_PUSH !== "0" : undefined,
+});
 
-if (args.includes("--http")) {
+if (http) {
   await serveHttp(cfg, {
     port: Number(flag("--port") ?? process.env.DOLTAP_HTTP_PORT ?? 8765),
     host: flag("--host") ?? process.env.DOLTAP_HTTP_HOST ?? "127.0.0.1",
