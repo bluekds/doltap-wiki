@@ -47,14 +47,20 @@ The wiki is worth what its first result is worth.
 - Per-category write scope, evaluated: no client has asked for it; read-only tokens cover the one real case (a viewer that must not write). Left out until a request appears.
 - OAuth 2.1, evaluated: the claude.ai connector supports it, but it needs a public authorization server or a dynamic-client-registration endpoint on the wiki host, a browser login on every machine, and token storage in each client. The path token is one secret, rotated with one command, masked by every CLI path, and now per client with expiry and a call log. Revisit when a team wiki needs per-person identity from an existing IdP.
 
-## 0.7 Content lifecycle
+## 0.7 Content lifecycle (shipped)
 
-- `review_by` field on reference pages with a lint warning, automating the 60-day rule.
-- `doltap audit --report` writes the weekly report. Deprecate, merge and delete keep requiring human approval.
-- Attachment policy: `wiki/_assets`, size cap, lint.
+Validity follows what a page depends on, not the calendar (the design review found the 0.6 rules conflated "old" and "unread" with "wrong").
+
+- `review_by` on `howto/` and `reference/` pages, set by the author from the page's volatility; lint warns when it passes; `wiki_get` returns `review_due`. Pages without one count as reviewed for 180 days (reference) or 365 (howto).
+- `wiki_verify` on a verified page records a re-check: `verified_on`, `verified_by` and `review_by` move, body and `updated` stay.
+- `doltap audit`: `stale` replaced by `unreviewed`; `unreferenced` reframed as a discoverability check; `decisions/` and `projects/` excluded from every age-based list.
+- Ranking: the recency factor is a ×1.05 lift for pages created or verified within 30 days, keyed on `verified_on`; the under-1.0 multipliers for age are gone; durable categories get no recency effect.
+- Moved to 0.8: `doltap audit --report` writing the weekly report; the attachment policy (`wiki/_assets`, size cap, lint).
 
 ## 0.8 Scale and multiple wikis
 
+- `doltap audit --report` writes the weekly report to `wiki/_meta/reports/`. Deprecate, merge and delete keep requiring human approval.
+- Attachment policy: `wiki/_assets`, size cap, lint.
 - Tests at five thousand pages: reindex time, search latency. Incremental reindex of changed files only.
 - Documented setup for a shared wiki and a personal wiki on one machine, with easy `--root` switching.
 

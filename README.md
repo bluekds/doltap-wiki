@@ -47,7 +47,7 @@ doltap schedule install                                                         
 | "이 재시도 로직, **위키에 패턴으로 남겨 줘**" | `patterns` 템플릿에 맞춰 문제·해결·주의점을 적습니다 |
 | "왜 SQLite 대신 Postgres로 했는지 **위키 decisions에 남겨 줘**" | 선택지와 결정 이유를 ADR 형식으로 기록합니다 |
 | "**위키에 뭐 있는지** 보고 이 프로젝트 셋업해 줘" | `projects/`와 관련 `howto`를 읽고 시작합니다 |
-| "**위키 상태 점검**해 줘" | `wiki_audit`로 오래된 페이지, 방치된 draft, 충돌 파일을 보고합니다 |
+| "**위키 상태 점검**해 줘" | `wiki_audit`로 재검토가 밀린 페이지, 방치된 draft, 충돌 파일을 보고합니다 |
 
 에이전트는 아무 말이나 쌓지 못합니다. 카테고리 분류표, 템플릿, lint, 중복 감지가 쓰기 단계에서 작동하고, 비밀값은 저장이 거부됩니다. 규칙 전체는 위키 안의 `_meta/PROTOCOL.md`에 있고 에이전트가 자동으로 읽습니다.
 
@@ -139,10 +139,10 @@ doltap list [-c category] [-t tag]
 doltap related <id>
 doltap index                              # 페이지당 한 줄
 doltap template <category>
-doltap add <category>/<slug> --title .. --summary .. --tags a,b [--file body.md | --stdin] [--force] [--replace --base-rev <rev>]
+doltap add <category>/<slug> --title .. --summary .. --tags a,b [--file body.md | --stdin] [--force] [--replace --base-rev <rev>] [--review-by <days|date>]
 doltap patch <id> -s "Section" (--content .. | --file .. | --stdin) [--append] [--create] [--base-rev <rev>]
-doltap meta <id> [--add-source ..] [--add-tag ..] [--title ..] [--summary ..]
-doltap verify <id> --evidence ".."           # draft -> verified; 만든 세션은 거부
+doltap meta <id> [--add-source ..] [--add-tag ..] [--title ..] [--summary ..] [--review-by <days|date|none>]
+doltap verify <id> --evidence ".." [--review-by ..]   # draft -> verified(만든 세션은 거부); 이미 verified면 재검토 기록(날짜만 이동, 본문·updated 유지)
 doltap deprecate <id> --replaced-by <id>     # replaced_by, 배너, 허브 항목
 doltap resolve <id> (--file merged.md | --stdin | --take conflict)   # *.conflict-<host>.md 정리
 doltap tags [list] | tags add <tag> <description> [--group g] | tags remove <tag>
@@ -150,7 +150,7 @@ doltap history <id> [-n 20]               # 페이지를 바꾼 commit: 누가, 
 doltap lint [ids...]
 doltap sync                               # pull, 밀린 push, reindex, 읽기 통계 발행, 충돌 파일 목록, 로그 회전
 doltap reindex [--full]
-doltap audit [--unreferenced-days 90] [--stale-days 90] [--draft-days 30]   # 검색 miss(답이 1위가 아니었던 쿼리)도 보고
+doltap audit [--unreferenced-days 90] [--review-days <n>] [--draft-days 30]   # unreviewed·unreferenced·draft·고아·충돌·검색 miss; decisions/projects는 나이로 걸리지 않음
 doltap golden [file]                      # wiki/_meta/golden.json의 쿼리마다 기대 페이지가 1위인지; 아니면 exit 1
 doltap doctor [--healthz <url>] [--no-services] [--quiet]   # 유지보수 점검 전부: 실패가 있으면 exit 1
 doltap upgrade [--diff] [--apply]         # 설치된 버전의 스켈레톤과 비교; 설정·템플릿 갱신, PROTOCOL은 diff만
@@ -165,9 +165,9 @@ doltap integrations install|uninstall|status claude|codex|cursor|gemini|generic 
 
 `doltap doctor`는 관리자 루틴의 시작 점검(저장소 상태, 스케줄러와 HTTP 서비스, 마지막 pull 시각, tags.yaml, lint, 색인, 토큰 파일 권한, 로그 크기, 설치된 skill 버전)을 한 번에 돌리고 고칠 명령을 함께 보여 줍니다. 읽기 전용입니다.
 
-`doltap audit`는 모든 머신의 읽기 통계(`wiki/_meta/stats/<host>.json`, sync가 6시간에 한 번 발행)를 합쳐서 아무도 읽지 않는 페이지, 오래된 페이지, 오래 머문 draft, 고아 페이지, 아직 링크되는 deprecated 페이지, 충돌 파일을 보고합니다. 이 머신의 검색 로그(`.doltap/index.sqlite`에만 남고 git에는 올라가지 않음)에서 검색 직후 15분 안에 연 페이지가 1위가 아니었던 쿼리도 함께 보여 줍니다. 제목이나 요약을 고치거나 페이지를 추가할 단서입니다.
+`doltap audit`는 모든 머신의 읽기 통계(`wiki/_meta/stats/<host>.json`, sync가 6시간에 한 번 발행)를 합쳐서 재검토가 밀린 페이지(unreviewed: `review_by`가 지났거나, 없으면 reference 180일·howto 365일 안에 재검증이 없는 페이지), 아무도 읽지 않는 페이지(unreferenced: 폐기 목록이 아니라 허브 항목·제목·태그를 손볼 발견성 점검), 오래 머문 draft, 고아 페이지, 아직 링크되는 deprecated 페이지, 충돌 파일을 보고합니다. `decisions/`와 `projects/`는 나이로는 어떤 목록에도 오르지 않습니다. 이 머신의 검색 로그(`.doltap/index.sqlite`에만 남고 git에는 올라가지 않음)에서 검색 직후 15분 안에 연 페이지가 1위가 아니었던 쿼리도 함께 보여 줍니다. 제목이나 요약을 고치거나 페이지를 추가할 단서입니다.
 
-검색 순위는 FTS5 bm25(제목·요약·태그를 본문보다 가중)에 작은 계수를 곱합니다. verified ×1.1, deprecated는 ×0.5에 항상 마지막, 30일 안에 갱신 ×1.05, 1년 넘게 방치 ×0.9, 쿼리 단어가 제목에 있으면 최대 ×1.15. 계수는 근소한 차이만 가르고 명확한 텍스트 일치를 뒤집지 않습니다. `wiki/_meta/golden.json`에 `[{"query", "expect"}]`를 두면 `doltap golden`이 기대 페이지가 1위인지 확인합니다.
+검색 순위는 FTS5 bm25(제목·요약·태그를 본문보다 가중)에 작은 계수를 곱합니다. verified ×1.1, deprecated는 ×0.5에 항상 마지막, 30일 안에 만들거나 검증한 페이지 ×1.05(오래됐다고 감점하지는 않고, decisions/projects에는 적용하지 않음), 쿼리 단어가 제목에 있으면 최대 ×1.15. 계수는 근소한 차이만 가르고 명확한 텍스트 일치를 뒤집지 않습니다. `wiki/_meta/golden.json`에 `[{"query", "expect"}]`를 두면 `doltap golden`이 기대 페이지가 1위인지 확인합니다.
 
 **MCP 도구**
 

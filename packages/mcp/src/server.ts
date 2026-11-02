@@ -31,6 +31,7 @@ import {
   PAGE_ID_RE,
   pageHistory,
   type WikiConfig,
+  today,
 } from "@bluekds/doltap-core";
 
 const CategoryEnum = z.enum(CATEGORIES);
@@ -70,7 +71,7 @@ const INSTRUCTIONS = `Doltap is a shared wiki for agents (howto, patterns, refer
 - Never write secret values (tokens, keys, passwords, connector URLs); record where the secret lives and how to load it. Internal hosts are fine.
 - English only. Tags only from wiki://tags (add one with wiki_add_tag). Hub lists are generated; do not edit them. Deprecate with wiki_deprecate, finish a conflict with wiki_resolve_conflict.`;
 
-const server = new McpServer({ name: "doltap", version: "0.6.0" }, { instructions: INSTRUCTIONS });
+const server = new McpServer({ name: "doltap", version: "0.7.0" }, { instructions: INSTRUCTIONS });
 
 // ------------------------------------------------------------------ resources
 server.registerResource("protocol", "wiki://protocol", { title: "Doltap protocol", description: "Rules for reading, writing, and classifying wiki pages. Read before writing.", mimeType: "text/markdown" }, async (uri) => ({
@@ -89,7 +90,7 @@ server.registerTool(
   "wiki_search",
   {
     title: "Search the wiki",
-    description: "Full-text search over shared knowledge pages (procedures, code patterns, reference facts, decisions). Call this before starting any repetitive task (deploy, build, auth, retry, config) or when you need version-specific facts. Ranked by text match, then verified over draft and recent over stale. Returns id, confidence, tags, summary. Then call wiki_get for the page or a section.",
+    description: "Full-text search over shared knowledge pages (procedures, code patterns, reference facts, decisions). Call this before starting any repetitive task (deploy, build, auth, retry, config) or when you need version-specific facts. Ranked by text match, then verified over draft and a small lift for pages created or verified in the last 30 days; age is never a penalty. Returns id, confidence, tags, summary. Then call wiki_get for the page or a section.",
     inputSchema: {
       query: z.string().describe("Free text; terms are stemmed and prefix-matched"),
       category: CategoryEnum.optional(),
@@ -112,7 +113,7 @@ server.registerTool(
   "wiki_get",
   {
     title: "Read a wiki page",
-    description: "Return a page body (or a single ## section to save tokens) with its frontmatter, rev, section list, and backlinks. Check `confidence`: verified = trust; draft = verify yourself and promote via wiki_verify if it holds; deprecated = do not follow, read `replaced_by` instead.",
+    description: "Return a page body (or a single ## section to save tokens) with its frontmatter, rev, section list, and backlinks. Check `confidence`: verified = trust; draft = verify yourself and promote via wiki_verify if it holds; deprecated = do not follow, read `replaced_by` instead. `review_due: true` means the page's review_by date has passed: its facts may have drifted, so treat it as a hint, re-check, and wiki_verify it if it still holds.",
     inputSchema: {
       id: PageId.describe("Page id, e.g. howto/deploy-pypi"),
       section: z.string().optional().describe("Heading of one ## section, e.g. Pitfalls"),
@@ -123,7 +124,7 @@ server.registerTool(
       const { result } = get(cfg, a.id, a.section);
       if (!result) return errorText(`page not found: ${a.id}`);
       const { page, text: body, backlinks } = result;
-      return text({ id: a.id, rev: page.rev, meta: page.meta, replaced_by: page.meta.replaced_by ?? undefined, conflict_copies: conflictCopiesOf(cfg, a.id), section: a.section ?? null, sections: page.sections.map((s) => s.heading), text: body, links: page.links, backlinks });
+      return text({ id: a.id, rev: page.rev, meta: page.meta, replaced_by: page.meta.replaced_by ?? undefined, review_due: !!page.meta.review_by && page.meta.review_by < today() ? true : undefined, conflict_copies: conflictCopiesOf(cfg, a.id), section: a.section ?? null, sections: page.sections.map((s) => s.heading), text: body, links: page.links, backlinks });
     } catch (e) { return errorText(e); }
   },
 );
@@ -189,13 +190,14 @@ Rules: body must follow the category template sections (get it with wiki_templat
       sources: z.array(z.string()).default([]).describe("Evidence: URLs, SPEC ids, session ids"),
       force: z.boolean().default(false).describe("Create even if similar pages exist"),
       replace: z.boolean().default(false).describe("Overwrite an existing page (whole body and frontmatter)"),
+      review_by: z.string().optional().describe("When to re-check the page against its sources: days from today (\"60\"), a YYYY-MM-DD date, or \"none\". Set it on howto/reference pages that depend on a tool version or an external service; decisions and projects never expire"),
       base_rev: z.string().optional().describe("The rev returned by wiki_get for this page; the write is refused if the page changed since"),
     },
   },
   async (a) => {
     try {
       const ro = readOnly(); if (ro) return ro;
-      const r = upsertPage(cfg, { id: a.id, title: a.title, summary: a.summary, tags: a.tags, body: a.body, confidence: "draft", sources: a.sources, force: a.force, replace: a.replace, baseRev: a.base_rev });
+      const r = upsertPage(cfg, { id: a.id, title: a.title, summary: a.summary, tags: a.tags, body: a.body, confidence: "draft", sources: a.sources, force: a.force, replace: a.replace, reviewBy: a.review_by, baseRev: a.base_rev });
       if (r.refused) return { isError: true as const, ...text({ refused: r.refused, issues: r.issues, similar: r.similar?.map((s) => ({ id: s.id, summary: s.summary, overlap: s.snippet })) }) };
       return text({ id: r.id, created: r.created, rev: r.rev, warnings: r.issues, pushed: r.sync.pushed, notes: r.sync.messages, conflicts: r.sync.conflicts });
     } catch (e) { return errorText(e); }
@@ -231,7 +233,7 @@ server.registerTool(
   "wiki_set_meta",
   {
     title: "Update page frontmatter",
-    description: "Add sources or tags, or fix title/summary. To promote use wiki_verify; to deprecate use wiki_deprecate (confidence here is limited to draft).",
+    description: "Add sources or tags, fix title/summary, or set review_by (the date a howto/reference page should be re-checked). To promote use wiki_verify; to deprecate use wiki_deprecate (confidence here is limited to draft).",
     inputSchema: {
       id: PageId,
       confidence: z.enum(["draft"]).optional().describe("Only draft; verified and deprecated have dedicated tools"),
@@ -239,13 +241,14 @@ server.registerTool(
       add_tags: z.array(z.string()).default([]),
       title: z.string().optional(),
       summary: z.string().max(200).optional(),
+      review_by: z.string().optional().describe("When to re-check the page against its sources: days from today (\"60\"), a YYYY-MM-DD date, or \"none\". Set it on howto/reference pages that depend on a tool version or an external service; decisions and projects never expire"),
       base_rev: z.string().optional().describe("rev from wiki_get; refused if the page changed since"),
     },
   },
   async (a) => {
     try {
       const ro = readOnly(); if (ro) return ro;
-      const r = patchMeta(cfg, { id: a.id, confidence: a.confidence, addSources: a.add_sources, addTags: a.add_tags, title: a.title, summary: a.summary, baseRev: a.base_rev });
+      const r = patchMeta(cfg, { id: a.id, confidence: a.confidence, addSources: a.add_sources, addTags: a.add_tags, title: a.title, summary: a.summary, reviewBy: a.review_by, baseRev: a.base_rev });
       if (r.refused) return { isError: true as const, ...text({ refused: r.refused, issues: r.issues }) };
       return text({ id: r.id, rev: r.rev, warnings: r.issues, pushed: r.sync.pushed, notes: r.sync.messages });
     } catch (e) { return errorText(e); }
@@ -255,14 +258,14 @@ server.registerTool(
 server.registerTool(
   "wiki_verify",
   {
-    title: "Promote a page to verified",
-    description: "Mark a draft page verified after you followed it and it worked. Requires evidence (what you did, where, what confirmed it); it is appended to sources and verified_by/verified_on are recorded. The session that created the page cannot verify it.",
-    inputSchema: { id: PageId, evidence: z.string().min(10).describe("e.g. 'Followed on build-box 2026-10-27; release 1.4.2 published'"), base_rev: z.string().optional() },
+    title: "Verify a page (promote, or record a re-check)",
+    description: "Mark a draft page verified after you followed it and it worked. Requires evidence (what you did, where, what confirmed it); it is appended to sources and verified_by/verified_on are recorded. The session that created the page cannot promote it. On a page that is already verified this records a re-check: verified_on and review_by move forward, the body and updated stay; use it when a page's review_by has passed and the page is still right.",
+    inputSchema: { id: PageId, evidence: z.string().min(10).describe("e.g. 'Followed on build-box 2026-10-27; release 1.4.2 published'"), review_by: z.string().optional().describe("Next re-check: days from today, a date, or none. Omitted on a re-check: the previous interval is kept"), base_rev: z.string().optional() },
   },
   async (a) => {
     try {
       const ro = readOnly(); if (ro) return ro;
-      const r = verifyPage(cfg, { id: a.id, evidence: a.evidence, baseRev: a.base_rev });
+      const r = verifyPage(cfg, { id: a.id, evidence: a.evidence, reviewBy: a.review_by, baseRev: a.base_rev });
       if (r.refused) return { isError: true as const, ...text({ refused: r.refused, issues: r.issues }) };
       return text({ id: r.id, rev: r.rev, warnings: r.issues, pushed: r.sync.pushed, notes: r.sync.messages });
     } catch (e) { return errorText(e); }
@@ -348,10 +351,10 @@ server.registerTool(
   "wiki_audit",
   {
     title: "Audit the wiki",
-    description: "Maintenance report across all hosts: unreferenced pages (deprecate candidates), stale pages (re-verify), lingering drafts, orphans, deprecated pages still linked, conflict files, unused tags, most-read pages. Use when asked to clean up or review the wiki.",
-    inputSchema: { unreferenced_days: z.number().int().default(90), stale_days: z.number().int().default(90), draft_days: z.number().int().default(30) },
+    description: "Maintenance report across all hosts: unreviewed pages (review_by passed, or no re-check within the category window: re-check against sources, then wiki_verify), unreferenced pages (nobody read them: a discoverability check, not a deprecation list), lingering drafts, orphans, deprecated pages still linked, conflict files, unused tags, most-read pages. decisions/ and projects/ pages never age. Use when asked to clean up or review the wiki.",
+    inputSchema: { unreferenced_days: z.number().int().default(90), review_days: z.number().int().optional().describe("Override the per-category review window (reference 180, howto 365) for pages without review_by"), draft_days: z.number().int().default(30) },
   },
-  async (a) => { try { return text(audit(cfg, { unreferencedDays: a.unreferenced_days, staleDays: a.stale_days, draftDays: a.draft_days })); } catch (e) { return errorText(e); } },
+  async (a) => { try { return text(audit(cfg, { unreferencedDays: a.unreferenced_days, reviewDays: a.review_days ?? null, draftDays: a.draft_days })); } catch (e) { return errorText(e); } },
 );
 
 return server;

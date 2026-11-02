@@ -9,7 +9,7 @@ describe("audit (single machine)", () => {
   beforeEach(() => { fx = makeWikiCopy(); });
   afterEach(() => fx.cleanup());
 
-  it("classifies unreferenced, stale, lingering drafts and most-read pages", () => {
+  it("classifies unreferenced, unreviewed, lingering drafts and most-read pages", () => {
     const cfg = cfgFor(fx.dir);
     // Make one page old and unread, keep another read today.
     const old = join(cfg.wikiDir, "reference", "obsidian-conventions.md");
@@ -18,7 +18,7 @@ describe("audit (single machine)", () => {
     get(cfg, "decisions/wiki-storage-markdown-git");
     const r = audit(cfg);
     expect(r.unreferenced.map((e) => e.id)).toContain("reference/obsidian-conventions");
-    expect(r.stale.map((e) => e.id)).toContain("reference/obsidian-conventions");
+    expect(r.unreviewed.map((e) => e.id)).toContain("reference/obsidian-conventions");
     expect(r.lingeringDrafts.map((e) => e.id)).toContain("reference/obsidian-conventions");
     expect(r.unreferenced.map((e) => e.id)).not.toContain("decisions/wiki-storage-markdown-git");
     expect(r.mostRead[0]).toMatchObject({ id: "decisions/wiki-storage-markdown-git", reads: 2 });

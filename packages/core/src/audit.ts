@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { isCategoryHub, type WikiConfig } from "./config.js";
+import { DURABLE_CATEGORIES, REVIEW_DEFAULT_DAYS, isCategoryHub, today, type WikiConfig } from "./config.js";
 import { WikiDb, type PageRow } from "./db.js";
 import { assertOnBranch, commitAndPush, listConflictFiles, readSyncState, writeSyncState, type SyncReport } from "./git.js";
 import { loadTags } from "./tags.js";
@@ -67,16 +67,23 @@ export function loadAllStats(cfg: WikiConfig): HostStats[] {
 export interface AuditOptions {
   /** Pages not read by any host within this many days are "unreferenced". */
   unreferencedDays?: number;
-  /** Pages whose `updated` is older than this are "stale". */
-  staleDays?: number;
+  /**
+   * Overrides the per-category review window (REVIEW_DEFAULT_DAYS) for volatile pages without `review_by`.
+   * Null (the default) keeps the category defaults.
+   */
+  reviewDays?: number | null;
   /** Drafts older than this (by `created`) are "lingering". */
   draftDays?: number;
 }
 
 export interface AuditEntry {
   id: string;
+  category: string;
   confidence: string;
   updated: string;
+  /** Lifecycle dates (null when unset). */
+  reviewBy: string | null;
+  verifiedOn: string | null;
   reads: number;
   lastRead: string | null;
   hosts: string[];
@@ -86,8 +93,10 @@ export interface AuditReport {
   generated: string;
   hostsReporting: string[];
   thresholds: Required<AuditOptions>;
+  /** Volatile pages (not decisions/projects) nobody read in the window and nobody updated: a discoverability check, not a deprecation list. */
   unreferenced: AuditEntry[];
-  stale: AuditEntry[];
+  /** Volatile pages whose `review_by` has passed, or without one, whose last verification/update exceeds the category window. */
+  unreviewed: AuditEntry[];
   lingeringDrafts: AuditEntry[];
   orphans: string[];
   deprecatedStillLinked: { id: string; linkedFrom: string[] }[];
@@ -140,7 +149,8 @@ function daysAgo(iso: string): number {
 }
 
 export function audit(cfg: WikiConfig, o: AuditOptions = {}): AuditReport {
-  const thresholds = { unreferencedDays: o.unreferencedDays ?? 90, staleDays: o.staleDays ?? 90, draftDays: o.draftDays ?? 30 };
+  const thresholds = { unreferencedDays: o.unreferencedDays ?? 90, reviewDays: o.reviewDays ?? null, draftDays: o.draftDays ?? 30 };
+  const todayIso = today();
   const db = new WikiDb(cfg);
   try {
     db.reindex();
@@ -149,7 +159,7 @@ export function audit(cfg: WikiConfig, o: AuditOptions = {}): AuditReport {
     all.push(collectHostStats(cfg, db, thresholds.unreferencedDays));
     const reads = new Map<string, AuditEntry>();
     const rows = db.list({ includeDeprecated: true }).filter((r) => !isCategoryHub(r.id));
-    const entry = (r: PageRow): AuditEntry => reads.get(r.id) ?? { id: r.id, confidence: r.confidence, updated: r.updated, reads: 0, lastRead: null, hosts: [] };
+    const entry = (r: PageRow): AuditEntry => reads.get(r.id) ?? { id: r.id, category: r.category, confidence: r.confidence, updated: r.updated, reviewBy: r.review_by, verifiedOn: r.verified_on, reads: 0, lastRead: null, hosts: [] };
     for (const r of rows) reads.set(r.id, entry(r));
     for (const s of all) {
       for (const [id, c] of Object.entries(s.counts)) {
@@ -167,8 +177,13 @@ export function audit(cfg: WikiConfig, o: AuditOptions = {}): AuditReport {
     for (const r of db.db.prepare("SELECT src, dst FROM links").all() as { src: string; dst: string }[]) {
       inbound.set(r.dst, [...(inbound.get(r.dst) ?? []), r.src]);
     }
-    const unreferenced = active.filter((e) => e.reads === 0 && daysAgo(e.updated) > thresholds.unreferencedDays);
-    const stale = active.filter((e) => daysAgo(e.updated) > thresholds.staleDays);
+    const volatile = active.filter((e) => !DURABLE_CATEGORIES.includes(e.category));
+    const unreferenced = volatile.filter((e) => e.reads === 0 && daysAgo(e.updated) > thresholds.unreferencedDays);
+    const unreviewed = volatile.filter((e) => {
+      if (e.reviewBy) return e.reviewBy < todayIso;
+      const window = thresholds.reviewDays ?? REVIEW_DEFAULT_DAYS[e.category];
+      return window !== undefined && daysAgo(e.verifiedOn ?? e.updated) > window;
+    });
     const lingeringDrafts = active.filter((e) => e.confidence === "draft" && daysAgo(rowsById(rows, e.id).created) > thresholds.draftDays);
     const orphans = active.filter((e) => (inbound.get(e.id) ?? []).filter((s) => !s.endsWith("/_index")).length === 0 && (inbound.get(e.id) ?? []).length === 0).map((e) => e.id);
     const deprecatedStillLinked = entries
@@ -182,7 +197,7 @@ export function audit(cfg: WikiConfig, o: AuditOptions = {}): AuditReport {
       hostsReporting: all.map((s) => s.host),
       thresholds,
       unreferenced,
-      stale,
+      unreviewed,
       lingeringDrafts,
       orphans,
       deprecatedStillLinked,

@@ -187,3 +187,39 @@ describe("clients, call log and integrations (0.6)", () => {
     rmSync(home, { recursive: true, force: true });
   });
 });
+
+describe("0.7 content lifecycle", () => {
+  it("add/meta/verify take --review-by; audit reports unreviewed pages and never ages decisions", () => {
+    cli(["--root", m.a, "add", "howto/lifecycle", "--title", "Lifecycle", "--summary", "A page that depends on a tool version.", "--tags", "wiki", "--force", "--stdin", "--review-by", "2026-01-01"], {}, body);
+    expect(readFileSync(join(m.a, "wiki", "howto", "lifecycle.md"), "utf8")).toMatch(/^review_by: 2026-01-01$/m);
+    const lint = cli(["--root", m.a, "lint"]);
+    expect(lint).toContain("review-due");
+    let audit = JSON.parse(cli(["--root", m.a, "audit", "--json"]));
+    expect(audit.unreviewed.map((e: { id: string }) => e.id)).toContain("howto/lifecycle");
+    expect(audit).not.toHaveProperty("stale");
+    expect(cli(["--root", m.a, "audit"])).toContain("unreviewed -> re-check against sources");
+    // A re-check from another machine moves the deadline forward and keeps the body.
+    cli(["--root", m.b, "sync"]);
+    // Another session than the one that created the page (the CLI otherwise inherits this process's session id).
+    const v = cli(["--root", m.b, "verify", "howto/lifecycle", "--evidence", "Followed on machine-b today; still correct", "--review-by", "90"], { DOLTAP_SESSION: "s-other" });
+    expect(v).toContain("verified howto/lifecycle");
+    const raw = readFileSync(join(m.b, "wiki", "howto", "lifecycle.md"), "utf8");
+    expect(raw).toMatch(/^confidence: verified$/m);
+    expect(raw).not.toMatch(/^review_by: 2026-01-01$/m);
+    expect(raw).toMatch(/^review_by: \d{4}-\d{2}-\d{2}$/m);
+    const again = cli(["--root", m.b, "verify", "howto/lifecycle", "--evidence", "Re-checked on machine-b; unchanged", "--review-by", "none"]);
+    expect(again).toContain("verified howto/lifecycle");
+    expect(readFileSync(join(m.b, "wiki", "howto", "lifecycle.md"), "utf8")).not.toMatch(/^review_by:/m);
+    expect(sh(m.b, "git", ["log", "-1", "--format=%s"])).toBe("wiki: re-verify howto/lifecycle");
+    expect(cli(["--root", m.b, "meta", "howto/lifecycle", "--review-by", "30"])).toContain("updated howto/lifecycle frontmatter");
+    expect(readFileSync(join(m.b, "wiki", "howto", "lifecycle.md"), "utf8")).toMatch(/^review_by: \d{4}-\d{2}-\d{2}$/m);
+    // A decision from years ago is neither unreviewed nor unreferenced.
+    const dec = join(m.b, "wiki", "decisions", "wiki-storage-markdown-git.md");
+    writeFileSync(dec, readFileSync(dec, "utf8").replace(/^updated: .*$/m, "updated: 2020-01-01").replace(/^created: .*$/m, "created: 2020-01-01"));
+    sh(m.b, "git", ["commit", "-qam", "backdate"]);
+    audit = JSON.parse(cli(["--root", m.b, "audit", "--json"]));
+    expect(audit.unreviewed.map((e: { id: string }) => e.id)).not.toContain("decisions/wiki-storage-markdown-git");
+    expect(audit.unreferenced.map((e: { id: string }) => e.id)).not.toContain("decisions/wiki-storage-markdown-git");
+    expect(() => cli(["--root", m.b, "meta", "howto/lifecycle", "--review-by", "soon"])).toThrow(/review_by/);
+  });
+});

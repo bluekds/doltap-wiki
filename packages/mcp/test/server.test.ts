@@ -57,3 +57,25 @@ describe("mcp server", () => {
     expect(Array.isArray(rel.backlinks)).toBe(true);
   });
 });
+
+describe("0.7 content lifecycle over MCP", () => {
+  it("wiki_upsert/wiki_set_meta/wiki_verify carry review_by and wiki_audit reports unreviewed", async () => {
+    const body = "## Key facts\n\n- x\n\n## Details\n\ny\n\n## Verified on\n\n2026-11-02\n\n## Related\n\n- [[reference/_index]]\n";
+    const up = parse(await client.callTool({ name: "wiki_upsert", arguments: { id: "reference/volatile-thing", title: "Volatile thing", summary: "Facts about a service that changes its API often.", tags: ["api"], body, force: true, review_by: "2026-01-01" } }));
+    expect(up.created).toBe(true);
+    expect(up.warnings.map((w: { rule: string }) => w.rule)).toContain("review-due");
+    let g = parse(await client.callTool({ name: "wiki_get", arguments: { id: "reference/volatile-thing" } }));
+    expect(g.meta.review_by).toBe("2026-01-01");
+    const audit = parse(await client.callTool({ name: "wiki_audit", arguments: {} }));
+    expect(audit.unreviewed.map((e: { id: string }) => e.id)).toContain("reference/volatile-thing");
+    expect(audit).not.toHaveProperty("stale");
+    parse(await client.callTool({ name: "wiki_set_meta", arguments: { id: "reference/volatile-thing", review_by: "none" } }));
+    g = parse(await client.callTool({ name: "wiki_get", arguments: { id: "reference/volatile-thing" } }));
+    expect(g.meta.review_by).toBeUndefined();
+    const v = await client.callTool({ name: "wiki_verify", arguments: { id: "patterns/retry-backoff", evidence: "Re-checked in the test client; still correct", review_by: "120" } });
+    expect(v.isError).toBeFalsy();
+    g = parse(await client.callTool({ name: "wiki_get", arguments: { id: "patterns/retry-backoff" } }));
+    expect(g.meta.confidence).toBe("verified");
+    expect(g.meta.review_by).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+});

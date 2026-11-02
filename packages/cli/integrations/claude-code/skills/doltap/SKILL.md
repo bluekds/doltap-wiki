@@ -11,11 +11,11 @@ A knowledge base shared by every agent on every machine. Pages are Markdown unde
 
 1. At the start of a task that is repetitive (deploy, build, release, environment setup) or cross-project (auth, retry, caching, logging, CLI scaffolding), call `wiki_search` with 2–4 keywords. Also search when you need a library's version-specific behavior or limits, or when you wonder "why is it done this way".
 2. Read the `summary` and `confidence` of each hit. Open a page with `wiki_get`; pass `section` (e.g. `Pitfalls`, `Steps`, `Solution`) when you only need part of it.
-3. Treat `confidence` as instructions: `verified` = follow it; `draft` = use as a hint and verify; `deprecated` = do not follow, open the page in `replaced_by` instead.
+3. Treat `confidence` as instructions: `verified` = follow it; `draft` = use as a hint and verify; `deprecated` = do not follow, open the page in `replaced_by` instead. `review_due: true` on `wiki_get` means the page's `review_by` date passed: its facts may have drifted, so re-check what you rely on.
 4. Use `wiki_related` to move from one hit to adjacent pages when the first page is close but not exact.
 5. Before relying on or rewriting a page whose age or author matters, `wiki_history` shows who changed it, when, and the evidence given at verification.
 
-If a `draft` page turned out to be correct, promote it with `wiki_verify` and `evidence` saying what you did and what confirmed it. The session that created the page cannot verify it; that is expected.
+If a `draft` page turned out to be correct, promote it with `wiki_verify` and `evidence` saying what you did and what confirmed it. The session that created the page cannot verify it; that is expected. If a `verified` page with `review_due` still holds after you followed it, call `wiki_verify` again: that records the re-check (dates move, body stays). When you create a `howto` or `reference` page that depends on a tool version or an external service, pass `review_by` (days until it should be re-checked); decisions never need one.
 
 ## Write when it will save the next agent time
 

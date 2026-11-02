@@ -29,15 +29,15 @@ sources: []
 ### Weekly
 
 1. Review pages added or changed in the last week: `git log --since="1 week ago" --format='%h %s' -- wiki/`, then `doltap get` each. Check category fit, a summary that stands on its own, sensible tags, links to related pages, no secrets, no session-log content. Fix with `doltap patch` / `doltap meta`
-2. `doltap audit`: for each lingering draft decide promote / leave / propose deprecation. Promote only with evidence (someone followed the page and it worked): `doltap verify <id> --evidence "<what confirmed it>"`; deprecate with `doltap deprecate <id> --replaced-by <new-id>`
+2. `doltap audit`: for each lingering draft decide promote / leave / propose deprecation. Promote only with evidence (someone followed the page and it worked): `doltap verify <id> --evidence "<what confirmed it>" [--review-by <days>]`; deprecate with `doltap deprecate <id> --replaced-by <new-id>`. For each **unreviewed** page (its `review_by` passed, or no re-check within the category window) re-check it against its sources: unchanged means `doltap verify <id> --evidence "<what you checked>"` (a re-verification keeps the body and moves the dates), changed means `doltap patch` the section first. For **unreferenced** pages improve discoverability (hub entry, title, tags); being unread is not a reason to deprecate
 3. Check that every category hub's "Manual list" matches the pages on disk
 4. `doltap audit` also lists search misses (queries where the page opened next was not the first hit): reword the title or summary of the page that should have won, or add the missing page. Then `doltap golden` (`wiki/_meta/golden.json`, `[{query, expect}]`); add a query to the set when a miss is fixed so it stays fixed
 5. Look at `wiki/_meta/stats/*.json`: a machine that stopped reporting usually has a broken scheduler
 
 ### Monthly
 
-1. Re-verify `reference/` pages about external services whose "Verified on" date is older than ~60 days; update or record what changed
-2. From `doltap audit`, propose deprecating pages nobody read or updated in 90 days (except rare-but-critical procedures)
+1. Set `review_by` on `howto/` and `reference/` pages that still lack one and depend on something that moves (`doltap meta <id> --review-by <days>`): external services or pricing ~60 days, tool versions or config layouts ~180 days, stable internal procedures none. `decisions/` and `projects/` never get one
+2. Propose deprecation only for pages that are superseded or wrong; collect candidates from the weekly re-checks, never from read counts or age alone
 3. Update the tooling: `npm install -g doltap-wiki@latest`, then re-run `doltap schedule install` (and `doltap serve install` if used) so the services pick up the new binary; then `doltap upgrade` and apply the shipped config and template changes with `--apply`, merging any `PROTOCOL.md` diff by hand
 4. `doltap integrations status` on each machine with Claude Code: a stale skill copy means `doltap integrations install claude` again
 5. Tag vocabulary: `doltap audit` lists unused tags; `doltap tags remove <tag>` drops one, `doltap tags add <tag> <description> --group <g>` adds the ones agents keep needing
@@ -65,7 +65,7 @@ Session-scheduled jobs live only while that session is open; if it ends, open a 
 
 - Session-start checks all green; `doltap lint` 0 errors
 - After the weekly pass: no draft older than 30 days without a recorded decision, no conflict files, every page reachable from its hub
-- After the monthly pass: tooling current, external `reference/` pages verified within ~60 days
+- After the monthly pass: tooling current, `doltap audit` shows no unreviewed page older than the last weekly pass
 
 ## Pitfalls
 

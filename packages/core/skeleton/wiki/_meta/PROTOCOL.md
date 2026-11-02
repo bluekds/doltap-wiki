@@ -103,6 +103,7 @@ sources:
 - `created`, `updated`: ISO dates
 - `sources`: URLs, SPEC ids, session ids — the evidence. May be empty on a draft; `wiki_verify` appends its evidence here
 - `replaced_by`, `verified_by`, `verified_on`: written by `wiki_deprecate` and `wiki_verify`; do not set them by hand
+- `review_by` (optional, `howto/` and `reference/`): the date by which the page should be re-checked against what it depends on. Set it from the page's volatility, not from habit: an external service or pricing page ~60 days, a tool version or config layout ~180 days, a stable internal procedure none. Lint warns once the date has passed; `wiki_verify` moves it forward
 
 ### Body
 
@@ -124,7 +125,17 @@ sources:
 - Set `updated` to today whenever the content changes. Typo fixes are exempt.
 - When you find wrong content, fix it rather than deleting it, and leave a one-line note in "Pitfalls" or "Changelog" saying what was wrong and why.
 - When a page is no longer valid, do not delete it. Create or pick the replacement, then `wiki_deprecate` (`doltap deprecate`): it sets `confidence: deprecated` and `replaced_by`, and puts a banner with the link at the top of the body. A deprecated page without a replacement fails lint.
-- Promotion `draft` → `verified` requires that another session or another machine followed the page and it worked. Use `wiki_verify` (`doltap verify`) with that evidence; the tool records it in `sources` plus `verified_by` / `verified_on`, and refuses the session that created the page. A session is the MCP server process (stdio), the client name plus the day (HTTP), or `DOLTAP_SESSION` / `CLAUDE_CODE_SESSION_ID` for the CLI.
+- Promotion `draft` → `verified` requires that another session or another machine followed the page and it worked. Use `wiki_verify` (`doltap verify`) with that evidence; the tool records it in `sources` plus `verified_by` / `verified_on`, and refuses the session that created the page. A session is the MCP server process (stdio), the MCP session of one conversation (HTTP; the client name plus the day when the client sends no session id), or `DOLTAP_SESSION` / `CLAUDE_CODE_SESSION_ID` for the CLI.
+
+### Lifecycle
+
+A page's validity follows what it depends on, not the calendar.
+
+- `decisions/` and `projects/` pages never expire by age. They are deprecated only when superseded, never for being old or unread.
+- `howto/` and `reference/` pages can drift because the tool, service or config they describe changes. Their author sets `review_by` from that volatility; pages without one count as reviewed for 365 days (`howto/`) or 180 days (`reference/`) after their last verification or update. `patterns/` pages carry `review_by` only when the author sets one.
+- `verified` is a point-in-time claim: someone followed the page and it worked on `verified_on`. When `review_by` passes, re-check the page against its sources; if it still holds, call `wiki_verify` again with what you checked. That re-verification moves `verified_on` and `review_by` forward and appends the evidence, but leaves `updated` and the body alone, so "checked, still true" is recorded distinctly from "edited". If something changed, fix the section, then verify.
+- `doltap audit` lists such pages as **unreviewed**. Its **unreferenced** list (pages nobody read in 90 days) is a discoverability check: improve the hub entry, title or tags. Neither list is a deprecation list; deprecation always needs a replacement and a human decision.
+- Search ranks a page created or verified in the last 30 days slightly higher; age is never a penalty, and durable categories get no recency effect at all.
 
 ## 6. Check before creating
 
