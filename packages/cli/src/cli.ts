@@ -275,13 +275,14 @@ program
   .option("--stdin", "read body from stdin")
   .option("--force", "create even if similar pages exist")
   .option("--replace", "overwrite an existing page (otherwise an existing id is refused; use patch/meta to edit)")
+  .option("--review-by <days|date>", "when to re-check the page against its sources (howto/reference pages that depend on versions or external services)")
   .option("--base-rev <rev>", "rev shown by `doltap get`; refused if the page changed since")
-  .action((id: string, o: { title: string; summary: string; tags?: string; sources?: string; file?: string; stdin?: boolean; force?: boolean; replace?: boolean; baseRev?: string }) => {
+  .action((id: string, o: { title: string; summary: string; tags?: string; sources?: string; file?: string; stdin?: boolean; force?: boolean; replace?: boolean; reviewBy?: string; baseRev?: string }) => {
     try {
       const { cfg, json } = cfgFrom();
       const body = o.file || o.stdin ? readContent(o) : undefined;
       const r = upsertPage(cfg, {
-        id, title: o.title, summary: o.summary, body, force: o.force, replace: o.replace, baseRev: o.baseRev,
+        id, title: o.title, summary: o.summary, body, force: o.force, replace: o.replace, reviewBy: o.reviewBy, baseRev: o.baseRev,
         tags: o.tags ? o.tags.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
         sources: o.sources ? o.sources.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
       });
@@ -335,11 +336,12 @@ program
   .option("--add-tag <t>", "repeatable", (v: string, acc: string[]) => [...acc, v], [] as string[])
   .option("--title <text>")
   .option("--summary <text>")
+  .option("--review-by <days|date|none>", "when to re-check the page against its sources (howto/reference); none clears it")
   .option("--base-rev <rev>", "rev shown by `doltap get`; refused if the page changed since")
-  .action((id: string, o: { confidence?: string; addSource: string[]; addTag: string[]; title?: string; summary?: string; baseRev?: string }) => {
+  .action((id: string, o: { confidence?: string; addSource: string[]; addTag: string[]; title?: string; summary?: string; reviewBy?: string; baseRev?: string }) => {
     try {
       const { cfg, json } = cfgFrom();
-      const r = patchMeta(cfg, { id, confidence: o.confidence, addSources: o.addSource, addTags: o.addTag, title: o.title, summary: o.summary, baseRev: o.baseRev });
+      const r = patchMeta(cfg, { id, confidence: o.confidence, addSources: o.addSource, addTags: o.addTag, title: o.title, summary: o.summary, reviewBy: o.reviewBy, baseRev: o.baseRev });
       out(json, r, () => {
         if (r.refused) { console.log(`refused: ${r.refused}`); printIssues(r.issues); process.exitCode = 2; return; }
         console.log(`updated ${r.id} frontmatter`);
@@ -352,13 +354,14 @@ program
 // ---------------------------------------------------------------- verify / deprecate / resolve
 program
   .command("verify <id>")
-  .description("promote draft -> verified with evidence (the session that created the page cannot verify it)")
+  .description("promote draft -> verified with evidence (the session that created the page cannot verify it); on a verified page, record a re-check: verified_on and review_by move, the body and updated do not")
   .requiredOption("--evidence <text>", "what you did, where, and what confirmed it; appended to sources")
+  .option("--review-by <days|date|none>", "next re-check deadline; on a re-check without it the previous interval is kept")
   .option("--base-rev <rev>")
-  .action((id: string, o: { evidence: string; baseRev?: string }) => {
+  .action((id: string, o: { evidence: string; reviewBy?: string; baseRev?: string }) => {
     try {
       const { cfg, json } = cfgFrom();
-      const r = verifyPage(cfg, { id, evidence: o.evidence, baseRev: o.baseRev });
+      const r = verifyPage(cfg, { id, evidence: o.evidence, reviewBy: o.reviewBy, baseRev: o.baseRev });
       out(json, r, () => {
         if (r.refused) { console.log(`refused: ${r.refused}`); printIssues(r.issues); process.exitCode = 2; return; }
         console.log(`verified ${r.id}`);
@@ -492,22 +495,22 @@ program.command("reindex").description("rebuild the local search index and _meta
 // ---------------------------------------------------------------- audit
 program
   .command("audit")
-  .description("report unreferenced, stale, lingering-draft, orphan and deprecated-but-linked pages (uses stats from all hosts)")
-  .option("--unreferenced-days <n>", "no reads within N days", "90")
-  .option("--stale-days <n>", "updated older than N days", "90")
+  .description("report unreviewed, unreferenced, lingering-draft, orphan and deprecated-but-linked pages (uses stats from all hosts); decisions/ and projects/ never age")
+  .option("--unreferenced-days <n>", "no reads within N days (howto, patterns, reference)", "90")
+  .option("--review-days <n>", "override the per-category review window for pages without review_by (reference 180, howto 365)")
   .option("--draft-days <n>", "draft created more than N days ago", "30")
-  .action((o: { unreferencedDays: string; staleDays: string; draftDays: string }) => {
+  .action((o: { unreferencedDays: string; reviewDays?: string; draftDays: string }) => {
     try {
       const { cfg, json } = cfgFrom();
-      const r = audit(cfg, { unreferencedDays: Number(o.unreferencedDays), staleDays: Number(o.staleDays), draftDays: Number(o.draftDays) });
+      const r = audit(cfg, { unreferencedDays: Number(o.unreferencedDays), reviewDays: o.reviewDays === undefined ? null : Number(o.reviewDays), draftDays: Number(o.draftDays) });
       out(json, r, () => {
-        const section = (title: string, rows: { id: string; reads?: number; updated?: string; lastRead?: string | null }[]) => {
+        const section = (title: string, rows: { id: string; reads?: number; updated?: string; lastRead?: string | null; reviewBy?: string | null; verifiedOn?: string | null }[]) => {
           console.log(`${title} (${rows.length})`);
-          for (const e of rows) console.log(`  ${e.id}${e.updated ? `  updated ${e.updated}` : ""}${e.reads !== undefined ? `  reads ${e.reads}` : ""}${e.lastRead ? `  last ${e.lastRead}` : ""}`);
+          for (const e of rows) console.log(`  ${e.id}${e.updated ? `  updated ${e.updated}` : ""}${e.verifiedOn ? `  verified ${e.verifiedOn}` : ""}${e.reviewBy ? `  review_by ${e.reviewBy}` : ""}${e.reads !== undefined ? `  reads ${e.reads}` : ""}${e.lastRead ? `  last ${e.lastRead}` : ""}`);
         };
         console.log(`hosts reporting: ${r.hostsReporting.join(", ") || "(none)"}`);
-        section("unreferenced -> deprecate candidates", r.unreferenced);
-        section("stale -> re-verify", r.stale);
+        section("unreviewed -> re-check against sources, then doltap verify", r.unreviewed);
+        section("unreferenced -> check discoverability (hub links, title, tags)", r.unreferenced.map((e) => ({ ...e, reviewBy: null, verifiedOn: null })));
         section("lingering drafts -> verify or deprecate", r.lingeringDrafts);
         section("orphans -> link from a hub or page", r.orphans.map((id) => ({ id })));
         section("deprecated but still linked", r.deprecatedStillLinked.map((d) => ({ id: `${d.id} <- ${d.linkedFrom.join(", ")}` })));

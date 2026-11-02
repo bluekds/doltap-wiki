@@ -38,6 +38,36 @@ export function isProjectOverview(id: string): boolean {
 
 export type Category = (typeof CATEGORIES)[number];
 export const CONFIDENCE = ["draft", "verified", "deprecated"] as const;
+
+/**
+ * Categories whose pages do not go wrong with age: a decision record or a project overview is deprecated only
+ * when superseded, never for being old. They are excluded from age-based audit lists and from the recency boost.
+ */
+export const DURABLE_CATEGORIES: readonly string[] = ["decisions", "projects"];
+
+/**
+ * How long a volatile page without an explicit `review_by` counts as reviewed, measured from `verified_on`
+ * (or `updated`). Pages about external services and tool versions drift; the author can tighten this per page.
+ */
+export const REVIEW_DEFAULT_DAYS: Record<string, number> = { reference: 180, howto: 365 };
+
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Add `days` to a YYYY-MM-DD date. */
+export function addDays(date: string, days: number): string {
+  return new Date(Date.parse(`${date}T00:00:00Z`) + days * 86400000).toISOString().slice(0, 10);
+}
+
+/**
+ * Turn a user-supplied `review_by` ("60" days from `from`, a YYYY-MM-DD date, or "none"/"" to clear) into a date or null.
+ */
+export function reviewByFrom(value: string | undefined | null, from: string): string | null {
+  const v = (value ?? "").trim();
+  if (!v || v === "none" || v === "never") return null;
+  if (DATE_ONLY.test(v)) return v;
+  if (/^\d+$/.test(v) && Number(v) > 0) return addDays(from, Number(v));
+  throw new Error(`review_by must be a number of days, a YYYY-MM-DD date, or none; got ${JSON.stringify(v)}`);
+}
 export type Confidence = (typeof CONFIDENCE)[number];
 
 const MARKER = join("wiki", "_meta", "PROTOCOL.md");

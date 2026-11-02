@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, writeFileSync, readFileSync, unlinkSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
-import { CATEGORIES, isCategoryHub, today, type WikiConfig } from "./config.js";
+import { CATEGORIES, addDays, isCategoryHub, reviewByFrom, today, type WikiConfig } from "./config.js";
 import { WikiDb, type SearchHit } from "./db.js";
 import { assertOnBranch, commitAndPush, commitMessage, emptyReport, git, pull, type SyncReport } from "./git.js";
 import { buildLintContext, hasErrors, lintPage, type LintIssue } from "./lint.js";
@@ -36,6 +36,8 @@ export interface UpsertInput {
   replace?: boolean;
   /** Revision the caller read (Page.rev). The write is refused when the page changed since. */
   baseRev?: string;
+  /** When the page should be re-checked: a number of days from today, a YYYY-MM-DD date, or "none". */
+  reviewBy?: string;
 }
 
 function staleRefusal(current: string, base: string | undefined): string | null {
@@ -192,6 +194,7 @@ export function upsertPage(cfg: WikiConfig, input: UpsertInput): WriteResult {
     if (input.confidence !== undefined) meta.confidence = input.confidence;
     if (input.sources !== undefined) meta.sources = input.sources;
     meta.updated = today();
+    if (input.reviewBy !== undefined) meta.review_by = reviewByFrom(input.reviewBy, meta.updated) ?? undefined;
 
     const raw = serializePage(meta, body);
     const page = parsePage(cfg, relPath, raw);
@@ -263,6 +266,8 @@ export interface MetaPatch {
   title?: string;
   summary?: string;
   baseRev?: string;
+  /** Days from today, a YYYY-MM-DD date, or "none" to clear. */
+  reviewBy?: string;
 }
 
 /** Update frontmatter only (promotion, deprecation, retagging). */
@@ -286,6 +291,7 @@ export function patchMeta(cfg: WikiConfig, input: MetaPatch): WriteResult {
     if (input.summary) meta.summary = input.summary;
     if (input.addSources?.length) meta.sources = [...new Set([...meta.sources, ...input.addSources])];
     if (input.addTags?.length) meta.tags = [...new Set([...meta.tags, ...input.addTags])];
+    if (input.reviewBy !== undefined) meta.review_by = reviewByFrom(input.reviewBy, meta.updated) ?? undefined;
     const raw = serializePage(meta, page.body);
     const next = parsePage(cfg, page.relPath, raw);
     const issues = lintOne(cfg, db, next).filter((i) => i.rule !== "orphan");
@@ -294,7 +300,7 @@ export function patchMeta(cfg: WikiConfig, input: MetaPatch): WriteResult {
     db.reindex();
     const action = input.confidence === "deprecated" ? "deprecate" : "update";
     const touched = [join("wiki", page.relPath), ...regenerateHubLists(cfg, db).map((rel) => join("wiki", rel))];
-    commitAndPush(cfg, touched, commitMessage(cfg, action, input.id, `meta: ${Object.keys(input).filter((k) => k !== "id" && k !== "baseRev").join(", ")}`), sync);
+    commitAndPush(cfg, touched, commitMessage(cfg, action, input.id, `meta: ${Object.keys(input).filter((k) => k !== "id" && k !== "baseRev" && input[k as keyof MetaPatch] !== undefined).join(", ")}`), sync);
     return { id: input.id, path: page.relPath, created: false, issues, sync, rev: next.rev };
   } finally {
     db.close();
@@ -357,6 +363,11 @@ export interface VerifyInput {
   /** What confirmed the page: where it was followed, what happened. Recorded in `sources`. */
   evidence: string;
   baseRev?: string;
+  /**
+   * When to re-check next: days from today, a YYYY-MM-DD date, or "none". On a re-verification without it,
+   * the previous interval (review_by minus verified_on) is kept.
+   */
+  reviewBy?: string;
 }
 
 /** `[session:x]` of the commit that created the page, from git history (null when unknown). */
@@ -369,6 +380,10 @@ function creatingSession(cfg: WikiConfig, relPath: string): string | null {
 /**
  * Promote draft → verified with evidence. The session that created the page cannot verify it: promotion
  * means someone else followed the page and it worked. Records `verified_by` (host/agent) and `verified_on`.
+ *
+ * On a page that is already verified this is a re-verification: "checked again, still true". It moves
+ * `verified_on` / `verified_by` and `review_by` forward and appends the evidence, but leaves `updated` and the
+ * body alone, so a re-check is recorded distinctly from an edit. Any session may re-verify.
  */
 export function verifyPage(cfg: WikiConfig, input: VerifyInput): WriteResult {
   relPathFromId(input.id);
@@ -386,17 +401,21 @@ export function verifyPage(cfg: WikiConfig, input: VerifyInput): WriteResult {
       const refuse = (why: string): WriteResult => ({ id: input.id, path: page.relPath, created: false, issues: [], sync, refused: why });
       const stale = staleRefusal(page.rev, input.baseRev);
       if (stale) return refuse(stale);
-      if (page.meta.confidence === "verified") return refuse(`${input.id} is already verified (by ${String(page.meta.verified_by ?? "unknown")}); add evidence with set_meta add_sources instead`);
       if (page.meta.confidence === "deprecated") return refuse(`${input.id} is deprecated; nothing to verify`);
-      const creator = creatingSession(cfg, page.relPath);
-      if (creator && cfg.session && creator === cfg.session) return refuse(`refusing self-promotion: ${input.id} was created in this same session (${cfg.session}); another session or machine must follow the page first`);
+      const reverify = page.meta.confidence === "verified";
+      if (!reverify) {
+        const creator = creatingSession(cfg, page.relPath);
+        if (creator && cfg.session && creator === cfg.session) return refuse(`refusing self-promotion: ${input.id} was created in this same session (${cfg.session}); another session or machine must follow the page first`);
+      }
+      const now = today();
       const meta: PageMeta = {
         ...page.meta,
         confidence: "verified",
         sources: [...new Set([...page.meta.sources, evidence])],
         verified_by: `${cfg.hostname}/${cfg.agent}`,
-        verified_on: today(),
-        updated: today(),
+        verified_on: now,
+        updated: reverify ? page.meta.updated : now,
+        review_by: nextReviewBy(page.meta, input.reviewBy, now),
       };
       const raw = serializePage(meta, page.body);
       const next = parsePage(cfg, page.relPath, raw);
@@ -404,12 +423,21 @@ export function verifyPage(cfg: WikiConfig, input: VerifyInput): WriteResult {
       if (hasErrors(issues)) return { ...refuse("lint errors"), issues };
       writeFileSync(page.absPath, raw);
       db.reindex();
-      commitAndPush(cfg, [join("wiki", page.relPath)], commitMessage(cfg, "verify", input.id, `evidence: ${evidence}`), sync);
+      commitAndPush(cfg, [join("wiki", page.relPath)], commitMessage(cfg, reverify ? "re-verify" : "verify", input.id, `evidence: ${evidence}`), sync);
       return { id: input.id, path: page.relPath, created: false, issues, sync, rev: next.rev };
     } finally {
       db.close();
     }
   });
+}
+
+/** The review_by after a verification: the explicit value, else the page's previous interval rolled forward from today, else none. */
+function nextReviewBy(meta: PageMeta, explicit: string | undefined, now: string): string | undefined {
+  if (explicit !== undefined) return reviewByFrom(explicit, now) ?? undefined;
+  if (!meta.review_by) return undefined;
+  const from = meta.verified_on || meta.updated;
+  const interval = Math.round((Date.parse(meta.review_by) - Date.parse(from)) / 86400000);
+  return interval > 0 ? addDays(now, interval) : undefined;
 }
 
 export interface ResolveInput {

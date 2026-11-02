@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
-import { CATEGORIES, isCategoryHub, type WikiConfig } from "./config.js";
+import { CATEGORIES, DURABLE_CATEGORIES, isCategoryHub, type WikiConfig } from "./config.js";
 import { idFromRelPath, parsePage, toPosix, type Page } from "./page.js";
 
 export interface PageRow {
@@ -16,6 +16,9 @@ export interface PageRow {
   rel_path: string;
   /** Set on deprecated pages: the id to use instead. */
   replaced_by: string | null;
+  /** Lifecycle dates (0.7): when the page should be re-checked, and when it was last verified. */
+  review_by: string | null;
+  verified_on: string | null;
 }
 
 export interface SearchHit extends PageRow {
@@ -54,14 +57,19 @@ export const CONFIDENCE_BOOST: Record<string, number> = { verified: 1.1, draft: 
 /** Query terms found in the title lift a page by up to this share (all terms in the title: ×1.15). */
 export const TITLE_BOOST = 0.15;
 
-/** Multiplier by age of `updated`: fresh pages get a small lift, pages untouched for a year a small penalty. */
-export function recencyBoost(updated: string, now: number): number {
-  const days = (now - Date.parse(updated)) / 86400000;
+/** Pages created or verified within this many days get the recency lift. */
+export const RECENT_DAYS = 30;
+
+/**
+ * A small lift for a page created or verified recently (keyed on `verified_on` when present, else `created`).
+ * Age is never a penalty: a correct page that nobody needed to edit must not sink below a churned one.
+ * Durable categories (decisions, projects) get no lift at all; a decision made last week is not more relevant.
+ */
+export function recencyBoost(row: { category: string; created: string; verified_on: string | null }, now: number): number {
+  if (DURABLE_CATEGORIES.includes(row.category)) return 1.0;
+  const days = (now - Date.parse(row.verified_on || row.created)) / 86400000;
   if (!Number.isFinite(days)) return 1.0;
-  if (days <= 30) return 1.05;
-  if (days <= 180) return 1.0;
-  if (days <= 365) return 0.95;
-  return 0.9;
+  return days <= RECENT_DAYS ? 1.05 : 1.0;
 }
 
 /** Does `text` contain `token` as a word prefix (the same notion of a hit as the FTS prefix query)? */
@@ -76,7 +84,7 @@ export interface BrokenPage {
 }
 
 /** Bump when the table layout changes: an older index file is dropped and rebuilt on open. */
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS pages (
@@ -91,7 +99,9 @@ CREATE TABLE IF NOT EXISTS pages (
   updated TEXT NOT NULL,
   mtime INTEGER NOT NULL,
   size INTEGER NOT NULL,
-  replaced_by TEXT
+  replaced_by TEXT,
+  review_by TEXT,
+  verified_on TEXT
 );
 CREATE VIRTUAL TABLE IF NOT EXISTS pages_fts USING fts5(
   id UNINDEXED, title, summary, tags, body, tokenize='porter unicode61'
@@ -190,10 +200,10 @@ export class WikiDb {
     const { meta } = page;
     this.db
       .prepare(
-        `INSERT OR REPLACE INTO pages (id, rel_path, title, category, summary, tags, confidence, created, updated, mtime, size, replaced_by)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT OR REPLACE INTO pages (id, rel_path, title, category, summary, tags, confidence, created, updated, mtime, size, replaced_by, review_by, verified_on)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       )
-      .run(page.id, page.relPath, meta.title, meta.category, meta.summary, JSON.stringify(meta.tags), meta.confidence, meta.created, meta.updated, mtime, size, meta.replaced_by ? String(meta.replaced_by) : null);
+      .run(page.id, page.relPath, meta.title, meta.category, meta.summary, JSON.stringify(meta.tags), meta.confidence, meta.created, meta.updated, mtime, size, meta.replaced_by ? String(meta.replaced_by) : null, meta.review_by ?? null, meta.verified_on ?? null);
     this.db.prepare("DELETE FROM pages_fts WHERE id = ?").run(page.id);
     this.db
       .prepare("INSERT INTO pages_fts (id, title, summary, tags, body) VALUES (?,?,?,?,?)")
@@ -273,6 +283,8 @@ export class WikiDb {
       updated: String(r.updated),
       rel_path: String(r.rel_path),
       replaced_by: r.replaced_by == null ? null : String(r.replaced_by),
+      review_by: r.review_by == null ? null : String(r.review_by),
+      verified_on: r.verified_on == null ? null : String(r.verified_on),
     };
   }
 
@@ -337,7 +349,7 @@ export class WikiDb {
       const bm25 = Number(r.score);
       const title = row.title.toLowerCase();
       const inTitle = tokens.filter((t) => containsToken(title, t)).length / tokens.length;
-      const boost = (CONFIDENCE_BOOST[row.confidence] ?? 1.0) * recencyBoost(row.updated, now) * (1 + TITLE_BOOST * inTitle);
+      const boost = (CONFIDENCE_BOOST[row.confidence] ?? 1.0) * recencyBoost(row, now) * (1 + TITLE_BOOST * inTitle);
       return { ...row, score: bm25 * boost, bm25, boost, snippet: String(r.snippet), matched: [], text: `${row.title} ${row.summary} ${row.tags.join(" ")} ${String(r.body)}`.toLowerCase() };
     });
   }

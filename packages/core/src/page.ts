@@ -13,6 +13,11 @@ export interface PageMeta {
   created: string;
   updated: string;
   sources: string[];
+  /** Date after which a volatile page (howto, reference) should be re-checked against its sources. Unset = no deadline. */
+  review_by?: string;
+  verified_on?: string;
+  verified_by?: string;
+  replaced_by?: string;
   [extra: string]: unknown;
 }
 
@@ -153,8 +158,9 @@ function toDate(v: unknown): string {
 }
 
 export function normalizeMeta(data: Record<string, unknown>): PageMeta {
+  const { review_by: _rb, verified_on: _vo, ...rest } = data;
   return {
-    ...data,
+    ...rest,
     title: String(data.title ?? ""),
     category: String(data.category ?? ""),
     summary: String(data.summary ?? ""),
@@ -163,7 +169,15 @@ export function normalizeMeta(data: Record<string, unknown>): PageMeta {
     created: toDate(data.created),
     updated: toDate(data.updated),
     sources: toStringArray(data.sources),
+    ...optionalDate("review_by", data.review_by),
+    ...optionalDate("verified_on", data.verified_on),
   };
+}
+
+/** Lifecycle dates are optional: an empty placeholder (`review_by:` from a template) is the same as absent. */
+function optionalDate(key: string, v: unknown): Record<string, string> {
+  const s = v == null ? "" : toDate(v).trim();
+  return s ? { [key]: s } : {};
 }
 
 export function toPosix(p: string): string {
@@ -227,6 +241,7 @@ export function serializePage(meta: PageMeta, body: string): string {
   const ordered: Record<string, unknown> = {};
   for (const k of order) ordered[k] = meta[k];
   for (const k of Object.keys(meta)) if (!(k in ordered)) ordered[k] = meta[k];
+  for (const k of Object.keys(ordered)) if (ordered[k] === undefined || ordered[k] === null) delete ordered[k];
   const yaml = stringifyYaml(ordered, { lineWidth: 0 }).replace(/\s+$/, "");
   return `---\n${yaml}\n---\n\n${body.replace(/\s+$/, "")}\n`;
 }

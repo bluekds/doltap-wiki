@@ -54,7 +54,10 @@ describe("verify", () => {
     expect(p.meta.sources).toContain("Followed on machine-b 2026-10-27, build passed");
     expect(p.meta.verified_by).toBe("machine-b/test-b");
     expect(p.meta.verified_on).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(verifyPage(B, { id: "howto/one", evidence: "again" }).refused).toMatch(/already verified/);
+    // A second verification is a re-check, not a promotion: allowed, and it refreshes verified_by.
+    const again = verifyPage(A, { id: "howto/one", evidence: "Re-checked on machine-a, still works" });
+    expect(again.refused).toBeUndefined();
+    expect(readPage(A, "howto/one")!.meta.verified_by).toBe("machine-a/test-a");
   });
 });
 

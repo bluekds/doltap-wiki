@@ -1,4 +1,4 @@
-import { CATEGORIES, CONFIDENCE, isCategoryHub, isProjectOverview, type WikiConfig } from "./config.js";
+import { CATEGORIES, CONFIDENCE, isCategoryHub, isProjectOverview, today, type WikiConfig } from "./config.js";
 import type { Page } from "./page.js";
 import { requiredSections } from "./template.js";
 import { allowedTagSet, suggestTags } from "./tags.js";
@@ -72,6 +72,10 @@ export function lintPage(page: Page, ctx: LintContext): LintIssue[] {
   if (!DATE_RE.test(m.created)) err("created-invalid", `created must be YYYY-MM-DD, got "${m.created}"`);
   if (!DATE_RE.test(m.updated)) err("updated-invalid", `updated must be YYYY-MM-DD, got "${m.updated}"`);
   if (m.confidence === "verified" && m.sources.length === 0 && !isHub) warn("verified-needs-sources", "verified pages should list at least one source");
+  if (m.review_by !== undefined) {
+    if (!DATE_RE.test(m.review_by)) err("review-by-invalid", `review_by must be YYYY-MM-DD, got "${m.review_by}"`);
+    else if (m.confidence !== "deprecated" && m.review_by < today()) warn("review-due", `review_by ${m.review_by} has passed; re-check the page against its sources, then wiki_verify (doltap verify) to move it forward`);
+  }
 
   // Category / path
   if (page.id !== "Home") {

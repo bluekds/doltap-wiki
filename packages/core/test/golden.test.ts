@@ -39,18 +39,18 @@ describe("golden queries", () => {
       .map((g) => `${JSON.stringify(g.query)} -> ${g.got.slice(0, 3).join(", ") || "(none)"} (expected ${g.expect})`);
     expect(misses).toEqual([]);
   });
-  it("with the same text: verified and fresh first, then a fresh draft, then a verified page untouched for a year", () => {
-    const fm = (id: string, conf: string, updated: string) =>
-      `---\ntitle: Rotate the zorblat key\ncategory: howto\nsummary: How to rotate the zorblat key on the gateway.\ntags:\n  - ops\nconfidence: ${conf}\ncreated: 2026-01-01\nupdated: ${updated}\nsources: []\n---\n## Steps\n\n1. Rotate the zorblat key.\n`;
+  it("with the same text: recently verified first, then a verified page untouched for a year, then a fresh draft (age is no penalty)", () => {
+    const fm = (id: string, conf: string, updated: string, verifiedOn?: string) =>
+      `---\ntitle: Rotate the zorblat key\ncategory: howto\nsummary: How to rotate the zorblat key on the gateway.\ntags:\n  - ops\nconfidence: ${conf}\ncreated: 2026-01-01\nupdated: ${updated}\nsources: []\n${verifiedOn ? `verified_on: ${verifiedOn}\n` : ""}---\n## Steps\n\n1. Rotate the zorblat key.\n`;
     writeFileSync(join(dir, "wiki", "howto", "zorblat-draft.md"), fm("howto/zorblat-draft", "draft", "2026-10-20"));
-    writeFileSync(join(dir, "wiki", "howto", "zorblat-verified.md"), fm("howto/zorblat-verified", "verified", "2026-10-20"));
-    writeFileSync(join(dir, "wiki", "howto", "zorblat-stale.md"), fm("howto/zorblat-stale", "verified", "2025-01-10"));
+    writeFileSync(join(dir, "wiki", "howto", "zorblat-verified.md"), fm("howto/zorblat-verified", "verified", "2026-10-20", "2026-10-20"));
+    writeFileSync(join(dir, "wiki", "howto", "zorblat-stale.md"), fm("howto/zorblat-stale", "verified", "2025-01-10", "2025-01-10"));
     db.reindex();
-    const ids = db.search("rotate zorblat key", { now: NOW }).map((h) => h.id);
-    expect(ids.slice(0, 3)).toEqual(["howto/zorblat-verified", "howto/zorblat-draft", "howto/zorblat-stale"]);
-    const hit = db.search("rotate zorblat key", { now: NOW })[0];
-    expect(hit.boost).toBeCloseTo(1.1 * 1.05 * 1.15, 5);
-    expect(hit.score).toBeCloseTo(hit.bm25 * hit.boost, 5);
+    const hits = db.search("rotate zorblat key", { now: NOW });
+    expect(hits.slice(0, 3).map((h) => h.id)).toEqual(["howto/zorblat-verified", "howto/zorblat-stale", "howto/zorblat-draft"]);
+    expect(hits[0].boost).toBeCloseTo(1.1 * 1.05 * 1.15, 5);
+    expect(hits[0].score).toBeCloseTo(hits[0].bm25 * hits[0].boost, 5);
+    expect(hits[1].boost).toBeCloseTo(1.1 * 1.15, 5);
   });
   it("deprecated pages come last when included and are hidden by default", () => {
     const ids = db.search("openrouter key check", { includeDeprecated: true, now: NOW }).map((h) => h.id);

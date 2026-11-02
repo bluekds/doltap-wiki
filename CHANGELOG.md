@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.0 (2026-11-02)
+
+Content lifecycle: validity follows what a page depends on, not the calendar.
+
+- **`review_by`.** Optional frontmatter date on `howto/` and `reference/` pages (`doltap add|meta --review-by <days|date|none>`, `review_by` on `wiki_upsert` / `wiki_set_meta`), set by the author from the page's volatility. Lint warns (`review-due`) once it passes; `wiki_get` returns `review_due: true`. The howto and reference templates carry the placeholder
+- **Re-verification.** `wiki_verify` / `doltap verify` on a page that is already verified records a re-check instead of refusing: `verified_on`, `verified_by` and `review_by` move forward (an explicit `--review-by`, else the previous interval), the evidence is appended, the body and `updated` stay. Commit action `re-verify`
+- **Audit.** `stale` is gone; `unreviewed` lists volatile pages whose `review_by` passed or, without one, with no re-check within the category window (reference 180 days, howto 365; `--review-days` overrides). `unreferenced` is a discoverability check, not a deprecation list. `decisions/` and `projects/` never appear in an age-based list. JSON entries carry `category`, `reviewBy`, `verifiedOn`
+- **Ranking.** The recency factor is now a ×1.05 lift for pages created or verified in the last 30 days (keyed on `verified_on`); the ×0.95 / ×0.9 penalties for age are removed; decisions and projects get no recency effect. A correct page that nobody needed to edit no longer sinks below a churned one
+- Index schema 3 (rebuilt automatically); PROTOCOL gains a "Lifecycle" section (`doltap upgrade --diff` shows it)
+- Breaking for scripts: `doltap audit --stale-days` → `--review-days`, `wiki_audit.stale_days` → `review_days`, report field `stale` → `unreviewed`
+
 ## 0.6.0 (2026-10-29)
 
 Clients and access control.
