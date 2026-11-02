@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.1 (2026-11-02)
+
+Secret filter fixes from the MCP/security review.
+
+- **More formats caught.** Tailscale auth keys (`tskey-…`), Slack webhook URLs, Azure `AccountKey=…`, the Doltap connector URL with an uppercase token, the bare 64-hex path token after a slash, and unquoted credential assignments of 10 or more characters that mix letters and digits (was 16)
+- **Fewer false positives.** A match that is documentation is ignored: the AWS docs key `AKIA…EXAMPLE`, `YOUR_TOKEN_HERE`, `xxxx` fillers, `<angle placeholders>`, ellipses; and an `sk-` match without a digit (`sk-learn-…` prose) is not a key. One such string no longer blocks every later patch to its page
+- **Atomic token creation.** Two HTTP server processes starting together on one root now share one token; the second reads the first one's file instead of writing its own
+- Not changed: a key split across two lines still passes; a write waiting for the lock still blocks the HTTP server for up to 30 s (0.8)
+
 ## 0.7.0 (2026-11-02)
 
 Content lifecycle: validity follows what a page depends on, not the calendar.

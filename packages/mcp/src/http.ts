@@ -38,15 +38,29 @@ function writeToken(p: string, t: string): void {
   chmodSync(p, 0o600); // `mode` only applies when the file is created; rotation must tighten an existing file too
 }
 
-/** Read the stored token or create a new 256-bit one (file mode 0600). */
+/**
+ * Read the stored token or create a new 256-bit one (file mode 0600). Creation is atomic (`wx`): when two
+ * server processes start together, the second one reads the first one's token instead of writing its own.
+ */
 export function loadOrCreateToken(cfg: WikiConfig): string {
   const p = tokenPath(cfg);
-  if (existsSync(p)) {
+  const read = (): string | null => {
+    if (!existsSync(p)) return null;
     const t = readFileSync(p, "utf8").trim();
-    if (t.length >= 32) return t;
-  }
+    return t.length >= 32 ? t : null;
+  };
+  const existing = read();
+  if (existing) return existing;
   const t = randomBytes(32).toString("hex");
-  writeToken(p, t);
+  try {
+    writeFileSync(p, t + "\n", { mode: 0o600, flag: existsSync(p) ? "w" : "wx" });
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+    const won = read();
+    if (won) return won;
+    writeFileSync(p, t + "\n", { mode: 0o600 });
+  }
+  chmodSync(p, 0o600);
   return t;
 }
 

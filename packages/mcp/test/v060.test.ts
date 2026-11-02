@@ -129,3 +129,27 @@ describe("background push (0.6)", () => {
     expect(remote).toContain("howto/from-b");
   });
 });
+
+describe("0.7.1 token file", () => {
+  it("loadOrCreateToken never overwrites a token that appeared between the check and the write", async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { loadOrCreateToken, tokenPath } = await import("../src/http.js");
+    const { resolveConfig } = await import("@bluekds/doltap-core");
+    const dir = mkdtempSync(join(tmpdir(), "doltap-tok-"));
+    try {
+      mkdirSync(join(dir, "wiki")); writeFileSync(join(dir, "wiki", ".keep"), "");
+      const cfg = resolveConfig({ root: dir, noSync: true, agent: "t" });
+      const first = loadOrCreateToken(cfg);
+      expect(first).toMatch(/^[0-9a-f]{64}$/);
+      expect(loadOrCreateToken(cfg)).toBe(first);
+      // Simulate the other process winning the race: the file exists by the time we try to create it.
+      const p = tokenPath(cfg);
+      const other = "f".repeat(64);
+      writeFileSync(p, other + "\n", { mode: 0o600 });
+      expect(loadOrCreateToken(cfg)).toBe(other);
+      expect(readFileSync(p, "utf8").trim()).toBe(other);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+});
