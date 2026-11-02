@@ -99,12 +99,16 @@ export interface ConfigOverrides {
 
 /**
  * Resolution order for the root: explicit override > $DOLTAP_ROOT > walk up from cwd > ~/.doltap.
+ * An explicit root (`--root`, `DOLTAP_ROOT`) that is not a wiki is an error, never a fallback: a typo or a
+ * throwaway directory must not silently land writes, tokens or test data in the real wiki.
  */
 export function resolveConfig(o: ConfigOverrides = {}): WikiConfig {
   const env = process.env;
-  const candidates = [o.root, env.DOLTAP_ROOT, findRoot(process.cwd()), join(homedir(), ".doltap")].filter(
-    (c): c is string => !!c,
-  );
+  const explicit = o.root ?? env.DOLTAP_ROOT;
+  if (explicit && !isRoot(resolve(explicit))) {
+    throw new Error(`Doltap root ${resolve(explicit)} is not a wiki (no wiki/ directory). Run \`doltap init\` there or fix --root / DOLTAP_ROOT.`);
+  }
+  const candidates = [explicit, findRoot(process.cwd()), join(homedir(), ".doltap")].filter((c): c is string => !!c);
   const root = candidates.map((c) => resolve(c)).find(isRoot);
   if (!root) {
     throw new Error(

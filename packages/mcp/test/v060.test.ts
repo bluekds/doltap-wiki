@@ -129,3 +129,27 @@ describe("background push (0.6)", () => {
     expect(remote).toContain("howto/from-b");
   });
 });
+
+describe("0.7.1 token file", () => {
+  it("loadOrCreateToken never overwrites a token that appeared between the check and the write", async () => {
+    const { writeFileSync, readFileSync } = await import("node:fs");
+    const { loadOrCreateToken, tokenPath } = await import("../src/http.js");
+    const { resolveConfig } = await import("@bluekds/doltap-core");
+    const { makeWikiCopy } = await import("../../core/test/helpers.js");
+    // A real wiki copy: a bare temp dir is not a root, and resolveConfig must never fall back to ~/.doltap here.
+    const fx = makeWikiCopy();
+    try {
+      const cfg = resolveConfig({ root: fx.dir, noSync: true, agent: "t" });
+      expect(cfg.root).toBe(fx.dir);
+      const first = loadOrCreateToken(cfg);
+      expect(first).toMatch(/^[0-9a-f]{64}$/);
+      expect(loadOrCreateToken(cfg)).toBe(first);
+      // Simulate the other process winning the race: the file exists by the time we try to create it.
+      const p = tokenPath(cfg);
+      const other = "f".repeat(64);
+      writeFileSync(p, other + "\n", { mode: 0o600 });
+      expect(loadOrCreateToken(cfg)).toBe(other);
+      expect(readFileSync(p, "utf8").trim()).toBe(other);
+    } finally { fx.cleanup(); }
+  });
+});

@@ -41,17 +41,39 @@ const SECRET_PATTERNS: [string, RegExp][] = [
   ["npm-token", /\bnpm_[A-Za-z0-9]{30,}\b/],
   ["huggingface-token", /\bhf_[A-Za-z0-9]{30,}\b/],
   ["slack-token", /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/],
+  ["slack-webhook", /hooks\.slack\.com\/services\/T[A-Z0-9]+\/B[A-Z0-9]+\/[A-Za-z0-9]{16,}/],
+  ["tailscale-key", /\btskey-(?:auth|api|client|scim)-[A-Za-z0-9-]{20,}/],
+  ["azure-account-key", /\bAccountKey=[A-Za-z0-9+/]{40,}={0,2}/],
   ["private-key", /-----BEGIN [A-Z ]*PRIVATE KEY-----/],
   ["jwt", /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/],
   ["bearer-token", /\bBearer\s+[A-Za-z0-9._~+/=-]{20,}/],
-  // Doltap's own remote endpoint: /<64 hex>/mcp. The URL is the credential.
-  ["connector-url", /\/[0-9a-f]{64}\/mcp\b/],
+  // Doltap's own remote endpoint: /<64 hex>/mcp, and the bare path token after a slash. The URL is the credential.
+  ["connector-url", /\/[0-9a-f]{64}\/mcp\b/i],
+  ["path-token", /\/[0-9a-f]{64}(?![0-9a-z])/i],
   ["url-credentials", /\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/@]{6,}@/i],
   ["telegram-bot-token", /(?<![0-9])\d{8,10}:[A-Za-z0-9_-]{35}(?![A-Za-z0-9_-])/],
-  // `password = "..."` style, quoted (8+ chars) or unquoted (16+ chars that mix letters and digits).
+  // `password = "..."` style, quoted (8+ chars) or unquoted (10+ chars that mix letters and digits).
   // Values starting with $ ( < { [ ` are placeholders or shell/env expressions ("where it lives", not the secret).
-  ["credential-assignment", /(?:password|passwd|secret|api[_-]?key|access[_-]?key|token)\s*[:=]\s*(?:['"][^'"\s]{8,}['"]|(?=[^\s'"`]*\d)(?=[^\s'"`]*[A-Za-z])[^\s'"$<{[`(][^\s'"`]{15,})/i],
+  ["credential-assignment", /(?:password|passwd|secret|api[_-]?key|access[_-]?key|token)\s*[:=]\s*(?:['"][^'"\s]{8,}['"]|(?=[^\s'"`]*\d)(?=[^\s'"`]*[A-Za-z])[^\s'"$<{[`(][^\s'"`]{9,})/i],
 ];
+
+/** A match that is documentation, not a credential: the AWS docs key, YOUR_TOKEN_HERE, xxxx fillers, <angle placeholders>, ellipses. */
+const PLACEHOLDER_RE = /EXAMPLE|YOUR_|xxxx|<[^>]*>|\.\.\.|…/i;
+
+/**
+ * Does `raw` contain a credential of this shape? Every match is checked against the placeholder list, and a
+ * key-shaped match without a single digit (`sk-learn-preprocessing-pipeline-guide`) is prose, not a key.
+ */
+export function secretMatches(name: string, re: RegExp, raw: string): boolean {
+  const g = new RegExp(re.source, re.flags.includes("g") ? re.flags : re.flags + "g");
+  for (const m of raw.matchAll(g)) {
+    const text = m[0];
+    if (PLACEHOLDER_RE.test(text)) continue;
+    if (name === "openai-key" && !/\d/.test(text)) continue;
+    return true;
+  }
+  return false;
+}
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const SLUG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -123,7 +145,7 @@ export function lintPage(page: Page, ctx: LintContext): LintIssue[] {
   } else if (m.replaced_by) warn("replaced-by-on-active", "replaced_by is set but the page is not deprecated");
 
   // Secrets
-  for (const [name, re] of SECRET_PATTERNS) if (re.test(page.raw)) err("secret", `possible secret detected (${name})`);
+  for (const [name, re] of SECRET_PATTERNS) if (secretMatches(name, re, page.raw)) err("secret", `possible secret detected (${name})`);
 
   // Language: crude check for non-Latin scripts in prose.
   const nonLatin = (page.raw.match(/[ㄱ-힝぀-ヿ一-鿿]/g) ?? []).length;
