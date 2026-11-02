@@ -132,15 +132,15 @@ describe("background push (0.6)", () => {
 
 describe("0.7.1 token file", () => {
   it("loadOrCreateToken never overwrites a token that appeared between the check and the write", async () => {
-    const { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } = await import("node:fs");
-    const { tmpdir } = await import("node:os");
-    const { join } = await import("node:path");
+    const { writeFileSync, readFileSync } = await import("node:fs");
     const { loadOrCreateToken, tokenPath } = await import("../src/http.js");
     const { resolveConfig } = await import("@bluekds/doltap-core");
-    const dir = mkdtempSync(join(tmpdir(), "doltap-tok-"));
+    const { makeWikiCopy } = await import("../../core/test/helpers.js");
+    // A real wiki copy: a bare temp dir is not a root, and resolveConfig must never fall back to ~/.doltap here.
+    const fx = makeWikiCopy();
     try {
-      mkdirSync(join(dir, "wiki")); writeFileSync(join(dir, "wiki", ".keep"), "");
-      const cfg = resolveConfig({ root: dir, noSync: true, agent: "t" });
+      const cfg = resolveConfig({ root: fx.dir, noSync: true, agent: "t" });
+      expect(cfg.root).toBe(fx.dir);
       const first = loadOrCreateToken(cfg);
       expect(first).toMatch(/^[0-9a-f]{64}$/);
       expect(loadOrCreateToken(cfg)).toBe(first);
@@ -150,6 +150,6 @@ describe("0.7.1 token file", () => {
       writeFileSync(p, other + "\n", { mode: 0o600 });
       expect(loadOrCreateToken(cfg)).toBe(other);
       expect(readFileSync(p, "utf8").trim()).toBe(other);
-    } finally { rmSync(dir, { recursive: true, force: true }); }
+    } finally { fx.cleanup(); }
   });
 });

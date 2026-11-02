@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildLintContext, lintPage, parsePage } from "../src/index.js";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { buildLintContext, lintPage, parsePage, resolveConfig } from "../src/index.js";
 import { cfgFor, makeWikiCopy, type Fixture } from "./helpers.js";
 
 /** 0.7.1: secret-filter gaps and false positives found by the MCP/security review. Fake values are built by concatenation so push protection never sees a literal. */
@@ -77,5 +80,18 @@ describe("secret filter: placeholders and prose are not secrets", () => {
   it("still flags real-looking keys next to placeholders", () => {
     expect(rules("sk-" + "proj-" + "Ab3dE6gH9jK2mN5pQ8sT1vW4yZ7bC0eF")).toContain("secret");
     expect(rules("AKIA" + "J7X2M9Q4R1T6W8Y3")).toContain("secret");
+  });
+});
+
+describe("explicit root", () => {
+  it("an explicit --root or DOLTAP_ROOT that is not a wiki is an error, not a fallback to ~/.doltap", () => {
+    const empty = mkdtempSync(join(tmpdir(), "doltap-empty-"));
+    try {
+      expect(() => resolveConfig({ root: empty })).toThrow(/not a wiki/);
+      const prev = process.env.DOLTAP_ROOT;
+      process.env.DOLTAP_ROOT = empty;
+      try { expect(() => resolveConfig({})).toThrow(/not a wiki/); } finally { if (prev === undefined) delete process.env.DOLTAP_ROOT; else process.env.DOLTAP_ROOT = prev; }
+      expect(resolveConfig({ root: fx.dir }).root).toBe(fx.dir);
+    } finally { rmSync(empty, { recursive: true, force: true }); }
   });
 });
