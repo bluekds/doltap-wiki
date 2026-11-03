@@ -28,7 +28,7 @@ function copyWiki(dest: string): void {
 export function makeWikiCopy(): Fixture {
   const dir = mkdtempSync(join(tmpdir(), "doltap-"));
   copyWiki(join(dir, "wiki"));
-  return { dir, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  return { dir, cleanup: () => rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }) };
 }
 
 export function cfgFor(dir: string, extra: Partial<WikiConfig> = {}): WikiConfig {
@@ -62,5 +62,5 @@ export function makeTwoMachines(): { bare: string; a: string; b: string; cleanup
     sh(d, "git", ["config", "user.name", "t"]);
     sh(d, "git", ["config", "user.email", "t@t"]);
   }
-  return { bare, a, b, cleanup: () => rmSync(base, { recursive: true, force: true }) };
+  return { bare, a, b, cleanup: () => rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }) };
 }

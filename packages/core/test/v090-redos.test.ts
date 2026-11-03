@@ -61,6 +61,7 @@ describe("search queries are bounded", () => {
   it("keeps at most 32 tokens and answers a 200 KB query quickly", () => {
     const q = Array.from({ length: 40_000 }, (_, i) => `word${i}`).join(" ");
     expect(WikiDb.queryTokens(q).length).toBeLessThanOrEqual(32);
-    expect(ms(() => search(cfgFor(fx.dir), q))).toBeLessThan(500);
+    // The budget covers opening the index on a slow CI runner too; the point is "not 43 seconds".
+    expect(ms(() => search(cfgFor(fx.dir), q))).toBeLessThan(3000);
   });
 });
