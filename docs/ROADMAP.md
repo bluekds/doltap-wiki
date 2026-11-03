@@ -57,12 +57,14 @@ Validity follows what a page depends on, not the calendar (the design review fou
 - Ranking: the recency factor is a ×1.05 lift for pages created or verified within 30 days, keyed on `verified_on`; the under-1.0 multipliers for age are gone; durable categories get no recency effect.
 - Moved to 0.8: `doltap audit --report` writing the weekly report; the attachment policy (`wiki/_assets`, size cap, lint).
 
-## 0.8 Scale and multiple wikis
+## 0.8 Scale and multiple wikis (shipped in 0.8.0)
 
-- `doltap audit --report` writes the weekly report to `wiki/_meta/reports/`. Deprecate, merge and delete keep requiring human approval.
-- Attachment policy: `wiki/_assets`, size cap, lint.
-- Tests at five thousand pages: reindex time, search latency. Incremental reindex of changed files only.
-- Documented setup for a shared wiki and a personal wiki on one machine, with easy `--root` switching.
+- MCP write tools wait for the write lock without blocking the HTTP server (`withWriteLockAsync`, queued in arrival order).
+- `doltap audit --report` / `wiki_audit report=true` write the weekly report to `wiki/_meta/reports/<date>.md` (newest 12 kept). Deprecate, merge and delete keep requiring human approval.
+- Attachment policy: `wiki/_assets/<page id>/<file>`, 2 MB cap, listed types, lint (`asset-missing`, `asset-orphan`, `asset-too-large`, `asset-type`, secrets in text attachments), `doltap assets add`.
+- Scale check at five thousand pages (`DOLTAP_BENCH=1`, docs/BENCH.md): full reindex ~3 s, no-op reindex ~0.4 s per call, search p95 under 10 ms. The no-op reindex (a `stat()` per page on every call) is the next thing to optimise if wikis grow past this size.
+- Two wikis on one machine: `doltap integrations install claude --name <server>` with `--root` / `DOLTAP_ROOT` switching documented.
+- The secret filter catches a key split across two lines.
 
 ## 0.9 Stabilization
 
