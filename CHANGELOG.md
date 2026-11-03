@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased (0.8.0)
+
+- **Writes no longer stall the HTTP server while waiting for the lock.** MCP write tools (`wiki_upsert`, `wiki_patch_section`, `wiki_set_meta`, `wiki_verify`, `wiki_deprecate`, `wiki_resolve_conflict`, `wiki_add_tag`, `wiki_sync`) now wait for the machine's write lock with `withWriteLockAsync`, which yields to the event loop instead of `Atomics.wait`; other clients' searches and reads answer meanwhile. Queued writes in one process run in arrival order; the timeout and its message are unchanged (30 s, configurable per server with `lockTimeoutMs`). The CLI keeps the synchronous lock
+
 ## 0.7.1 (2026-11-02)
 
 Secret filter fixes from the MCP/security review.

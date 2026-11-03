@@ -23,6 +23,8 @@ export interface HttpOptions {
   sessionIdleMs?: number;
   /** How often the background flusher looks for a pending push when cfg.deferPush is set. Default 20 s. */
   flushIntervalMs?: number;
+  /** Passed to every MCP server: how long a write waits for the lock (default 30 s). */
+  lockTimeoutMs?: number;
 }
 
 export const DEFAULT_MAX_BODY_BYTES = 2 * 1024 * 1024;
@@ -356,14 +358,14 @@ export async function startHttpServer(cfg: WikiConfig, o: HttpOptions): Promise<
     } else if (isInitialize) {
       // Stateful: the session id goes back in the Mcp-Session-Id header and names the session in commits.
       const id = randomUUID();
-      server = createServer({ ...cfg, agent: client.agent, session: mcpSession(client.agent, id) }, { readOnly: client.readOnly });
+      server = createServer({ ...cfg, agent: client.agent, session: mcpSession(client.agent, id) }, { readOnly: client.readOnly, lockTimeoutMs: o.lockTimeoutMs });
       transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => id });
       sessions.set(id, { transport, server, agent: client.agent, last: Date.now() });
       transport.onclose = () => dropSession(id);
       if (sessions.size > MAX_SESSIONS) evict();
     } else {
       // Stateless fallback (no session id): one McpServer per request, session = client plus day.
-      server = createServer({ ...cfg, agent: client.agent, session: httpSession(client.agent) }, { readOnly: client.readOnly });
+      server = createServer({ ...cfg, agent: client.agent, session: httpSession(client.agent) }, { readOnly: client.readOnly, lockTimeoutMs: o.lockTimeoutMs });
       transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
       res.on("close", () => {
         transport.close().catch(() => {});
