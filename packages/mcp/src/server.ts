@@ -95,7 +95,7 @@ server.registerResource("tags", "wiki://tags", { title: "Doltap tags", descripti
 server.registerTool(
   "wiki_search",
   {
-    title: "Search the wiki",
+    annotations: { readOnlyHint: true }, title: "Search the wiki",
     description: "Full-text search over shared knowledge pages (procedures, code patterns, reference facts, decisions). Call this before starting any repetitive task (deploy, build, auth, retry, config) or when you need version-specific facts. Ranked by text match, then verified over draft and a small lift for pages created or verified in the last 30 days; age is never a penalty. Returns id, confidence, tags, summary. Then call wiki_get for the page or a section.",
     inputSchema: {
       query: z.string().describe("Free text; terms are stemmed and prefix-matched"),
@@ -118,7 +118,7 @@ server.registerTool(
 server.registerTool(
   "wiki_get",
   {
-    title: "Read a wiki page",
+    annotations: { readOnlyHint: true }, title: "Read a wiki page",
     description: "Return a page body (or a single ## section to save tokens) with its frontmatter, rev, section list, and backlinks. Check `confidence`: verified = trust; draft = verify yourself and promote via wiki_verify if it holds; deprecated = do not follow, read `replaced_by` instead. `review_due: true` means the page's review_by date has passed: its facts may have drifted, so treat it as a hint, re-check, and wiki_verify it if it still holds.",
     inputSchema: {
       id: PageId.describe("Page id, e.g. howto/deploy-pypi"),
@@ -138,7 +138,7 @@ server.registerTool(
 server.registerTool(
   "wiki_list",
   {
-    title: "List wiki pages",
+    annotations: { readOnlyHint: true }, title: "List wiki pages",
     description: "List pages by category and/or tag. Use when you want to browse rather than search.",
     inputSchema: { category: CategoryEnum.optional(), tag: z.string().optional(), confidence: ConfidenceEnum.optional(), include_deprecated: z.boolean().default(false) },
   },
@@ -152,7 +152,7 @@ server.registerTool(
 
 server.registerTool(
   "wiki_related",
-  { title: "Related pages", description: "Pages linked from, linking to, or sharing tags with the given page. Use to expand from one hit to adjacent knowledge.", inputSchema: { id: PageId } },
+  { annotations: { readOnlyHint: true }, title: "Related pages", description: "Pages linked from, linking to, or sharing tags with the given page. Use to expand from one hit to adjacent knowledge.", inputSchema: { id: PageId } },
   async (a) => {
     try {
       const { result } = related(cfg, a.id);
@@ -164,7 +164,7 @@ server.registerTool(
 
 server.registerTool(
   "wiki_history",
-  { title: "Page history", description: "Commits that changed a page, newest first: rev, date, action (add/update/verify/deprecate/…), host, agent, session and the note (verify evidence, deprecate reason). Use to see who changed what and when before trusting or editing a page.", inputSchema: { id: PageId, limit: z.number().int().min(1).max(200).optional() } },
+  { annotations: { readOnlyHint: true }, title: "Page history", description: "Commits that changed a page, newest first: rev, date, action (add/update/verify/deprecate/…), host, agent, session and the note (verify evidence, deprecate reason). Use to see who changed what and when before trusting or editing a page.", inputSchema: { id: PageId, limit: z.number().int().min(1).max(200).optional() } },
   async (a) => {
     try {
       const entries = pageHistory(cfg, a.id, a.limit ?? 20);
@@ -176,7 +176,7 @@ server.registerTool(
 
 server.registerTool(
   "wiki_template",
-  { title: "Page template", description: `Return the template for a category so you can fill it in for wiki_upsert. ${CLASSIFICATION}`, inputSchema: { category: CategoryEnum } },
+  { annotations: { readOnlyHint: true }, title: "Page template", description: `Return the template for a category so you can fill it in for wiki_upsert. ${CLASSIFICATION}`, inputSchema: { category: CategoryEnum } },
   async (a) => { try { return text(getTemplate(cfg, a.category)); } catch (e) { return errorText(e); } },
 );
 
@@ -331,7 +331,7 @@ server.registerTool(
 // ------------------------------------------------------------------ maintenance tools
 server.registerTool(
   "wiki_lint",
-  { title: "Lint pages", description: "Validate all pages (or the given ids) against the protocol: frontmatter, tags, required sections, links, orphans, secrets.", inputSchema: { ids: z.array(PageId).default([]) } },
+  { annotations: { readOnlyHint: true }, title: "Lint pages", description: "Validate all pages (or the given ids) against the protocol: frontmatter, tags, required sections, links, orphans, secrets.", inputSchema: { ids: z.array(PageId).default([]) } },
   async (a) => { try { return text(lintAll(cfg, a.ids.length ? a.ids : undefined)); } catch (e) { return errorText(e); } },
 );
 

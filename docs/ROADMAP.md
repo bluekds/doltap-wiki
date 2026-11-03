@@ -69,7 +69,8 @@ Validity follows what a page depends on, not the calendar (the design review fou
 ## 0.9 Stabilization
 
 - Reads cost one `stat()` per page, not a parse: the incremental reindex opens only changed files (~60 ms per request at five thousand pages, down from ~400 ms). Shipped on main.
-- Interface freeze. Tool reference generated from the zod schemas. Migration tooling complete.
+- Tool reference generated from the zod schemas (docs/TOOLS.md, `npm run reference`, drift fails CI). Shipped on main.
+- Interface freeze. Migration tooling complete.
 - npm publishing through GitHub Actions trusted publishing with provenance, replacing manual publish.
 - Every release gets two independent audits (security and core logic) before tagging, and each confirmed finding lands as a reproduction test in the regression suite. 0.3.1 set this precedent with 14 findings, all covered by tests.
 - schtasks verified on a real Windows machine. Long-running operation on two or more machines. External security audit.

@@ -189,7 +189,7 @@ Ranking is FTS5 bm25 (title, summary and tags weighted above body) scaled by sma
 | `wiki_resolve_conflict`, `wiki_add_tag` | Finish a conflict copy; extend the tag vocabulary |
 | `wiki_lint`, `wiki_sync`, `wiki_audit` | Validation, sync, health report |
 
-Resources: `wiki://protocol`, `wiki://index`, `wiki://tags`.
+Resources: `wiki://protocol`, `wiki://index`, `wiki://tags`. Every tool's parameters, defaults and constraints: [docs/TOOLS.md](docs/TOOLS.md), generated from the server's schemas (`npm run reference`; CI fails when it is stale).
 
 </details>
 

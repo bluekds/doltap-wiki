@@ -13,7 +13,9 @@
     "test": "vitest run",
     "lint": "tsc -b packages/core packages/cli packages/mcp --noEmit",
     "doltap": "node packages/cli/dist/main.js",
-    "publish:all": "tools/publish.sh"
+    "publish:all": "tools/publish.sh",
+    "reference": "node packages/mcp/dist/main.js --reference > docs/TOOLS.md",
+    "reference:check": "node packages/mcp/dist/main.js --reference --check docs/TOOLS.md"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

@@ -83,7 +83,7 @@ doltap integrations install claude
 
 This writes the skill to `~/.claude/skills/doltap/`, appends a `## Doltap Wiki` section to `~/.claude/CLAUDE.md` (once), and registers the MCP server, replacing any existing user-scope `doltap` registration.
 
-For any other MCP client, register `doltap-mcp` as a stdio server with environment variables `DOLTAP_ROOT=<absolute path of ~/.doltap, e.g. /Users/<you>/.doltap>` and `DOLTAP_AGENT=<client name>`. Most client config files do not expand `~`. The MCP resource `wiki://protocol` carries the writing rules, so the client needs no extra skill.
+For any other MCP client, register `doltap-mcp` as a stdio server with environment variables `DOLTAP_ROOT=<absolute path of ~/.doltap, e.g. /Users/<you>/.doltap>` and `DOLTAP_AGENT=<client name>`. Most client config files do not expand `~`. The MCP resource `wiki://protocol` carries the writing rules, so the client needs no extra skill. The full tool reference (parameters, defaults, which tools write) is [TOOLS.md](TOOLS.md).
 
 ## 5. Periodic sync
 
