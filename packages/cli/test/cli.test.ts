@@ -28,6 +28,19 @@ describe("doltap CLI", () => {
     expect(sh(m.bare, "git", ["rev-list", "--count", "main"])).toBe(before);
   });
 
+  it("--name registers a second wiki under another MCP server name (0.8)", () => {
+    const home = mkdtempSync(join(tmpdir(), "doltap-home-"));
+    try {
+      const r = JSON.parse(cli(["--root", m.b, "integrations", "install", "claude", "--name", "doltap-team", "--dry-run", "--json"], { HOME: home }));
+      const runs = (r.actions as string[]).filter((a) => a.startsWith("run:"));
+      expect(runs[0]).toBe("run: claude mcp remove -s user doltap-team (replaces an existing registration, if any)");
+      expect(runs[1]).toMatch(/^run: claude mcp add -s user doltap-team -e DOLTAP_ROOT=/);
+      expect(runs[1]).toContain(m.b);
+      expect(() => cli(["--root", m.b, "integrations", "install", "claude", "--name", "Team Wiki", "--dry-run"], { HOME: home })).toThrow(/--name must be/);
+      expect(() => cli(["--root", m.b, "integrations", "install", "cursor", "--name", "doltap-team", "--dry-run"], { HOME: home })).toThrow(/only supported for the claude client/);
+    } finally { rmSync(home, { recursive: true, force: true }); }
+  });
+
   it("never prints the remote token in integrations --dry-run output", () => {
     const home = mkdtempSync(join(tmpdir(), "doltap-home-"));
     try {

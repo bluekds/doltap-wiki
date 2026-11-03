@@ -121,6 +121,7 @@ flowchart LR
 
 - Each machine with `doltap init --repo …` shares the same git remote. `doltap schedule install` pulls every 10 minutes so reads never block on a slow network.
 - Machines without a clone (a laptop, claude.ai on the web) use **remote access**: on an always-on machine run `doltap serve install` and publish it over HTTPS (Tailscale Funnel, for example); other machines connect with `doltap integrations install claude --remote <URL>` (Codex CLI, Cursor and Gemini CLI with `codex|cursor|gemini`; any other MCP client gets a JSON snippet from `generic`), and claude.ai registers it as a custom connector. See "Security" below for the model.
+- **Two wikis on one machine** (a personal and a team wiki): keep each in its own root and register the second under another server name: `doltap --root ~/team-wiki integrations install claude --name doltap-team`. Both appear in Claude Code; the skill and instruction section are shared. The CLI picks a wiki with `--root` or `DOLTAP_ROOT`; without either it walks up from the current directory, then falls back to `~/.doltap`.
 - Conflicts are never auto-merged. `doltap sync` and `doltap audit` list conflict files; merge the two versions and finish with `doltap resolve <id> --file merged.md` (`wiki_resolve_conflict` over MCP), which deletes the copy and commits. Only the tag vocabulary `_meta/tags.yaml` merges automatically through `merge=union` in `.gitattributes`; wikis created before 0.3.0 need the line `wiki/_meta/tags.yaml merge=union` added there.
 
 ## A maintainer agent (optional)
