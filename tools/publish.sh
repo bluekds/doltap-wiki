@@ -7,7 +7,7 @@
 #   tools/publish.sh [--otp CODE] [--dry-run] [--skip-tests] [--no-smoke] [--tag TAG]
 #
 # Checks before anything is uploaded: all package versions agree, the working tree is clean,
-# HEAD carries the v<version> tag (both only warnings under --dry-run), and `npm whoami` succeeds. Then build, test, publish, verify
+# HEAD is the v<version> tag or a later commit with packages/ unchanged (both only warnings under --dry-run), and `npm whoami` succeeds. Then build, test, publish, verify
 # the registry, and do a clean install of doltap-wiki@<version> in a temp dir.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -42,7 +42,17 @@ done
 # A dry run only reports these two, so the pipeline can be rehearsed from a branch.
 if [ "$DRY" = 1 ]; then guard() { echo "   warning (dry run): $*"; }; else guard() { die "$@"; }; fi
 [ -z "$(git status --porcelain)" ] || guard "working tree is not clean"
-git tag --points-at HEAD | grep -qx "v$VERSION" || guard "HEAD is not tagged v$VERSION; finish the release (merge, tag) first"
+# HEAD must be the tagged release, or a later commit that left the packages exactly as tagged
+# (tooling or docs merged after the tag).
+if git tag --points-at HEAD | grep -qx "v$VERSION"; then
+  :
+elif git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null \
+    && git merge-base --is-ancestor "v$VERSION" HEAD \
+    && git diff --quiet "v$VERSION" HEAD -- packages package-lock.json; then
+  echo "   v$VERSION is $(git rev-list --count "v$VERSION"..HEAD) commit(s) behind HEAD; packages/ unchanged since the tag"
+else
+  guard "HEAD is not tagged v$VERSION and packages/ differ from the tag; finish the release (merge, tag) first"
+fi
 me=$(npm whoami 2>/dev/null) || die "not logged in to npm (npm login)"
 echo "   logged in as $me, tag $TAG$( [ "$DRY" = 1 ] && echo ', dry run')"
 
