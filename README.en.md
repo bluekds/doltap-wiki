@@ -228,6 +228,7 @@ Logo and badge sources are in [`static/`](static/) (MIT).
 ```sh
 npm ci && npm run build && npm test
 npm link -w doltap-wiki            # makes this checkout's `doltap` and `doltap-mcp` global
+npm run publish:all                # after tagging: publish core, mcp, cli in order, verify the registry, clean-install (tools/publish.sh --dry-run to rehearse)
 ```
 
 Packages: `@bluekds/doltap-core` (parser, lint, search, git sync, scaffold), `@bluekds/doltap-mcp` (MCP server), `doltap-wiki` (CLI and both binaries, `doltap` and `doltap-mcp`). CI builds, tests and scaffolds an empty wiki on macOS, Linux and Windows.

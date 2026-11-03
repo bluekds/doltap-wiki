@@ -12,7 +12,8 @@
     "build": "tsc -b packages/core packages/cli packages/mcp",
     "test": "vitest run",
     "lint": "tsc -b packages/core packages/cli packages/mcp --noEmit",
-    "doltap": "node packages/cli/dist/main.js"
+    "doltap": "node packages/cli/dist/main.js",
+    "publish:all": "tools/publish.sh"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
