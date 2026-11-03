@@ -60,8 +60,21 @@ const SECRET_PATTERNS: [string, RegExp][] = [
   ["telegram-bot-token", /(?<![0-9])\d{8,10}:[A-Za-z0-9_-]{35}(?![A-Za-z0-9_-])/],
   // `password = "..."` style, quoted (8+ chars) or unquoted (10+ chars that mix letters and digits).
   // Values starting with $ ( < { [ ` are placeholders or shell/env expressions ("where it lives", not the secret).
-  ["credential-assignment", /(?:password|passwd|secret|api[_-]?key|access[_-]?key|token)\s*[:=]\s*(?:['"][^'"\s]{8,}['"]|(?=[^\s'"`]*\d)(?=[^\s'"`]*[A-Za-z])[^\s'"$<{[`(][^\s'"`]{9,})/i],
+  // The unquoted value is validated after the match (digit and letter present) instead of with lookaheads, which rescanned
+  // the rest of the line for every `token=` and went quadratic on crafted input (audit S4).
+  ["credential-assignment", /(?:password|passwd|secret|api[_-]?key|access[_-]?key|token)\s*[:=]\s*(?:['"][^'"\s]{8,}['"]|[^\s'"$<{[`(][^\s'"`]{9,})/i],
 ];
+
+/** Extra acceptance test for a raw regex match, by pattern name. */
+function secretMatchOk(name: string, text: string): boolean {
+  if (name === "openai-key") return /\d/.test(text);
+  if (name === "credential-assignment") {
+    const value = text.replace(/^[^:=]*[:=]\s*/, "");
+    if (/^['"]/.test(value)) return true;
+    return /\d/.test(value) && /[A-Za-z]/.test(value);
+  }
+  return true;
+}
 
 /** A match that is documentation, not a credential: the AWS docs key, YOUR_TOKEN_HERE, xxxx fillers, <angle placeholders>, ellipses. */
 const PLACEHOLDER_RE = /EXAMPLE|YOUR_|xxxx|<[^>]*>|\.\.\.|…/i;
@@ -80,7 +93,7 @@ export function secretMatches(name: string, re: RegExp, raw: string): boolean {
   for (const m of raw.matchAll(g)) {
     const text = m[0];
     if (PLACEHOLDER_RE.test(text)) continue;
-    if (name === "openai-key" && !/\d/.test(text)) continue;
+    if (!secretMatchOk(name, text)) continue;
     return true;
   }
   return false;

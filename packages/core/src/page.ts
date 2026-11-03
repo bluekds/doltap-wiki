@@ -47,7 +47,43 @@ export interface Page {
   rev: string;
 }
 
-const LINK_RE = /\[\[([^\]|#]+)(?:#([^\]|]+))?(?:\|[^\]]+)?\]\]/g;
+// No class admits `[`, so a run of `[[[[` is scanned once, not once per start position (audit S4).
+const LINK_RE = /\[\[([^\]|#[]+)(?:#([^\]|[]+))?(?:\|[^\][]+)?\]\]/g;
+
+/** Pages larger than this are refused by the parser (and so by the index and every write). */
+export const PAGE_MAX_CHARS = 1_000_000;
+
+/**
+ * Fence state per line: true for lines inside a fenced code block (the fence lines included). A fence opens
+ * with three or more backticks or tildes after up to three spaces and closes only with the same character,
+ * at least as long. Linear in the body size; no regex spans lines.
+ */
+export function fencedLines(lines: string[]): boolean[] {
+  const out = new Array<boolean>(lines.length).fill(false);
+  let open: { ch: string; len: number } | null = null;
+  for (let i = 0; i < lines.length; i++) {
+    const m = /^ {0,3}(`{3,}|~{3,})/.exec(lines[i]);
+    if (open) {
+      out[i] = true;
+      if (m && m[1][0] === open.ch && m[1].length >= open.len) open = null;
+    } else if (m) {
+      out[i] = true;
+      open = { ch: m[1][0], len: m[1].length };
+    }
+  }
+  return out;
+}
+
+/** Parse one line as an ATX heading: level and text, with a closing hash sequence (preceded by a space) removed. */
+export function parseHeading(line: string): { level: number; heading: string } | null {
+  const m = /^(#{1,6})[ \t]+(.*)$/.exec(line);
+  if (!m) return null;
+  let text = m[2].trimEnd();
+  const close = /(?:^|[ \t])#+$/.exec(text);
+  if (close) text = text.slice(0, close.index).trimEnd();
+  if (!text) return null;
+  return { level: m[1].length, heading: text };
+}
 
 export function idFromRelPath(relPath: string): string {
   return toPosix(relPath).replace(/\.md$/, "");
@@ -75,7 +111,9 @@ export function isPageId(id: string): boolean {
 
 /** Remove fenced blocks and inline code so links inside examples are not treated as real links. */
 export function stripCode(body: string): string {
-  return body.replace(/^(```|~~~)[\s\S]*?^\1[^\n]*$/gm, "").replace(/`[^`\n]*`/g, "");
+  const lines = body.split("\n");
+  const fenced = fencedLines(lines);
+  return lines.filter((_, i) => !fenced[i]).join("\n").replace(/`[^`\n]*`/g, "");
 }
 
 export function extractLinks(body: string): string[] {
@@ -87,14 +125,12 @@ export function extractLinks(body: string): string[] {
 export function splitSections(body: string): Section[] {
   const lines = body.split("\n");
   const sections: Section[] = [];
-  let inFence = false;
+  const fenced = fencedLines(lines);
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (/^\s*(```|~~~)/.test(line)) inFence = !inFence;
-    if (inFence) continue;
-    const m = /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line);
-    if (!m) continue;
-    sections.push({ heading: m[2], level: m[1].length, content: "", start: i, end: lines.length });
+    if (fenced[i]) continue;
+    const h = parseHeading(lines[i]);
+    if (!h) continue;
+    sections.push({ heading: h.heading, level: h.level, content: "", start: i, end: lines.length });
   }
   // A section runs until the next heading at its own level or higher: `### Daily` under `## Steps` belongs to Steps.
   for (let i = 0; i < sections.length; i++) {
@@ -202,6 +238,7 @@ export function splitFrontmatter(raw: string): { data: Record<string, unknown>; 
 
 export function parsePage(cfg: WikiConfig, relPath: string, rawInput: string): Page {
   const posix = toPosix(relPath);
+  if (rawInput.length > PAGE_MAX_CHARS) throw new Error(`${posix} is too large (${rawInput.length} chars, cap ${PAGE_MAX_CHARS}); split it or attach the bulk under wiki/_assets`);
   // Windows checkouts with autocrlf may hand us CRLF; the wiki is LF everywhere. Editors may add a BOM.
   const raw = rawInput.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
   let split: ReturnType<typeof splitFrontmatter>;

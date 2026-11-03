@@ -36,6 +36,12 @@ import {
   today,
 } from "@bluekds/doltap-core";
 
+/** Size caps on tool inputs (characters). A page body is capped well below the parser's own limit (audit S4/S6). */
+export const LIMITS = { query: 500, body: 256_000, short: 200, text: 2000 } as const;
+const Short = z.string().max(LIMITS.short);
+const Text = z.string().max(LIMITS.text);
+const Body = z.string().max(LIMITS.body);
+
 const CategoryEnum = z.enum(CATEGORIES);
 const ConfidenceEnum = z.enum(CONFIDENCE);
 /** Any existing page id (`howto/x`, `projects/p/_index`, `Home`). Core re-checks it before touching the filesystem. */
@@ -98,9 +104,9 @@ server.registerTool(
     annotations: { readOnlyHint: true }, title: "Search the wiki",
     description: "Full-text search over shared knowledge pages (procedures, code patterns, reference facts, decisions). Call this before starting any repetitive task (deploy, build, auth, retry, config) or when you need version-specific facts. Ranked by text match, then verified over draft and a small lift for pages created or verified in the last 30 days; age is never a penalty. Returns id, confidence, tags, summary. Then call wiki_get for the page or a section.",
     inputSchema: {
-      query: z.string().describe("Free text; terms are stemmed and prefix-matched"),
+      query: z.string().max(LIMITS.query).describe("Free text; terms are stemmed and prefix-matched"),
       category: CategoryEnum.optional(),
-      tag: z.string().optional(),
+      tag: Short.optional(),
       confidence: ConfidenceEnum.optional(),
       limit: z.number().int().min(1).max(50).default(10),
       include_deprecated: z.boolean().default(false),
@@ -122,7 +128,7 @@ server.registerTool(
     description: "Return a page body (or a single ## section to save tokens) with its frontmatter, rev, section list, and backlinks. Check `confidence`: verified = trust; draft = verify yourself and promote via wiki_verify if it holds; deprecated = do not follow, read `replaced_by` instead. `review_due: true` means the page's review_by date has passed: its facts may have drifted, so treat it as a hint, re-check, and wiki_verify it if it still holds.",
     inputSchema: {
       id: PageId.describe("Page id, e.g. howto/deploy-pypi"),
-      section: z.string().optional().describe("Heading of one ## section, e.g. Pitfalls"),
+      section: Short.optional().describe("Heading of one ## section, e.g. Pitfalls"),
     },
   },
   async (a) => {
@@ -140,7 +146,7 @@ server.registerTool(
   {
     annotations: { readOnlyHint: true }, title: "List wiki pages",
     description: "List pages by category and/or tag. Use when you want to browse rather than search.",
-    inputSchema: { category: CategoryEnum.optional(), tag: z.string().optional(), confidence: ConfidenceEnum.optional(), include_deprecated: z.boolean().default(false) },
+    inputSchema: { category: CategoryEnum.optional(), tag: Short.optional(), confidence: ConfidenceEnum.optional(), include_deprecated: z.boolean().default(false) },
   },
   async (a) => {
     try {
@@ -189,11 +195,11 @@ server.registerTool(
 Rules: body must follow the category template sections (get it with wiki_template); summary <= 200 chars and self-sufficient; tags only from wiki://tags; link related pages with [[id]]. The page is linted, similar pages are checked (refused unless force=true), then committed and pushed. Hub lists are updated automatically.`,
     inputSchema: {
       id: z.string().regex(/^(howto|patterns|reference|decisions|projects)\/[a-z0-9]+(-[a-z0-9]+)*(\/[a-z0-9]+(-[a-z0-9]+)*)?$/).describe("<category>/<kebab-slug>, e.g. patterns/retry-backoff"),
-      title: z.string(),
+      title: Short,
       summary: z.string().max(200),
-      tags: z.array(z.string()).min(1),
-      body: z.string().describe("Markdown below the frontmatter, following the category template sections"),
-      sources: z.array(z.string()).default([]).describe("Evidence: URLs, SPEC ids, session ids"),
+      tags: z.array(Short).min(1).max(50),
+      body: Body.describe("Markdown below the frontmatter, following the category template sections"),
+      sources: z.array(Text).max(100).default([]).describe("Evidence: URLs, SPEC ids, session ids"),
       force: z.boolean().default(false).describe("Create even if similar pages exist"),
       replace: z.boolean().default(false).describe("Overwrite an existing page (whole body and frontmatter)"),
       review_by: z.string().optional().describe("When to re-check the page against its sources: days from today (\"60\"), a YYYY-MM-DD date, or \"none\". Set it on howto/reference pages that depend on a tool version or an external service; decisions and projects never expire"),
@@ -217,8 +223,8 @@ server.registerTool(
     description: "Replace or append the content of one ## section. Preferred way to update existing pages (minimizes conflicts with other machines). Use mode=append to add a pitfall or note without rewriting the section. An unknown heading is an error (the existing headings are listed) unless create=true. Bumps `updated` unless touch=false.",
     inputSchema: {
       id: PageId,
-      section: z.string().describe("Existing ## heading such as Pitfalls (case-insensitive)"),
-      content: z.string(),
+      section: Short.describe("Existing ## heading such as Pitfalls (case-insensitive)"),
+      content: Body,
       mode: z.enum(["replace", "append"]).default("replace"),
       touch: z.boolean().default(true),
       create: z.boolean().default(false).describe("Add the section as a new ## heading when it does not exist"),
@@ -243,9 +249,9 @@ server.registerTool(
     inputSchema: {
       id: PageId,
       confidence: z.enum(["draft"]).optional().describe("Only draft; verified and deprecated have dedicated tools"),
-      add_sources: z.array(z.string()).default([]),
-      add_tags: z.array(z.string()).default([]),
-      title: z.string().optional(),
+      add_sources: z.array(Text).max(100).default([]),
+      add_tags: z.array(Short).max(50).default([]),
+      title: Short.optional(),
       summary: z.string().max(200).optional(),
       review_by: z.string().optional().describe("When to re-check the page against its sources: days from today (\"60\"), a YYYY-MM-DD date, or \"none\". Set it on howto/reference pages that depend on a tool version or an external service; decisions and projects never expire"),
       base_rev: z.string().optional().describe("rev from wiki_get; refused if the page changed since"),
@@ -266,7 +272,7 @@ server.registerTool(
   {
     title: "Verify a page (promote, or record a re-check)",
     description: "Mark a draft page verified after you followed it and it worked. Requires evidence (what you did, where, what confirmed it); it is appended to sources and verified_by/verified_on are recorded. The session that created the page cannot promote it. On a page that is already verified this records a re-check: verified_on and review_by move forward, the body and updated stay; use it when a page's review_by has passed and the page is still right.",
-    inputSchema: { id: PageId, evidence: z.string().min(10).describe("e.g. 'Followed on build-box 2026-10-27; release 1.4.2 published'"), review_by: z.string().optional().describe("Next re-check: days from today, a date, or none. Omitted on a re-check: the previous interval is kept"), base_rev: z.string().optional() },
+    inputSchema: { id: PageId, evidence: Text.min(10).describe("e.g. 'Followed on build-box 2026-10-27; release 1.4.2 published'"), review_by: z.string().optional().describe("Next re-check: days from today, a date, or none. Omitted on a re-check: the previous interval is kept"), base_rev: z.string().optional() },
   },
   async (a) => {
     try {
@@ -283,7 +289,7 @@ server.registerTool(
   {
     title: "Deprecate a page",
     description: "Mark a page deprecated and point to its replacement: sets confidence=deprecated and replaced_by, adds a banner at the top of the body, updates the hub list. The replacement must exist (create it first). Pages are never deleted.",
-    inputSchema: { id: PageId, replaced_by: PageId.describe("The page to use instead"), reason: z.string().optional(), base_rev: z.string().optional() },
+    inputSchema: { id: PageId, replaced_by: PageId.describe("The page to use instead"), reason: Text.optional(), base_rev: z.string().optional() },
   },
   async (a) => {
     try {
@@ -300,7 +306,7 @@ server.registerTool(
   {
     title: "Resolve a conflict file",
     description: "After a sync reported conflicts, read the page (wiki_get shows conflict_copies) and the copy, then write the merged body here; the conflict copies are deleted and the result committed. Pass take=conflict to keep the copy's body unchanged.",
-    inputSchema: { id: PageId, body: z.string().optional().describe("Merged markdown body (below the frontmatter)"), take: z.enum(["conflict"]).optional(), base_rev: z.string().optional().describe("rev from wiki_get; refused as stale if the page changed while you merged") },
+    inputSchema: { id: PageId, body: Body.optional().describe("Merged markdown body (below the frontmatter)"), take: z.enum(["conflict"]).optional(), base_rev: z.string().optional().describe("rev from wiki_get; refused as stale if the page changed while you merged") },
   },
   async (a) => {
     try {

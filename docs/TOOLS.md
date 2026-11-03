@@ -53,9 +53,9 @@ Full-text search over shared knowledge pages (procedures, code patterns, referen
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `query` | string | yes |  | Free text; terms are stemmed and prefix-matched |
+| `query` | string | yes |  | Free text; terms are stemmed and prefix-matched (at most 500 chars) |
 | `category` | enum | no |  | (one of `howto`, `patterns`, `reference`, `decisions`, `projects`) |
-| `tag` | string | no |  |  |
+| `tag` | string | no |  | (at most 200 chars) |
 | `confidence` | enum | no |  | (one of `draft`, `verified`, `deprecated`) |
 | `limit` | integer | no | `10` | (1–50) |
 | `include_deprecated` | boolean | no | `false` |  |
@@ -70,7 +70,7 @@ Return a page body (or a single ## section to save tokens) with its frontmatter,
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `id` | string | yes |  | Page id, e.g. howto/deploy-pypi (at most 200 chars; matches `^[A-Za-z0-9_][A-Za-z0-9_-]*(\/[A-Za-z0-9_][A-Za-z0-9_-]*)*$`) |
-| `section` | string | no |  | Heading of one ## section, e.g. Pitfalls |
+| `section` | string | no |  | Heading of one ## section, e.g. Pitfalls (at most 200 chars) |
 
 ### wiki_list
 
@@ -81,7 +81,7 @@ List pages by category and/or tag. Use when you want to browse rather than searc
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `category` | enum | no |  | (one of `howto`, `patterns`, `reference`, `decisions`, `projects`) |
-| `tag` | string | no |  |  |
+| `tag` | string | no |  | (at most 200 chars) |
 | `confidence` | enum | no |  | (one of `draft`, `verified`, `deprecated`) |
 | `include_deprecated` | boolean | no | `false` |  |
 
@@ -138,10 +138,10 @@ Rules: body must follow the category template sections (get it with wiki_templat
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `id` | string | yes |  | &lt;category&gt;/&lt;kebab-slug&gt;, e.g. patterns/retry-backoff (matches `^(howto\|patterns\|reference\|decisions\|projects)\/[a-z0-9]+(-[a-z0-9]+)*(\/[a-z0-9]+(-[a-z0-9]+)*)?$`) |
-| `title` | string | yes |  |  |
+| `title` | string | yes |  | (at most 200 chars) |
 | `summary` | string | yes |  | (at most 200 chars) |
 | `tags` | string[] | yes |  | (at least 1 item) |
-| `body` | string | yes |  | Markdown below the frontmatter, following the category template sections |
+| `body` | string | yes |  | Markdown below the frontmatter, following the category template sections (at most 256000 chars) |
 | `sources` | string[] | no | `[]` | Evidence: URLs, SPEC ids, session ids |
 | `force` | boolean | no | `false` | Create even if similar pages exist |
 | `replace` | boolean | no | `false` | Overwrite an existing page (whole body and frontmatter) |
@@ -157,8 +157,8 @@ Replace or append the content of one ## section. Preferred way to update existin
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `id` | string | yes |  | (at most 200 chars; matches `^[A-Za-z0-9_][A-Za-z0-9_-]*(\/[A-Za-z0-9_][A-Za-z0-9_-]*)*$`) |
-| `section` | string | yes |  | Existing ## heading such as Pitfalls (case-insensitive) |
-| `content` | string | yes |  |  |
+| `section` | string | yes |  | Existing ## heading such as Pitfalls (case-insensitive) (at most 200 chars) |
+| `content` | string | yes |  | (at most 256000 chars) |
 | `mode` | enum | no | `"replace"` | (one of `replace`, `append`) |
 | `touch` | boolean | no | `true` |  |
 | `create` | boolean | no | `false` | Add the section as a new ## heading when it does not exist |
@@ -176,7 +176,7 @@ Add sources or tags, fix title/summary, or set review_by (the date a howto/refer
 | `confidence` | enum | no |  | Only draft; verified and deprecated have dedicated tools (one of `draft`) |
 | `add_sources` | string[] | no | `[]` |  |
 | `add_tags` | string[] | no | `[]` |  |
-| `title` | string | no |  |  |
+| `title` | string | no |  | (at most 200 chars) |
 | `summary` | string | no |  | (at most 200 chars) |
 | `review_by` | string | no |  | When to re-check the page against its sources: days from today ("60"), a YYYY-MM-DD date, or "none". Set it on howto/reference pages that depend on a tool version or an external service; decisions and projects never expire |
 | `base_rev` | string | no |  | rev from wiki_get; refused if the page changed since |
@@ -190,7 +190,7 @@ Mark a draft page verified after you followed it and it worked. Requires evidenc
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `id` | string | yes |  | (at most 200 chars; matches `^[A-Za-z0-9_][A-Za-z0-9_-]*(\/[A-Za-z0-9_][A-Za-z0-9_-]*)*$`) |
-| `evidence` | string | yes |  | e.g. 'Followed on build-box 2026-10-27; release 1.4.2 published' (at least 10 chars) |
+| `evidence` | string | yes |  | e.g. 'Followed on build-box 2026-10-27; release 1.4.2 published' (at least 10 chars; at most 2000 chars) |
 | `review_by` | string | no |  | Next re-check: days from today, a date, or none. Omitted on a re-check: the previous interval is kept |
 | `base_rev` | string | no |  |  |
 
@@ -204,7 +204,7 @@ Mark a page deprecated and point to its replacement: sets confidence=deprecated 
 |---|---|---|---|---|
 | `id` | string | yes |  | (at most 200 chars; matches `^[A-Za-z0-9_][A-Za-z0-9_-]*(\/[A-Za-z0-9_][A-Za-z0-9_-]*)*$`) |
 | `replaced_by` | string | yes |  | The page to use instead (at most 200 chars; matches `^[A-Za-z0-9_][A-Za-z0-9_-]*(\/[A-Za-z0-9_][A-Za-z0-9_-]*)*$`) |
-| `reason` | string | no |  |  |
+| `reason` | string | no |  | (at most 2000 chars) |
 | `base_rev` | string | no |  |  |
 
 ### wiki_resolve_conflict
@@ -216,7 +216,7 @@ After a sync reported conflicts, read the page (wiki_get shows conflict_copies) 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `id` | string | yes |  | (at most 200 chars; matches `^[A-Za-z0-9_][A-Za-z0-9_-]*(\/[A-Za-z0-9_][A-Za-z0-9_-]*)*$`) |
-| `body` | string | no |  | Merged markdown body (below the frontmatter) |
+| `body` | string | no |  | Merged markdown body (below the frontmatter) (at most 256000 chars) |
 | `take` | enum | no |  | (one of `conflict`) |
 | `base_rev` | string | no |  | rev from wiki_get; refused as stale if the page changed while you merged |
 
