@@ -9,6 +9,7 @@ import {
   get,
   resolveConflict,
   verifyPage,
+  withWriteLockAsync,
   getTemplate,
   lintAll,
   list,
@@ -58,10 +59,14 @@ function errorText(e: unknown) {
 export interface ServerOptions {
   /** Write tools answer with an error. Used for read-only HTTP client tokens. */
   readOnly?: boolean;
+  /** How long a write tool waits for another writer before answering with an error (default 30 s). */
+  lockTimeoutMs?: number;
 }
 
 /** Build a fresh MCP server bound to one wiki config. stdio uses one; HTTP creates one per request (stateless). */
 export function createServer(cfg: WikiConfig, opts: ServerOptions = {}): McpServer {
+/** Write tools wait for the machine's write lock without blocking the event loop, so reads keep flowing meanwhile. */
+const locked = <T>(fn: () => T) => withWriteLockAsync(cfg, fn, { timeoutMs: opts.lockTimeoutMs });
 const readOnly = () => (opts.readOnly ? errorText(`this connection uses a read-only token (${cfg.agent}); writes need a full-access token`) : null);
 const INSTRUCTIONS = `Doltap is a shared wiki for agents (howto, patterns, reference, decisions, projects). Rules in short; the full protocol is the resource wiki://protocol.
 - Search first: call wiki_search before repetitive or cross-project work (deploy, build, release, auth, retry, config, library versions). Then wiki_get the page or one section.
@@ -197,7 +202,7 @@ Rules: body must follow the category template sections (get it with wiki_templat
   async (a) => {
     try {
       const ro = readOnly(); if (ro) return ro;
-      const r = upsertPage(cfg, { id: a.id, title: a.title, summary: a.summary, tags: a.tags, body: a.body, confidence: "draft", sources: a.sources, force: a.force, replace: a.replace, reviewBy: a.review_by, baseRev: a.base_rev });
+      const r = await locked(() => upsertPage(cfg, { id: a.id, title: a.title, summary: a.summary, tags: a.tags, body: a.body, confidence: "draft", sources: a.sources, force: a.force, replace: a.replace, reviewBy: a.review_by, baseRev: a.base_rev }));
       if (r.refused) return { isError: true as const, ...text({ refused: r.refused, issues: r.issues, similar: r.similar?.map((s) => ({ id: s.id, summary: s.summary, overlap: s.snippet })) }) };
       return text({ id: r.id, created: r.created, rev: r.rev, warnings: r.issues, pushed: r.sync.pushed, notes: r.sync.messages, conflicts: r.sync.conflicts });
     } catch (e) { return errorText(e); }
@@ -222,7 +227,7 @@ server.registerTool(
   async (a) => {
     try {
       const ro = readOnly(); if (ro) return ro;
-      const r = patchSection(cfg, { id: a.id, section: a.section, content: a.content, mode: a.mode, touch: a.touch, create: a.create, baseRev: a.base_rev });
+      const r = await locked(() => patchSection(cfg, { id: a.id, section: a.section, content: a.content, mode: a.mode, touch: a.touch, create: a.create, baseRev: a.base_rev }));
       if (r.refused) return { isError: true as const, ...text({ refused: r.refused, issues: r.issues }) };
       return text({ id: r.id, rev: r.rev, warnings: r.issues, pushed: r.sync.pushed, notes: r.sync.messages, conflicts: r.sync.conflicts });
     } catch (e) { return errorText(e); }
@@ -248,7 +253,7 @@ server.registerTool(
   async (a) => {
     try {
       const ro = readOnly(); if (ro) return ro;
-      const r = patchMeta(cfg, { id: a.id, confidence: a.confidence, addSources: a.add_sources, addTags: a.add_tags, title: a.title, summary: a.summary, reviewBy: a.review_by, baseRev: a.base_rev });
+      const r = await locked(() => patchMeta(cfg, { id: a.id, confidence: a.confidence, addSources: a.add_sources, addTags: a.add_tags, title: a.title, summary: a.summary, reviewBy: a.review_by, baseRev: a.base_rev }));
       if (r.refused) return { isError: true as const, ...text({ refused: r.refused, issues: r.issues }) };
       return text({ id: r.id, rev: r.rev, warnings: r.issues, pushed: r.sync.pushed, notes: r.sync.messages });
     } catch (e) { return errorText(e); }
@@ -265,7 +270,7 @@ server.registerTool(
   async (a) => {
     try {
       const ro = readOnly(); if (ro) return ro;
-      const r = verifyPage(cfg, { id: a.id, evidence: a.evidence, reviewBy: a.review_by, baseRev: a.base_rev });
+      const r = await locked(() => verifyPage(cfg, { id: a.id, evidence: a.evidence, reviewBy: a.review_by, baseRev: a.base_rev }));
       if (r.refused) return { isError: true as const, ...text({ refused: r.refused, issues: r.issues }) };
       return text({ id: r.id, rev: r.rev, warnings: r.issues, pushed: r.sync.pushed, notes: r.sync.messages });
     } catch (e) { return errorText(e); }
@@ -282,7 +287,7 @@ server.registerTool(
   async (a) => {
     try {
       const ro = readOnly(); if (ro) return ro;
-      const r = deprecatePage(cfg, { id: a.id, replacedBy: a.replaced_by, reason: a.reason, baseRev: a.base_rev });
+      const r = await locked(() => deprecatePage(cfg, { id: a.id, replacedBy: a.replaced_by, reason: a.reason, baseRev: a.base_rev }));
       if (r.refused) return { isError: true as const, ...text({ refused: r.refused, issues: r.issues }) };
       return text({ id: r.id, rev: r.rev, warnings: r.issues, pushed: r.sync.pushed, notes: r.sync.messages });
     } catch (e) { return errorText(e); }
@@ -299,7 +304,7 @@ server.registerTool(
   async (a) => {
     try {
       const ro = readOnly(); if (ro) return ro;
-      const r = resolveConflict(cfg, { id: a.id, body: a.body, take: a.take, baseRev: a.base_rev });
+      const r = await locked(() => resolveConflict(cfg, { id: a.id, body: a.body, take: a.take, baseRev: a.base_rev }));
       if (r.refused) return { isError: true as const, ...text({ refused: r.refused, issues: r.issues }) };
       return text({ id: r.id, rev: r.rev, warnings: r.issues, pushed: r.sync.pushed, notes: r.sync.messages });
     } catch (e) { return errorText(e); }
@@ -316,7 +321,7 @@ server.registerTool(
   async (a) => {
     try {
       const ro = readOnly(); if (ro) return ro;
-      const r = addTag(cfg, { tag: a.tag, description: a.description, group: a.group });
+      const r = await locked(() => addTag(cfg, { tag: a.tag, description: a.description, group: a.group }));
       return text({ tag: r.tag, group: r.group, pushed: r.sync.pushed, notes: r.sync.messages });
     } catch (e) { return errorText(e); }
   },
@@ -335,7 +340,7 @@ server.registerTool(
   async () => {
     try {
       const ro = readOnly(); if (ro) return ro;
-      const report = syncAll(cfg);
+      const report = await locked(() => syncAll(cfg));
       const hubs = refreshHubs(cfg, report);
       const db = new WikiDb(cfg);
       const r = db.reindex();
