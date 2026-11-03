@@ -1,3 +1,4 @@
+import { readSafe, writeSafe } from "./safe.js";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -98,7 +99,7 @@ export function planUpgrade(cfg: WikiConfig, o: { diff?: boolean } = {}): Upgrad
     const target = join(cfg.root, ...path.split("/"));
     const skelRaw = readFileSync(skelPath, "utf8");
     if (!existsSync(target)) { items.push({ path, class: cls, status: "missing" }); continue; }
-    const wikiRaw = readFileSync(target, "utf8");
+    const wikiRaw = readSafe(cfg.root, target);
     if (cls === "merge") {
       const have = new Set(lines(wikiRaw));
       const add = lines(skelRaw).filter((l) => !have.has(l));
@@ -129,12 +130,12 @@ export function applyUpgrade(cfg: WikiConfig, plan: UpgradePlan = planUpgrade(cf
       const skelPath = join(SKELETON_DIR, ...item.path.split("/").map((seg) => (seg.startsWith(".") ? `dot.${seg.slice(1)}` : seg)));
       mkdirSync(dirname(target), { recursive: true });
       if (item.class === "merge") {
-        const current = existsSync(target) ? readFileSync(target, "utf8") : "";
+        const current = existsSync(target) ? readSafe(cfg.root, target) : "";
         const add = item.addLines ?? lines(readFileSync(skelPath, "utf8"));
-        writeFileSync(target, `${current.replace(/\s+$/, "")}${current.trim() ? "\n" : ""}${add.join("\n")}\n`);
+        writeSafe(cfg.root, target, `${current.replace(/\s+$/, "")}${current.trim() ? "\n" : ""}${add.join("\n")}\n`);
       } else {
-        const wikiRaw = existsSync(target) ? readFileSync(target, "utf8") : null;
-        writeFileSync(target, normalizeSkeleton(readFileSync(skelPath, "utf8"), wikiRaw));
+        const wikiRaw = existsSync(target) ? readSafe(cfg.root, target) : null;
+        writeSafe(cfg.root, target, normalizeSkeleton(readFileSync(skelPath, "utf8"), wikiRaw));
       }
       applied.push(item.path);
     }

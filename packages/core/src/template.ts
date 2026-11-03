@@ -1,4 +1,5 @@
-import { readFileSync, existsSync } from "node:fs";
+import { existsSync } from "node:fs";
+import { readSafe } from "./safe.js";
 import { join } from "node:path";
 import { CATEGORIES, today, type WikiConfig } from "./config.js";
 
@@ -12,7 +13,7 @@ export function getTemplate(cfg: WikiConfig, category: string): string {
   }
   const p = templatePath(cfg, category);
   if (!existsSync(p)) throw new Error(`Template missing: ${p}`);
-  return readFileSync(p, "utf8").replaceAll("{{date}}", today());
+  return readSafe(cfg.root, p).replaceAll("{{date}}", today());
 }
 
 /** Section headings (level 2) required for each category, derived from the template itself. */
@@ -22,5 +23,5 @@ export function requiredSections(cfg: WikiConfig, category: string): string[] {
 }
 
 export function protocolText(cfg: WikiConfig): string {
-  return readFileSync(join(cfg.wikiDir, "_meta", "PROTOCOL.md"), "utf8");
+  return readSafe(cfg.root, join(cfg.wikiDir, "_meta", "PROTOCOL.md"));
 }

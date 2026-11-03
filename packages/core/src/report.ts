@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, unlinkSync } from "node:fs";
+import { safePath, writeSafe } from "./safe.js";
 import { join } from "node:path";
 import type { AuditEntry, AuditReport } from "./audit.js";
 import type { WikiConfig } from "./config.js";
@@ -73,10 +74,10 @@ export function writeAuditReport(cfg: WikiConfig, r: AuditReport, o: WriteReport
     mkdirSync(dir, { recursive: true });
     const day = r.generated.slice(0, 10);
     const name = `${day}.md`;
-    writeFileSync(join(dir, name), renderAuditReport(r));
+    writeSafe(cfg.root, join(dir, name), renderAuditReport(r));
     const all = readdirSync(dir).filter((f) => REPORT_FILE_RE.test(f)).sort();
     const removed = all.slice(0, Math.max(0, all.length - keep)).filter((f) => f !== name);
-    for (const f of removed) if (existsSync(join(dir, f))) unlinkSync(join(dir, f));
+    for (const f of removed) if (existsSync(join(dir, f))) unlinkSync(safePath(cfg.root, join(dir, f)));
     const rel = (f: string) => join("wiki", "_meta", "reports", f);
     const sync = commitAndPush(cfg, [rel(name), ...removed.map(rel)], `wiki: audit report ${day}\n\n[host:${cfg.hostname}] [agent:${cfg.agent}]${cfg.session ? ` [session:${cfg.session}]` : ""}`);
     return { file: rel(name), removed, sync };
