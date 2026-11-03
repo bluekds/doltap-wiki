@@ -170,6 +170,17 @@ export function replaceSection(body: string, heading: string, content: string, m
   const sections = splitSections(body);
   const sec = findSection(sections, heading);
   const text = content.replace(/^\n+/, "").trimEnd();
+  // Content that carries a heading at the section's level (or above) would create a second section, and a
+  // duplicate name makes every later edit of that section ambiguous (a hub with two "Manual list" sections
+  // used to break every write). Sub-headings below the section's level are fine.
+  const level = sec?.level ?? 2;
+  const contentLines = text.split("\n");
+  const fenced = fencedLines(contentLines);
+  for (let i = 0; i < contentLines.length; i++) {
+    if (fenced[i]) continue;
+    const h = parseHeading(contentLines[i]);
+    if (h && h.level <= level) throw new Error(`content contains a level-${h.level} heading "${h.heading}"; a heading at the section's level or above belongs in its own section (use ${"#".repeat(level + 1)} for a sub-heading)`);
+  }
   if (!sec) {
     if (!o.create) throw new Error(`section "${heading}" not found. Sections: ${sections.map((s) => s.heading).join(", ")} (pass create=true to add it)`);
     const trimmed = body.replace(/\s+$/, "");
@@ -181,6 +192,13 @@ export function replaceSection(body: string, heading: string, content: string, m
   const after = lines.slice(sec.end);
   const rebuilt = [...before, "", newContent, "", ...after].join("\n");
   return rebuilt.replace(/\s+$/, "") + "\n";
+}
+
+/** Remove whole sections (heading line through the end of their content) from a body. */
+export function dropSections(body: string, secs: Section[]): string {
+  const lines = body.split("\n");
+  for (const s of [...secs].sort((a, b) => b.start - a.start)) lines.splice(s.start, s.end - s.start);
+  return lines.join("\n").replace(/\n{3,}/g, "\n\n");
 }
 
 function toStringArray(v: unknown): string[] {

@@ -1,6 +1,6 @@
 import { execFile, execFileSync, type ExecFileSyncOptions } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { extname, join, relative, sep } from "node:path";
 import type { WikiConfig } from "./config.js";
 import { withWriteLock } from "./lock.js";
 
@@ -159,22 +159,42 @@ export function assertOnBranch(cfg: WikiConfig): void {
   if (!git(cfg, ["symbolic-ref", "-q", "HEAD"], { allowFail: true }).ok) throw new Error("repository is on a detached HEAD; check out a branch (git checkout main) before writing");
 }
 
+/** One index stage of a path as raw bytes (attachments are binary; pages may exceed execFileSync's 1 MiB default). Null when the stage does not exist. */
+function stageBytes(cfg: WikiConfig, stage: 2 | 3, file: string): Buffer | null {
+  try {
+    return execFileSync("git", ["show", `:${stage}:${file}`], { cwd: cfg.root, maxBuffer: 512 * 1024 * 1024, stdio: ["ignore", "pipe", "ignore"], env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } });
+  } catch {
+    return null;
+  }
+}
+
+/** `<name>.conflict-<host><ext>`, numbered (`-2`, `-3`, …) when a copy from an earlier conflict is still there. */
+export function conflictCopyName(cfg: WikiConfig, file: string): string {
+  const ext = extname(file);
+  const stem = ext ? file.slice(0, -ext.length) : file;
+  for (let n = 1; ; n++) {
+    const name = `${stem}.conflict-${cfg.hostname}${n > 1 ? `-${n}` : ""}${ext}`;
+    if (!existsSync(join(cfg.root, name))) return name;
+  }
+}
+
 /**
- * Keep the upstream version (index stage 2) of one conflicted path. For wiki pages the local version
- * (stage 3) is preserved next to it as `<name>.conflict-<host>.md`; for anything else (lockfiles, build
- * config) the local change is discarded, since only wiki/ is meant to be edited on client machines.
- * Stage numbers are the same for a rebase stop and for a failed autostash pop.
+ * Keep the upstream version (index stage 2) of one conflicted path. For anything under wiki/ (pages,
+ * attachments, _meta files) the local version (stage 3) is preserved next to it as
+ * `<name>.conflict-<host><ext>`, byte for byte; for files outside wiki/ (lockfiles, build config) the local
+ * change is discarded, since only wiki/ is meant to be edited on client machines. Stage numbers are the
+ * same for a rebase stop and for a failed autostash pop.
  */
 function resolveOneConflict(cfg: WikiConfig, file: string, saved: string[]): void {
-  const upstream = git(cfg, ["show", `:2:${file}`], { allowFail: true });
-  const local = git(cfg, ["show", `:3:${file}`], { allowFail: true });
-  const isPage = file.startsWith("wiki/") && file.endsWith(".md") && !file.startsWith("wiki/.obsidian/");
-  const conflictName = file.replace(/\.md$/, "") + `.conflict-${cfg.hostname}.md`;
-  if (isPage && local.ok) writeFileSync(join(cfg.root, conflictName), local.stdout + "\n");
-  if (upstream.ok) writeFileSync(join(cfg.root, file), upstream.stdout + "\n");
+  const upstream = stageBytes(cfg, 2, file);
+  const local = stageBytes(cfg, 3, file);
+  const keepLocal = file.startsWith("wiki/") && !file.startsWith("wiki/.obsidian/") && local !== null;
+  const copy = keepLocal ? conflictCopyName(cfg, file) : null;
+  if (copy) writeFileSync(join(cfg.root, copy), local!);
+  if (upstream !== null) writeFileSync(join(cfg.root, file), upstream);
   else git(cfg, ["rm", "-q", "--", file], { allowFail: true });
-  git(cfg, ["add", "--", file, ...(isPage && local.ok ? [conflictName] : [])], { allowFail: true });
-  if (isPage && local.ok) saved.push(conflictName);
+  git(cfg, ["add", "--", file, ...(copy ? [copy] : [])], { allowFail: true });
+  if (copy) saved.push(copy);
 }
 
 /** After `pull --autostash` fails to re-apply the stash, resolve the unmerged paths and drop the stash. */
@@ -227,7 +247,7 @@ export function pull(cfg: WikiConfig, report: SyncReport = emptyReport(), o: { f
     if (unmerged.length) {
       const saved = resolveAutostashConflicts(cfg);
       report.conflicts.push(...saved);
-      report.messages.push(`autostash conflicted; upstream kept${saved.length ? `, local pages saved as: ${saved.join(", ")}` : ""}`);
+      report.messages.push(`autostash conflicted; upstream kept${saved.length ? `, local versions saved as: ${saved.join(", ")}` : ""}`);
     }
     report.pulled = true;
     writeSyncState(cfg, { lastPull: new Date().toISOString(), lastOffline: null });
@@ -379,5 +399,5 @@ export function maybeAutoPull(cfg: WikiConfig): SyncReport {
 export function listConflictFiles(cfg: WikiConfig): string[] {
   const out = git(cfg, ["ls-files", "--", "wiki"], { allowFail: true }).stdout.split("\n");
   const untracked = git(cfg, ["ls-files", "--others", "--exclude-standard", "--", "wiki"], { allowFail: true }).stdout.split("\n");
-  return [...out, ...untracked].filter((f) => /\.conflict-[^./]+\.md$/.test(f));
+  return [...out, ...untracked].filter((f) => /\.conflict-[^./]+(\.[^./]+)?$/.test(f));
 }

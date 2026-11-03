@@ -1,6 +1,7 @@
-import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { safePath } from "./safe.js";
 import { stripCode } from "./page.js";
+import { findSecrets } from "./secrets.js";
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import type { WikiConfig } from "./config.js";
 import { WikiDb } from "./db.js";
@@ -129,6 +130,11 @@ export function addAsset(cfg: WikiConfig, i: AddAssetInput): AddAssetResult {
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) throw new Error(`attachment name "${name}" must be letters, digits, dot, dash or underscore`);
   const bytes = statSync(i.file).size;
   const ext = assetExt(name);
+  if (ASSET_TEXT_TYPES.has(ext)) {
+    // Attachments are shared through git like pages; the filter that refuses a token in a page refuses it here too (no --force).
+    const found = findSecrets(readFileSync(i.file, "utf8"));
+    if (found.length) throw new Error(`${name} contains a possible secret (${found.join(", ")}); record where the secret lives instead of attaching it`);
+  }
   if (!i.force) {
     if (bytes > ASSET_MAX_BYTES) throw new Error(`${name} is ${bytes} bytes, larger than the ${ASSET_MAX_BYTES} byte cap; shrink it or pass --force`);
     if (!ASSET_TYPES.has(ext)) throw new Error(`.${ext || "(none)"} is not an attachment type (${[...ASSET_TYPES].join(", ")}); pass --force to add it anyway`);

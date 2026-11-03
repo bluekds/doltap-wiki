@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { AuditEntry, AuditReport } from "./audit.js";
 import type { WikiConfig } from "./config.js";
 import { commitAndPush, type SyncReport } from "./git.js";
+import { findSecrets } from "./secrets.js";
 import { withWriteLock } from "./lock.js";
 
 /** Weekly audit reports shared through git: wiki/_meta/reports/<date>.md (not pages: the index and lint skip _meta). */
@@ -48,7 +49,9 @@ export function renderAuditReport(r: AuditReport): string {
     section("Conflict files", "Merge with `doltap resolve` / `wiki_resolve_conflict`.", r.conflictFiles.map((f) => `- \`${f}\``)),
     section("Unused tags", "Remove with `doltap tags remove` or use them.", r.unusedTags.map((t) => `- \`${t}\``)),
     section("Most read", "Keep these accurate first.", r.mostRead.map(entryLine)),
-    `## Search misses (${r.searchMisses.length} of ${r.searchCount} searches on this host)\n\nReword the title or summary of the page that was opened, or add a page.\n\n${r.searchMisses.length ? r.searchMisses.map((m) => `- "${m.query}" -> opened \`${m.opened}\` (${m.rank ? `rank ${m.rank}` : "not returned"}) x${m.count}, last ${m.last}`).join("\n") : "- none"}\n`,
+    // Query text stays on the host that typed it (`doltap audit` prints it): a query can carry a pasted secret or
+    // text meant to steer the maintenance agent, and this file is pushed to every clone.
+    `## Search misses (${r.searchMisses.length} of ${r.searchCount} searches on this host)\n\nA search whose opened page was not the first hit: reword that page's title or summary, or add a page. The queries themselves are shown by \`doltap audit\` on the host that made them.\n\n${r.searchMisses.length ? r.searchMisses.map((m) => `- opened \`${m.opened}\` (${m.rank ? `rank ${m.rank}` : "not returned"}) x${m.count}, last ${m.last}`).join("\n") : "- none"}\n`,
   ];
   return head.join("\n") + "\n" + parts.join("\n");
 }
@@ -74,7 +77,10 @@ export function writeAuditReport(cfg: WikiConfig, r: AuditReport, o: WriteReport
     mkdirSync(dir, { recursive: true });
     const day = r.generated.slice(0, 10);
     const name = `${day}.md`;
-    writeSafe(cfg.root, join(dir, name), renderAuditReport(r));
+    const md = renderAuditReport(r);
+    const found = findSecrets(md);
+    if (found.length) throw new Error(`the report contains a possible secret (${found.join(", ")}); not committing it`);
+    writeSafe(cfg.root, join(dir, name), md);
     const all = readdirSync(dir).filter((f) => REPORT_FILE_RE.test(f)).sort();
     const removed = all.slice(0, Math.max(0, all.length - keep)).filter((f) => f !== name);
     for (const f of removed) if (existsSync(join(dir, f))) unlinkSync(safePath(cfg.root, join(dir, f)));
