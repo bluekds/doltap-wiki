@@ -786,9 +786,12 @@ integrations
   .option("--remote [url]", "register the always-on HTTPS endpoint instead of the local stdio server; omit the value to read it from $DOLTAP_REMOTE_URL (keeps the token out of shell history)")
   .option("--dry-run", "print what would change without writing anything")
   .option("--show-url", "with generic: print the remote URL unmasked")
-  .action((client: string, o: { remote?: string | true; dryRun?: boolean; showUrl?: boolean }) => {
+  .option("--name <server>", "MCP server name in Claude Code (claude only); use another name to register a second wiki, e.g. --root ~/team-wiki --name doltap-team", "doltap")
+  .action((client: string, o: { remote?: string | true; dryRun?: boolean; showUrl?: boolean; name: string }) => {
     try {
       if (!(ALL_CLIENTS as readonly string[]).includes(client)) throw new Error(`unsupported client: ${client} (supported: ${ALL_CLIENTS.join(", ")})`);
+      if (!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(o.name)) throw new Error(`--name must be lowercase letters, digits, dash or underscore (got ${JSON.stringify(o.name)})`);
+      if (o.name !== "doltap" && client !== "claude") throw new Error("--name is only supported for the claude client");
       if (o.remote === true) {
         o.remote = process.env.DOLTAP_REMOTE_URL;
         if (!o.remote) throw new Error("--remote given without a URL and $DOLTAP_REMOTE_URL is not set");
@@ -843,18 +846,18 @@ integrations
       }
 
       const addArgs = o.remote
-        ? ["mcp", "add", "-s", "user", "--transport", "http", "doltap", o.remote]
-        : ["mcp", "add", "-s", "user", "doltap", "-e", `DOLTAP_ROOT=${root}`, "-e", "DOLTAP_AGENT=claude-code", "--", ...stdioMcpCommand()];
+        ? ["mcp", "add", "-s", "user", "--transport", "http", o.name, o.remote]
+        : ["mcp", "add", "-s", "user", o.name, "-e", `DOLTAP_ROOT=${root}`, "-e", "DOLTAP_AGENT=claude-code", "--", ...stdioMcpCommand()];
       // Never echo the token: the shown command carries the masked URL (the real one is in $DOLTAP_REMOTE_URL or the argument).
       const shown = maskToken(`claude ${addArgs.map((a) => (/\s/.test(a) ? JSON.stringify(a) : a)).join(" ")}`);
       let registered = false;
-      if (o.dryRun) actions.push("run: claude mcp remove -s user doltap (replaces an existing registration, if any)", `run: ${shown}`);
+      if (o.dryRun) actions.push(`run: claude mcp remove -s user ${o.name} (replaces an existing registration, if any)`, `run: ${shown}`);
       else if (claudeCli(["--version"], true) === null) actions.push(`claude CLI not found on PATH; run manually: ${shown}`);
       else {
-        claudeCli(["mcp", "remove", "-s", "user", "doltap"], true);
+        claudeCli(["mcp", "remove", "-s", "user", o.name], true);
         claudeCli(addArgs);
         registered = true;
-        actions.push(`registered MCP server doltap (${o.remote ? "http" : "stdio"}, user scope)`);
+        actions.push(`registered MCP server ${o.name} (${o.remote ? "http" : "stdio"}, user scope)`);
       }
       out(json, { client, dryRun: !!o.dryRun, registered, actions }, () => {
         for (const a of actions) console.log(a.startsWith("wiki root:") || a.startsWith("remote endpoint") ? a : `${o.dryRun ? "would " : ""}${a}`);
@@ -897,13 +900,15 @@ integrations.command("status").description("report whether the installed skill, 
 integrations
   .command("uninstall <client>")
   .description("remove the skill and the MCP registration (instruction sections are left for you to delete)")
-  .action((client: string) => {
+  .option("--name <server>", "MCP server name to remove (claude only); with a non-default name the shared skill stays", "doltap")
+  .action((client: string, o: { name: string }) => {
     try {
       if ((FILE_CLIENTS as string[]).includes(client)) { console.log(unregister(client as FileClient)); return; }
       if (client !== "claude") throw new Error(`unsupported client: ${client} (supported: ${ALL_CLIENTS.filter((c) => c !== "generic").join(", ")})`);
+      const removed = claudeCli(["mcp", "remove", "-s", "user", o.name], true) !== null;
+      if (o.name !== "doltap") { console.log(`MCP registration ${o.name} ${removed ? "removed" : "not found or claude CLI missing"}; the doltap skill and instruction section stay for the other wiki`); return; }
       const skillDir = join(homedir(), ".claude", "skills", "doltap");
       rmSync(skillDir, { recursive: true, force: true });
-      const removed = claudeCli(["mcp", "remove", "-s", "user", "doltap"], true) !== null;
       console.log(`removed ${skillDir}; MCP registration ${removed ? "removed" : "not found or claude CLI missing"}; edit ${join(homedir(), ".claude", "CLAUDE.md")} by hand`);
     } catch (e) { fail(e); }
   });
