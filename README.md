@@ -146,6 +146,7 @@ doltap verify <id> --evidence ".." [--review-by ..]   # draft -> verified(만든
 doltap deprecate <id> --replaced-by <id>     # replaced_by, 배너, 허브 항목
 doltap resolve <id> (--file merged.md | --stdin | --take conflict)   # *.conflict-<host>.md 정리
 doltap tags [list] | tags add <tag> <description> [--group g] | tags remove <tag>
+doltap assets [list] | assets add <id> <file> [--force]   # 첨부: wiki/_assets/<id>/에 복사·commit하고 붙여 넣을 링크 출력 (2 MB, 정해진 형식)
 doltap history <id> [-n 20]               # 페이지를 바꾼 commit: 누가, 언제, 무엇을
 doltap lint [ids...]
 doltap sync                               # pull, 밀린 push, reindex, 읽기 통계 발행, 충돌 파일 목록, 로그 회전

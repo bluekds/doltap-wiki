@@ -8,6 +8,7 @@ export * from "./lock.js";
 export * from "./lint.js";
 export * from "./write.js";
 export * from "./query.js";
+export * from "./assets.js";
 export * from "./audit.js";
 export * from "./report.js";
 export * from "./schedule.js";

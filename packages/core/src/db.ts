@@ -170,7 +170,7 @@ export class WikiDb {
     this.db.close();
   }
 
-  /** Walk wiki/ for page files, skipping _meta, dotfiles, conflict copies and symlinks (see listSymlinks). */
+  /** Walk wiki/ for page files, skipping _meta, _assets, dotfiles, conflict copies and symlinks (see listSymlinks). */
   listFiles(): string[] {
     return this.walk().files;
   }
@@ -185,7 +185,7 @@ export class WikiDb {
     const symlinks: string[] = [];
     const walk = (dir: string) => {
       for (const ent of readdirSync(dir, { withFileTypes: true })) {
-        if (ent.name.startsWith(".") || ent.name.startsWith("_meta")) continue;
+        if (ent.name.startsWith(".") || ent.name.startsWith("_meta") || ent.name === "_assets") continue;
         const p = join(dir, ent.name);
         if (ent.isSymbolicLink()) symlinks.push(p);
         else if (ent.isDirectory()) walk(p);

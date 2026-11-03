@@ -204,6 +204,16 @@ describe("0.7 content lifecycle", () => {
     expect(readFileSync(join(m.a, rep.reportFile), "utf8")).toContain("howto/lifecycle");
     expect(sh(m.a, "git", ["log", "-1", "--format=%s"])).toMatch(/^wiki: audit report /);
     expect(cli(["--root", m.a, "audit", "--report"])).toMatch(/^report: wiki[\\/]_meta[\\/]reports[\\/]/m);
+    // 0.8: attachments.
+    const png = join(m.a, "diagram.png");
+    writeFileSync(png, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    const added = JSON.parse(cli(["--root", m.a, "assets", "add", "howto/lifecycle", png, "--json"]));
+    expect(added).toMatchObject({ path: "howto/lifecycle/diagram.png", link: "![diagram](../_assets/howto/lifecycle/diagram.png)" });
+    expect(cli(["--root", m.a, "assets"])).toMatch(/howto\/lifecycle\/diagram\.png.*orphan/);
+    expect(cli(["--root", m.a, "lint"])).toContain("asset-orphan");
+    cli(["--root", m.a, "patch", "howto/lifecycle", "-s", "Steps", "--content", "1. Follow the diagram: ![diagram](../_assets/howto/lifecycle/diagram.png)"]);
+    expect(cli(["--root", m.a, "lint"])).not.toContain("asset-orphan");
+    expect(cli(["--root", m.a, "assets"])).toMatch(/diagram\.png.*<- howto\/lifecycle/);
     // A re-check from another machine moves the deadline forward and keeps the body.
     cli(["--root", m.b, "sync"]);
     // Another session than the one that created the page (the CLI otherwise inherits this process's session id).

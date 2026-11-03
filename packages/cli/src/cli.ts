@@ -38,7 +38,9 @@ import {
   upsertPage,
   WikiDb,
   writeIndexMd,
+  addAsset,
   audit,
+  listAssets,
   writeAuditReport,
   isCategoryHub,
   installSchedule,
@@ -492,6 +494,35 @@ program.command("reindex").description("rebuild the local search index and _meta
     });
   } catch (e) { fail(e); }
 });
+
+// ---------------------------------------------------------------- assets
+const assetsCmd = program.command("assets").description("attachments under wiki/_assets/<page id>/: list (default), add");
+const listAssetsAction = () => {
+  try {
+    const { cfg, json } = cfgFrom();
+    const all = listAssets(cfg);
+    out(json, all, () => {
+      if (!all.length) { console.log("no attachments (wiki/_assets is empty)"); return; }
+      for (const a of all) console.log(`${a.path.padEnd(48)} ${String(a.bytes).padStart(9)} B  ${a.referencedBy.length ? `<- ${a.referencedBy.join(", ")}` : "(orphan: no page links it)"}`);
+    });
+  } catch (e) { fail(e); }
+};
+assetsCmd.action(listAssetsAction);
+assetsCmd.command("list").action(listAssetsAction);
+assetsCmd
+  .command("add <id> <file>")
+  .description("copy a file into wiki/_assets/<id>/, commit it, and print the markdown link to paste into the page")
+  .option("--force", "allow a file over the size cap or of an unlisted type")
+  .action((id: string, file: string, o: { force?: boolean }) => {
+    try {
+      const { cfg, json } = cfgFrom();
+      const r = addAsset(cfg, { id, file: resolve(file), force: o.force });
+      out(json, r, () => {
+        console.log(`added wiki/_assets/${r.path} (${r.bytes} B)${r.sync.messages.length ? `  ${r.sync.messages.join("; ")}` : ""}`);
+        console.log(`paste into ${id}:  ${r.link}`);
+      });
+    } catch (e) { fail(e); }
+  });
 
 // ---------------------------------------------------------------- audit
 program

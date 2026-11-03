@@ -1,3 +1,6 @@
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { ASSET_MAX_BYTES, ASSET_TEXT_TYPES, ASSET_TYPES, assetExt, assetRefsIn, assetsDir, walkAssets } from "./assets.js";
 import { CATEGORIES, CONFIDENCE, isCategoryHub, isProjectOverview, today, type WikiConfig } from "./config.js";
 import type { Page } from "./page.js";
 import { requiredSections } from "./template.js";
@@ -17,13 +20,15 @@ export interface LintContext {
   deprecatedIds: Set<string>;
   /** id -> number of inbound links (from the index). */
   inbound: Map<string, number>;
+  /** Where wiki/ is, to resolve attachment links. */
+  wikiDir: string;
   requiredSections: Map<string, string[]>;
 }
 
 export function buildLintContext(cfg: WikiConfig, allIds: Set<string>, inbound: Map<string, number>, deprecatedIds: Set<string> = new Set()): LintContext {
   const req = new Map<string, string[]>();
   for (const c of CATEGORIES) req.set(c, requiredSections(cfg, c));
-  return { allowedTags: allowedTagSet(cfg), allIds, deprecatedIds, inbound, requiredSections: req };
+  return { allowedTags: allowedTagSet(cfg), allIds, deprecatedIds, inbound, requiredSections: req, wikiDir: cfg.wikiDir };
 }
 
 /**
@@ -64,6 +69,11 @@ const PLACEHOLDER_RE = /EXAMPLE|YOUR_|xxxx|<[^>]*>|\.\.\.|…/i;
  * Does `raw` contain a credential of this shape? Every match is checked against the placeholder list, and a
  * key-shaped match without a single digit (`sk-learn-preprocessing-pipeline-guide`) is prose, not a key.
  */
+/** Remove a line break (and continuation indentation) that sits between two token characters, so a wrapped credential reads as one. */
+export function joinWrappedLines(raw: string): string {
+  return raw.replace(/([A-Za-z0-9_-])\r?\n[ \t]*(?=[A-Za-z0-9_])/g, "$1");
+}
+
 export function secretMatches(name: string, re: RegExp, raw: string): boolean {
   const g = new RegExp(re.source, re.flags.includes("g") ? re.flags : re.flags + "g");
   for (const m of raw.matchAll(g)) {
@@ -77,6 +87,17 @@ export function secretMatches(name: string, re: RegExp, raw: string): boolean {
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const SLUG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
+/** Names of the credential shapes found in `raw` ("<name>" or "<name>, split across lines"), empty when clean. */
+export function findSecrets(raw: string): string[] {
+  const out: string[] = [];
+  const joined = joinWrappedLines(raw);
+  for (const [name, re] of SECRET_PATTERNS) {
+    if (secretMatches(name, re, raw)) out.push(name);
+    else if (joined !== raw && secretMatches(name, re, joined)) out.push(`${name}, split across lines`);
+  }
+  return out;
+}
 
 export function lintPage(page: Page, ctx: LintContext): LintIssue[] {
   const issues: LintIssue[] = [];
@@ -136,6 +157,15 @@ export function lintPage(page: Page, ctx: LintContext): LintIssue[] {
   }
   if (!isHub && (ctx.inbound.get(page.id) ?? 0) === 0) warn("orphan", "no inbound links; add it to the nearest _index manual list");
 
+  // Attachments: relative links under wiki/_assets must exist, stay small and be of a known type.
+  for (const a of assetRefsIn(page.raw, join(ctx.wikiDir, page.relPath), ctx.wikiDir)) {
+    if (!existsSync(a.abs)) { err("asset-missing", `attachment ${a.target} does not exist (files go in wiki/_assets/<page id>/)`); continue; }
+    const size = statSync(a.abs).size;
+    if (size > ASSET_MAX_BYTES) warn("asset-too-large", `attachment ${a.target} is ${size} bytes (cap ${ASSET_MAX_BYTES}); shrink or link to where it lives`);
+    const ext = assetExt(a.abs);
+    if (!ASSET_TYPES.has(ext)) warn("asset-type", `attachment ${a.target}: .${ext || "(none)"} is not an attachment type (${[...ASSET_TYPES].join(", ")})`);
+  }
+
   // Deprecated pages must point somewhere: `replaced_by` (set by wiki_deprecate) or at least a link in the body.
   if (m.confidence === "deprecated") {
     const rb = typeof m.replaced_by === "string" ? m.replaced_by : "";
@@ -145,7 +175,9 @@ export function lintPage(page: Page, ctx: LintContext): LintIssue[] {
   } else if (m.replaced_by) warn("replaced-by-on-active", "replaced_by is set but the page is not deprecated");
 
   // Secrets
-  for (const [name, re] of SECRET_PATTERNS) if (secretMatches(name, re, page.raw)) err("secret", `possible secret detected (${name})`);
+  // A key wrapped by an editor or a narrow terminal: also look at the text with line breaks between token
+  // characters removed. Prose joins into harmless "wordword" runs; the patterns all need a specific prefix.
+  for (const found of findSecrets(page.raw)) err("secret", `possible secret detected (${found})`);
 
   // Language: crude check for non-Latin scripts in prose.
   const nonLatin = (page.raw.match(/[ㄱ-힝぀-ヿ一-鿿]/g) ?? []).length;
@@ -156,4 +188,21 @@ export function lintPage(page: Page, ctx: LintContext): LintIssue[] {
 
 export function hasErrors(issues: LintIssue[]): boolean {
   return issues.some((i) => i.level === "error");
+}
+
+/** Wiki-level attachment checks: files nobody links (orphans) and credentials inside text attachments. */
+export function lintAssets(cfg: WikiConfig, pages: Page[]): LintIssue[] {
+  const files = walkAssets(cfg);
+  if (!files.length) return [];
+  const referenced = new Set<string>();
+  for (const p of pages) for (const r of assetRefsIn(p.raw, join(cfg.wikiDir, p.relPath), cfg.wikiDir)) referenced.add(r.rel);
+  const out: LintIssue[] = [];
+  for (const f of files) {
+    const id = `_assets/${f}`;
+    if (!referenced.has(f)) out.push({ id, level: "warning", rule: "asset-orphan", message: "no page links this attachment; link it or remove it" });
+    if (ASSET_TEXT_TYPES.has(assetExt(f))) {
+      for (const found of findSecrets(readFileSync(join(assetsDir(cfg), f), "utf8"))) out.push({ id, level: "error", rule: "secret", message: `possible secret detected (${found})` });
+    }
+  }
+  return out;
 }
