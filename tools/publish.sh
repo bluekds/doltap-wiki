@@ -58,6 +58,8 @@ echo "   logged in as $me, tag $TAG$( [ "$DRY" = 1 ] && echo ', dry run')"
 
 echo "== build"
 npm run build --silent
+echo "== tool reference"
+npm run reference:check --silent
 if [ "$SKIP_TESTS" = 0 ]; then
   echo "== test"
   npm test --silent

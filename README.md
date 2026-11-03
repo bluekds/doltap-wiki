@@ -187,7 +187,7 @@ doltap integrations install|uninstall|status claude|codex|cursor|gemini|generic 
 | `wiki_resolve_conflict`, `wiki_add_tag` | 충돌 사본 정리; 태그 어휘 추가 |
 | `wiki_lint`, `wiki_sync`, `wiki_audit` | 검사, 동기화, 상태 감사 |
 
-리소스: `wiki://protocol`, `wiki://index`, `wiki://tags`.
+리소스: `wiki://protocol`, `wiki://index`, `wiki://tags`. 모든 도구의 파라미터·기본값·제약은 서버 스키마에서 생성한 [docs/TOOLS.md](docs/TOOLS.md)에 있습니다(`npm run reference`; 오래되면 CI가 실패).
 
 </details>
 
