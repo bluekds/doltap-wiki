@@ -153,6 +153,8 @@ const STOPWORDS = new Set(
 );
 
 const WORD_SPLIT = /[^\p{L}\p{N}_]+/u;
+export const QUERY_MAX_CHARS = 500;
+export const QUERY_MAX_TOKENS = 32;
 
 /** Lowercased alphanumeric tokens, length > 2, minus stopwords and category names. */
 export function meaningfulTokens(text: string): Set<string> {
@@ -334,7 +336,8 @@ export class WikiDb {
 
   /** Query tokens: lowercased words (any script), length > 1, stopwords removed unless nothing else is left. */
   static queryTokens(q: string): string[] {
-    const all = q.toLowerCase().split(WORD_SPLIT).filter((t) => t.length > 1);
+    // Cap the terms: every token costs an FTS prefix term plus a regex per candidate hit (audit S6).
+    const all = q.slice(0, QUERY_MAX_CHARS).toLowerCase().split(WORD_SPLIT).filter((t) => t.length > 1).slice(0, QUERY_MAX_TOKENS);
     const kept = all.filter((t) => !STOPWORDS.has(t));
     return [...new Set(kept.length ? kept : all)];
   }

@@ -1,5 +1,6 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { safePath } from "./safe.js";
+import { stripCode } from "./page.js";
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import type { WikiConfig } from "./config.js";
 import { WikiDb } from "./db.js";
@@ -42,13 +43,14 @@ export interface AssetRef {
   abs: string;
 }
 
-const MD_LINK_RE = /!?\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
+// `[` is excluded from the label class so a run of `[[[` or `![![` is scanned once (audit S4).
+const MD_LINK_RE = /!?\[[^\][]*\]\(([^()\s[\]]+)(?:\s+"[^"]*")?\)/g;
 
 /** Markdown links in `raw` that point under wiki/_assets, resolved from the page's own directory (or from wiki/ when they start with "/"). */
 export function assetRefsIn(raw: string, pageAbsPath: string, wikiDir: string): AssetRef[] {
   const out: AssetRef[] = [];
   const base = resolve(assetsDir({ wikiDir } as WikiConfig));
-  for (const m of raw.matchAll(MD_LINK_RE)) {
+  for (const m of stripCode(raw).matchAll(MD_LINK_RE)) { // a link inside a code example is not an attachment
     const target = m[1];
     if (/^[a-z][a-z0-9+.-]*:/i.test(target) || !target.includes("_assets/")) continue;
     const clean = target.replace(/[?#].*$/, "");
