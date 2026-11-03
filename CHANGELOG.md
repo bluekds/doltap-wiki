@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.0 (unreleased)
+
+- **A read no longer parses the whole wiki.** The incremental reindex that runs before every search, get and list used to read and parse every page and only then compare mtime and size with the index; now it stats the files and parses only the ones that changed. At five thousand pages the per-request cost drops from about 400 ms to about 60 ms (docs/BENCH.md). Lint and the asset listing, which need every page, ask for them explicitly (`reindex(false, { pages: true })`); a page whose frontmatter no longer parses is still reported, on every call, until it is fixed
+
 ## 0.8.0 (2026-11-03)
 
 Scale, reports, attachments. No index schema change.

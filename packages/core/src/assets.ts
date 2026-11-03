@@ -89,7 +89,7 @@ export function listAssets(cfg: WikiConfig): AssetInfo[] {
   const refs = new Map<string, Set<string>>();
   const db = new WikiDb(cfg);
   try {
-    const { pages } = db.reindex();
+    const { pages } = db.reindex(false, { pages: true });
     for (const p of pages) for (const r of assetRefsIn(p.raw, join(cfg.wikiDir, p.relPath), cfg.wikiDir)) {
       if (!refs.has(r.rel)) refs.set(r.rel, new Set());
       refs.get(r.rel)!.add(p.id);

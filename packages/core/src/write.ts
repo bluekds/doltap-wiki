@@ -519,7 +519,7 @@ export function resolveConflict(cfg: WikiConfig, input: ResolveInput): WriteResu
 export function lintAll(cfg: WikiConfig, ids?: string[]): LintIssue[] {
   const db = new WikiDb(cfg);
   try {
-    const { pages, broken } = db.reindex();
+    const { pages, broken } = db.reindex(false, { pages: true });
     const ctx = buildLintContext(cfg, db.allIds(), inboundMap(db), deprecatedIds(db));
     const out: LintIssue[] = [];
     for (const b of broken) if (!ids || ids.includes(b.id)) out.push({ id: b.id, level: "error", rule: "frontmatter-invalid", message: `${b.relPath}: ${b.error}` });
