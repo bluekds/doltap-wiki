@@ -226,6 +226,7 @@ doltap integrations install|uninstall|status claude|codex|cursor|gemini|generic 
 ```sh
 npm ci && npm run build && npm test
 npm link -w doltap-wiki            # 이 체크아웃의 `doltap`, `doltap-mcp`를 전역으로
+npm run publish:all                # 태그 뒤: core, mcp, cli 순으로 publish하고 레지스트리와 클린 설치까지 확인 (tools/publish.sh --dry-run으로 예행)
 ```
 
 패키지: `@bluekds/doltap-core`(파서, lint, 검색, git 동기화, 스캐폴드), `@bluekds/doltap-mcp`(MCP 서버), `doltap-wiki`(CLI와 두 실행 파일 `doltap`, `doltap-mcp`). CI는 macOS, Linux, Windows에서 빌드와 테스트, 빈 위키 생성까지 확인합니다.
