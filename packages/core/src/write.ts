@@ -3,7 +3,7 @@ import { dirname, join, relative } from "node:path";
 import { CATEGORIES, addDays, isCategoryHub, reviewByFrom, today, type WikiConfig } from "./config.js";
 import { WikiDb, type SearchHit } from "./db.js";
 import { assertOnBranch, commitAndPush, commitMessage, emptyReport, git, pull, type SyncReport } from "./git.js";
-import { buildLintContext, hasErrors, lintPage, type LintIssue } from "./lint.js";
+import { buildLintContext, hasErrors, lintAssets, lintPage, type LintIssue } from "./lint.js";
 import { withWriteLock } from "./lock.js";
 import { parsePage, readPage, relPathFromId, replaceSection, serializePage, type Page, type PageMeta } from "./page.js";
 import { getTemplate } from "./template.js";
@@ -525,6 +525,7 @@ export function lintAll(cfg: WikiConfig, ids?: string[]): LintIssue[] {
     for (const b of broken) if (!ids || ids.includes(b.id)) out.push({ id: b.id, level: "error", rule: "frontmatter-invalid", message: `${b.relPath}: ${b.error}` });
     for (const i of symlinkIssues(cfg, db)) if (!ids || ids.includes(i.id)) out.push(i);
     for (const p of pages) if (!ids || ids.includes(p.id)) out.push(...lintPage(p, ctx));
+    if (!ids) out.push(...lintAssets(cfg, pages));
     return out;
   } finally {
     db.close();

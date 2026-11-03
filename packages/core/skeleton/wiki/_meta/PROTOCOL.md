@@ -118,6 +118,13 @@ sources:
 - Put related pages in the body's "Related" section as links, not in frontmatter. Backlinks are computed automatically.
 - A page with zero inbound links (orphan) triggers a lint warning. The tools list every page in the "Manual list" of its nearest `_index` automatically (regenerated from the page summaries on every write and sync), so a page is never an orphan by accident; do not edit those lists by hand.
 
+### Attachments
+
+- A file a page needs (a diagram, a sample config, an exported table) goes in `wiki/_assets/<page id>/<file>`; `doltap assets add <id> <file>` copies it there, commits it and prints the link to paste. Link it from the page with a relative markdown link: `![diagram](../_assets/howto/deploy-pypi/diagram.png)` (one `../` per level of the page id).
+- Attachments are not pages: they are not indexed or searched. The page text must stand on its own; the file is supporting material.
+- Allowed types: png, jpg, jpeg, gif, webp, svg, pdf, txt, csv, json, yaml, yml, md, log. Cap 2 MB. Larger or other files are a lint warning; link to where they live instead. Never attach a file that contains a credential: text attachments are scanned like pages.
+- Lint reports a link to a missing attachment (error), an attachment no page links (orphan warning), the size cap and unknown types (warnings).
+
 ## 5. Update rules
 
 - Edit existing pages **by section** (`wiki_patch_section`), not by overwriting the whole page. This minimizes conflicts with concurrent edits from other machines. An unknown heading is refused (the existing headings are listed) unless you pass `create: true`.

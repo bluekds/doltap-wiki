@@ -148,6 +148,7 @@ doltap verify <id> --evidence ".." [--review-by ..]   # draft -> verified (refus
 doltap deprecate <id> --replaced-by <id>     # sets replaced_by, banner, hub entry
 doltap resolve <id> (--file merged.md | --stdin | --take conflict)   # finish a *.conflict-<host>.md
 doltap tags [list] | tags add <tag> <description> [--group g] | tags remove <tag>
+doltap assets [list] | assets add <id> <file> [--force]   # attachments: copy into wiki/_assets/<id>/, commit, print the link to paste (2 MB cap, listed types)
 doltap history <id> [-n 20]               # commits that changed a page: who, when, what
 doltap lint [ids...]
 doltap sync                               # pull, push pending, reindex, refresh hub lists, publish read stats, list conflict files, rotate logs
