@@ -14,16 +14,18 @@ describe("incremental reindex reads only changed files", () => {
   afterEach(() => fx.cleanup());
 
   /**
-   * Break a page's frontmatter without changing its size, then put the mtime back (whole milliseconds:
-   * Node rounds `stat().mtime` to a Date while the index floors `mtimeMs`), so only a parse would notice.
+   * Break a page's frontmatter without changing its size and put the mtime back to FIXED, so only a parse
+   * would notice. The same Date is set before the first reindex: utimes converts milliseconds to seconds
+   * as a double, so restoring a stat()ed value can land 1 ms off (seen once on Linux CI), while setting
+   * one fixed Date twice stores the same bytes twice.
    */
+  const FIXED = new Date("2026-01-01T00:00:00.000Z");
   const corruptInPlace = (file: string) => {
     const st = statSync(file);
     const raw = readFileSync(file, "utf8");
     expect(raw).toContain("\ntitle: ");
     writeFileSync(file, raw.replace("\ntitle: ", "\nti: t: "));
-    const whole = new Date(Math.floor(st.mtimeMs));
-    utimesSync(file, whole, whole);
+    utimesSync(file, FIXED, FIXED);
     expect(statSync(file).size).toBe(st.size);
   };
 
@@ -31,10 +33,11 @@ describe("incremental reindex reads only changed files", () => {
     const cfg = cfgFor(fx.dir);
     const db = new WikiDb(cfg);
     try {
+      const file = join(cfg.wikiDir, "howto", "setup-wiki-on-new-machine.md");
+      utimesSync(file, FIXED, FIXED);
       const first = db.reindex();
       expect(first.indexed).toBe(first.total);
       expect(first.pages).toBeUndefined();
-      const file = join(cfg.wikiDir, "howto", "setup-wiki-on-new-machine.md");
       corruptInPlace(file);
       const noop = db.reindex();
       expect(noop.indexed).toBe(0);

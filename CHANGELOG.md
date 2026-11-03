@@ -1,8 +1,8 @@
 # Changelog
 
-## 0.9.0 (unreleased)
+## 0.9.0 (2026-11-04)
 
-Fixes from the 0.9 pre-release audits (security and core logic), each with a regression test.
+Stabilization: two independent audits before tagging (security: 14 findings, core logic: 34), the critical and high items fixed here with regression tests, the rest tracked for 0.9.1. Plus the per-request reindex and a generated tool reference. No index schema change.
 
 - **A conflicted attachment keeps both versions, byte for byte** (audit C1 critical). When two machines added the same file under `wiki/_assets` with different bytes, sync rewrote the binary as UTF-8 text (a 4 KB PNG became 7 KB of garbage on both clones) or, above git's 1 MiB stdout buffer, deleted it on both, while reporting "conflicts: []". Index stages are now read as bytes with a large buffer, and anything under `wiki/` keeps the local version as `<name>.conflict-<host><ext>` (`x.conflict-laptop.png`), listed by sync, audit and doctor
 - **Conflict copies are never overwritten** (audit H4). A second conflict on the same page from the same host used to replace the first copy, losing an unpushed hand edit; copies are now numbered (`<id>.conflict-<host>-2.md`)
