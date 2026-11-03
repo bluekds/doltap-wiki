@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { fileURLToPath } from "node:url";
@@ -69,6 +71,10 @@ describe("0.7 content lifecycle over MCP", () => {
     const audit = parse(await client.callTool({ name: "wiki_audit", arguments: {} }));
     expect(audit.unreviewed.map((e: { id: string }) => e.id)).toContain("reference/volatile-thing");
     expect(audit).not.toHaveProperty("stale");
+    // 0.8: report=true also writes wiki/_meta/reports/<date>.md (no git in this fixture, so no commit).
+    const withFile = parse(await client.callTool({ name: "wiki_audit", arguments: { report: true } }));
+    expect(withFile.reportFile).toMatch(/^wiki[\\/]_meta[\\/]reports[\\/]\d{4}-\d{2}-\d{2}\.md$/);
+    expect(readFileSync(join(fx.dir, withFile.reportFile), "utf8")).toContain("reference/volatile-thing");
     parse(await client.callTool({ name: "wiki_set_meta", arguments: { id: "reference/volatile-thing", review_by: "none" } }));
     g = parse(await client.callTool({ name: "wiki_get", arguments: { id: "reference/volatile-thing" } }));
     expect(g.meta.review_by).toBeUndefined();

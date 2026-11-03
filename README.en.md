@@ -152,7 +152,7 @@ doltap history <id> [-n 20]               # commits that changed a page: who, wh
 doltap lint [ids...]
 doltap sync                               # pull, push pending, reindex, refresh hub lists, publish read stats, list conflict files, rotate logs
 doltap reindex [--full]
-doltap audit [--unreferenced-days 90] [--review-days <n>] [--draft-days 30]   # unreviewed, unreferenced, drafts, orphans, conflicts, search misses; decisions/projects never age
+doltap audit [--unreferenced-days 90] [--review-days <n>] [--draft-days 30] [--report [--keep 12]]   # unreviewed, unreferenced, drafts, orphans, conflicts, search misses; decisions/projects never age; --report saves and commits wiki/_meta/reports/<date>.md
 doltap golden [file]                      # every query in wiki/_meta/golden.json must return its page first; exit 1 otherwise
 doltap doctor [--healthz <url>] [--no-services] [--quiet]   # every maintenance check at once; exit 1 on failures
 doltap upgrade [--diff] [--apply]         # compare with the installed version's skeleton; update config and templates, PROTOCOL shown as a diff

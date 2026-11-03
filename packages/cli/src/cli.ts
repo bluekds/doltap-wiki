@@ -39,6 +39,7 @@ import {
   WikiDb,
   writeIndexMd,
   audit,
+  writeAuditReport,
   isCategoryHub,
   installSchedule,
   installHttpService,
@@ -499,11 +500,15 @@ program
   .option("--unreferenced-days <n>", "no reads within N days (howto, patterns, reference)", "90")
   .option("--review-days <n>", "override the per-category review window for pages without review_by (reference 180, howto 365)")
   .option("--draft-days <n>", "draft created more than N days ago", "30")
-  .action((o: { unreferencedDays: string; reviewDays?: string; draftDays: string }) => {
+  .option("--report", "also write the report to wiki/_meta/reports/<date>.md and commit it (the weekly pass reads it)")
+  .option("--keep <n>", "with --report: how many dated reports to keep", "12")
+  .action((o: { unreferencedDays: string; reviewDays?: string; draftDays: string; report?: boolean; keep: string }) => {
     try {
       const { cfg, json } = cfgFrom();
       const r = audit(cfg, { unreferencedDays: Number(o.unreferencedDays), reviewDays: o.reviewDays === undefined ? null : Number(o.reviewDays), draftDays: Number(o.draftDays) });
-      out(json, r, () => {
+      const written = o.report ? writeAuditReport(cfg, r, { keep: Number(o.keep) }) : null;
+      out(json, written ? { ...r, reportFile: written.file, removed: written.removed, sync: written.sync } : r, () => {
+        if (written) console.log(`report: ${written.file}${written.removed.length ? `  (removed ${written.removed.join(", ")})` : ""}${written.sync.messages.length ? `  ${written.sync.messages.join("; ")}` : ""}`);
         const section = (title: string, rows: { id: string; reads?: number; updated?: string; lastRead?: string | null; reviewBy?: string | null; verifiedOn?: string | null }[]) => {
           console.log(`${title} (${rows.length})`);
           for (const e of rows) console.log(`  ${e.id}${e.updated ? `  updated ${e.updated}` : ""}${e.verifiedOn ? `  verified ${e.verifiedOn}` : ""}${e.reviewBy ? `  review_by ${e.reviewBy}` : ""}${e.reads !== undefined ? `  reads ${e.reads}` : ""}${e.lastRead ? `  last ${e.lastRead}` : ""}`);
