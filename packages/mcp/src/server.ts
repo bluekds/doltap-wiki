@@ -10,6 +10,7 @@ import {
   resolveConflict,
   verifyPage,
   withWriteLockAsync,
+  writeAuditReport,
   getTemplate,
   lintAll,
   list,
@@ -357,9 +358,18 @@ server.registerTool(
   {
     title: "Audit the wiki",
     description: "Maintenance report across all hosts: unreviewed pages (review_by passed, or no re-check within the category window: re-check against sources, then wiki_verify), unreferenced pages (nobody read them: a discoverability check, not a deprecation list), lingering drafts, orphans, deprecated pages still linked, conflict files, unused tags, most-read pages. decisions/ and projects/ pages never age. Use when asked to clean up or review the wiki.",
-    inputSchema: { unreferenced_days: z.number().int().default(90), review_days: z.number().int().optional().describe("Override the per-category review window (reference 180, howto 365) for pages without review_by"), draft_days: z.number().int().default(30) },
+    inputSchema: { unreferenced_days: z.number().int().default(90), review_days: z.number().int().optional().describe("Override the per-category review window (reference 180, howto 365) for pages without review_by"), draft_days: z.number().int().default(30), report: z.boolean().default(false).describe("Also write the report to wiki/_meta/reports/<date>.md and commit it (newest 12 kept); the weekly maintenance pass reads it") },
   },
-  async (a) => { try { return text(audit(cfg, { unreferencedDays: a.unreferenced_days, reviewDays: a.review_days ?? null, draftDays: a.draft_days })); } catch (e) { return errorText(e); } },
+  async (a) => {
+    try {
+      const r = audit(cfg, { unreferencedDays: a.unreferenced_days, reviewDays: a.review_days ?? null, draftDays: a.draft_days });
+      if (!a.report) return text(r);
+      const ro = readOnly();
+      if (ro) return ro;
+      const w = await locked(() => writeAuditReport(cfg, r));
+      return text({ ...r, reportFile: w.file, removed: w.removed, sync: w.sync });
+    } catch (e) { return errorText(e); }
+  },
 );
 
 return server;

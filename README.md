@@ -150,7 +150,7 @@ doltap history <id> [-n 20]               # 페이지를 바꾼 commit: 누가, 
 doltap lint [ids...]
 doltap sync                               # pull, 밀린 push, reindex, 읽기 통계 발행, 충돌 파일 목록, 로그 회전
 doltap reindex [--full]
-doltap audit [--unreferenced-days 90] [--review-days <n>] [--draft-days 30]   # unreviewed·unreferenced·draft·고아·충돌·검색 miss; decisions/projects는 나이로 걸리지 않음
+doltap audit [--unreferenced-days 90] [--review-days <n>] [--draft-days 30] [--report [--keep 12]]   # unreviewed·unreferenced·draft·고아·충돌·검색 miss; decisions/projects는 나이로 걸리지 않음; --report는 wiki/_meta/reports/<날짜>.md로 저장·commit
 doltap golden [file]                      # wiki/_meta/golden.json의 쿼리마다 기대 페이지가 1위인지; 아니면 exit 1
 doltap doctor [--healthz <url>] [--no-services] [--quiet]   # 유지보수 점검 전부: 실패가 있으면 exit 1
 doltap upgrade [--diff] [--apply]         # 설치된 버전의 스켈레톤과 비교; 설정·템플릿 갱신, PROTOCOL은 diff만

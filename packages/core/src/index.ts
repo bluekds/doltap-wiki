@@ -9,6 +9,7 @@ export * from "./lint.js";
 export * from "./write.js";
 export * from "./query.js";
 export * from "./audit.js";
+export * from "./report.js";
 export * from "./schedule.js";
 export * from "./scaffold.js";
 export * from "./logs.js";

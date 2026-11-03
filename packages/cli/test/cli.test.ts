@@ -198,6 +198,12 @@ describe("0.7 content lifecycle", () => {
     expect(audit.unreviewed.map((e: { id: string }) => e.id)).toContain("howto/lifecycle");
     expect(audit).not.toHaveProperty("stale");
     expect(cli(["--root", m.a, "audit"])).toContain("unreviewed -> re-check against sources");
+    // 0.8: --report keeps the report in the wiki and commits it.
+    const rep = JSON.parse(cli(["--root", m.a, "audit", "--report", "--json"]));
+    expect(rep.reportFile).toMatch(/^wiki[\\/]_meta[\\/]reports[\\/]\d{4}-\d{2}-\d{2}\.md$/);
+    expect(readFileSync(join(m.a, rep.reportFile), "utf8")).toContain("howto/lifecycle");
+    expect(sh(m.a, "git", ["log", "-1", "--format=%s"])).toMatch(/^wiki: audit report /);
+    expect(cli(["--root", m.a, "audit", "--report"])).toMatch(/^report: wiki[\\/]_meta[\\/]reports[\\/]/m);
     // A re-check from another machine moves the deadline forward and keeps the body.
     cli(["--root", m.b, "sync"]);
     // Another session than the one that created the page (the CLI otherwise inherits this process's session id).
