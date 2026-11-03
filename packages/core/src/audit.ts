@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync } from "node:fs";
+import { readSafe, writeSafe } from "./safe.js";
 import { join } from "node:path";
 import { DURABLE_CATEGORIES, REVIEW_DEFAULT_DAYS, isCategoryHub, today, type WikiConfig } from "./config.js";
 import { WikiDb, type PageRow } from "./db.js";
@@ -47,10 +48,10 @@ export function publishHostStats(cfg: WikiConfig, db: WikiDb, report: SyncReport
   const file = join(statsDir(cfg), `${cfg.hostname}.json`);
   const next = JSON.stringify({ ...stats, generated: undefined }, null, 2);
   if (existsSync(file)) {
-    const prev = JSON.parse(readFileSync(file, "utf8")) as HostStats;
+    const prev = JSON.parse(readSafe(cfg.root, file)) as HostStats;
     if (JSON.stringify({ ...prev, generated: undefined }, null, 2) === next) return false;
   }
-  writeFileSync(file, JSON.stringify(stats, null, 2) + "\n");
+  writeSafe(cfg.root, file, JSON.stringify(stats, null, 2) + "\n");
   commitAndPush(cfg, [join("wiki", "_meta", "stats", `${cfg.hostname}.json`)], `wiki: stats ${cfg.hostname}\n\n[host:${cfg.hostname}] [agent:${cfg.agent}]`, report);
   writeSyncState(cfg, { lastStatsPublish: new Date().toISOString() } as Record<string, unknown>);
   return true;
@@ -59,9 +60,12 @@ export function publishHostStats(cfg: WikiConfig, db: WikiDb, report: SyncReport
 export function loadAllStats(cfg: WikiConfig): HostStats[] {
   const dir = statsDir(cfg);
   if (!existsSync(dir)) return [];
-  return readdirSync(dir)
-    .filter((f) => f.endsWith(".json"))
-    .map((f) => JSON.parse(readFileSync(join(dir, f), "utf8")) as HostStats);
+  const out: HostStats[] = [];
+  for (const f of readdirSync(dir).filter((f) => f.endsWith(".json")).sort()) {
+    // Another host's file is data from the remote: a symlink or malformed JSON is skipped (lint and doctor report it), not fatal.
+    try { out.push(JSON.parse(readSafe(cfg.root, join(dir, f))) as HostStats); } catch { /* skipped */ }
+  }
+  return out;
 }
 
 export interface AuditOptions {

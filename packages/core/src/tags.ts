@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { readSafe, writeSafe } from "./safe.js";
 import { join } from "node:path";
 import { parse, stringify } from "yaml";
 import type { WikiConfig } from "./config.js";
@@ -16,7 +16,7 @@ export function tagsPath(cfg: WikiConfig): string {
 }
 
 export function loadTags(cfg: WikiConfig): TagInfo[] {
-  return parseTags(readFileSync(tagsPath(cfg), "utf8"));
+  return parseTags(readSafe(cfg.root, tagsPath(cfg)));
 }
 
 /**
@@ -88,8 +88,8 @@ export function addTag(cfg: WikiConfig, input: AddTagInput): TagWriteResult {
     pull(cfg, sync);
     if (allowedTagSet(cfg).has(tag)) throw new Error(`tag "${tag}" already exists`);
     const path = tagsPath(cfg);
-    const before = parseTags(readFileSync(path, "utf8"));
-    const lines = dedupeLines(readFileSync(path, "utf8").replace(/\s+$/, "").split(/\r?\n/)); // CRLF checkouts are rewritten as LF
+    const before = parseTags(readSafe(cfg.root, path));
+    const lines = dedupeLines(readSafe(cfg.root, path).replace(/\s+$/, "").split(/\r?\n/)); // CRLF checkouts are rewritten as LF
     // Let the YAML library quote the value: a description starting with ` @ [ ' " * | > % & ! { would otherwise change meaning or break the file.
     const entry = "  " + stringify({ [tag]: description }).trimEnd();
     const headRe = new RegExp(`^${group}:\\s*(#.*)?$`);
@@ -101,7 +101,7 @@ export function addTag(cfg: WikiConfig, input: AddTagInput): TagWriteResult {
     } else lines.push("", `${group}:`, entry);
     const next = lines.join("\n") + "\n";
     verifyEdit(next, before, [...before.map((t) => t.tag), tag]);
-    writeFileSync(path, next);
+    writeSafe(cfg.root, path, next);
     commitAndPush(cfg, [join("wiki", "_meta", "tags.yaml")], commitMessage(cfg, "add tag", tag), sync);
     return { tag, group, sync };
   });
@@ -147,13 +147,13 @@ export function removeTag(cfg: WikiConfig, tag: string, usedBy: string[]): TagWr
     const info = loadTags(cfg).find((t) => t.tag === tag);
     if (!info) throw new Error(`tag "${tag}" is not in tags.yaml`);
     const path = tagsPath(cfg);
-    const before = parseTags(readFileSync(path, "utf8"));
+    const before = parseTags(readSafe(cfg.root, path));
     const re = new RegExp(`^\\s+${tag}:`);
-    const lines = readFileSync(path, "utf8").replace(/\s+$/, "").split(/\r?\n/).filter((l) => !re.test(l));
+    const lines = readSafe(cfg.root, path).replace(/\s+$/, "").split(/\r?\n/).filter((l) => !re.test(l));
     const next = lines.join("\n") + "\n";
     if (parseTags(next).some((t) => t.tag === tag)) throw new Error(`could not remove "${tag}" from tags.yaml; edit the file by hand`);
     verifyEdit(next, before, before.map((t) => t.tag).filter((t) => t !== tag));
-    writeFileSync(path, next);
+    writeSafe(cfg.root, path, next);
     commitAndPush(cfg, [join("wiki", "_meta", "tags.yaml")], commitMessage(cfg, "remove tag", tag), sync);
     return { tag, group: info.group, sync };
   });

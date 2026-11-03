@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readdirSync, writeFileSync, readFileSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, unlinkSync } from "node:fs";
+import { listSymlinks, readSafe, safePath, writeSafe } from "./safe.js";
 import { dirname, join, relative } from "node:path";
 import { CATEGORIES, addDays, isCategoryHub, reviewByFrom, today, type WikiConfig } from "./config.js";
 import { WikiDb, type SearchHit } from "./db.js";
@@ -61,12 +62,17 @@ function deprecatedIds(db: WikiDb): Set<string> {
   return new Set(db.list({ includeDeprecated: true }).filter((r) => r.confidence === "deprecated").map((r) => r.id));
 }
 
-/** Symlinks under wiki/ as lint errors: they are skipped by every read, and a link can point at any file on the host. */
-function symlinkIssues(cfg: WikiConfig, db: WikiDb): LintIssue[] {
-  return db.listSymlinks().map((abs) => {
-    const rel = relative(cfg.wikiDir, abs).split("\\").join("/");
-    return { id: rel.replace(/\.md$/, ""), level: "error" as const, rule: "symlink", message: `${rel} is a symbolic link; pages must be regular files (remove it)` };
-  });
+/**
+ * Every symlink under the root (pages, _meta, _assets, .doltap, .obsidian) as a lint error: no read or write follows
+ * one, and a link pushed by a collaborator can point at any file on this machine.
+ */
+function symlinkIssues(cfg: WikiConfig): LintIssue[] {
+  return listSymlinks(cfg.root).map((rel) => ({
+    id: rel.replace(/^wiki\//, "").replace(/\.md$/, ""),
+    level: "error" as const,
+    rule: "symlink",
+    message: `${rel} is a symbolic link; doltap never follows links inside the wiki (remove it)`,
+  }));
 }
 
 /** The id of the nearest hub above a page: `projects/demo/_index` for `projects/demo/environment` (when it exists),
@@ -113,7 +119,7 @@ export function regenerateHubLists(cfg: WikiConfig, db: WikiDb): string[] {
     const content = [intro, list.join("\n")].filter(Boolean).join("\n\n");
     const body = replaceSection(page.body, HUB_LIST, content, "replace", { create: true });
     if (body === page.body) continue;
-    writeFileSync(page.absPath, serializePage(page.meta, body));
+    writeSafe(cfg.root, page.absPath, serializePage(page.meta, body));
     changed.push(page.relPath);
   }
   return changed;
@@ -203,8 +209,7 @@ export function upsertPage(cfg: WikiConfig, input: UpsertInput): WriteResult {
       return { id: input.id, path: relPath, created: !existing, issues, sync, refused: "lint errors" };
     }
 
-    mkdirSync(dirname(abs), { recursive: true });
-    writeFileSync(abs, raw);
+    writeSafe(cfg.root, abs, raw);
     db.reindex();
     const hubs = regenerateHubLists(cfg, db);
     const touched = [join("wiki", relPath), ...hubs.map((rel) => join("wiki", rel))];
@@ -248,7 +253,7 @@ export function patchSection(cfg: WikiConfig, input: PatchInput): WriteResult {
     const next = parsePage(cfg, page.relPath, raw);
     const issues = lintOne(cfg, db, next).filter((i) => i.rule !== "orphan");
     if (hasErrors(issues)) return { id: input.id, path: page.relPath, created: false, issues, sync, refused: "lint errors" };
-    writeFileSync(page.absPath, raw);
+    writeSafe(cfg.root, page.absPath, raw);
     db.reindex();
     commitAndPush(cfg, [join("wiki", page.relPath)], commitMessage(cfg, "update", input.id, `section: ${input.section}`), sync);
     return { id: input.id, path: page.relPath, created: false, issues, sync, rev: next.rev };
@@ -296,7 +301,7 @@ export function patchMeta(cfg: WikiConfig, input: MetaPatch): WriteResult {
     const next = parsePage(cfg, page.relPath, raw);
     const issues = lintOne(cfg, db, next).filter((i) => i.rule !== "orphan");
     if (hasErrors(issues)) return { id: input.id, path: page.relPath, created: false, issues, sync, refused: "lint errors" };
-    writeFileSync(page.absPath, raw);
+    writeSafe(cfg.root, page.absPath, raw);
     db.reindex();
     const action = input.confidence === "deprecated" ? "deprecate" : "update";
     const touched = [join("wiki", page.relPath), ...regenerateHubLists(cfg, db).map((rel) => join("wiki", rel))];
@@ -346,7 +351,7 @@ export function deprecatePage(cfg: WikiConfig, input: DeprecateInput): WriteResu
       const next = parsePage(cfg, page.relPath, raw);
       const issues = lintOne(cfg, db, next).filter((i) => i.rule !== "orphan");
       if (hasErrors(issues)) return { id: input.id, path: page.relPath, created: false, issues, sync, refused: "lint errors" };
-      writeFileSync(page.absPath, raw);
+      writeSafe(cfg.root, page.absPath, raw);
       db.reindex();
       const hubs = regenerateHubLists(cfg, db);
       const touched = [join("wiki", page.relPath), ...hubs.map((rel) => join("wiki", rel))];
@@ -421,7 +426,7 @@ export function verifyPage(cfg: WikiConfig, input: VerifyInput): WriteResult {
       const next = parsePage(cfg, page.relPath, raw);
       const issues = lintOne(cfg, db, next).filter((i) => i.rule !== "orphan");
       if (hasErrors(issues)) return { ...refuse("lint errors"), issues };
-      writeFileSync(page.absPath, raw);
+      writeSafe(cfg.root, page.absPath, raw);
       db.reindex();
       commitAndPush(cfg, [join("wiki", page.relPath)], commitMessage(cfg, reverify ? "re-verify" : "verify", input.id, `evidence: ${evidence}`), sync);
       return { id: input.id, path: page.relPath, created: false, issues, sync, rev: next.rev };
@@ -476,7 +481,7 @@ export function resolveConflict(cfg: WikiConfig, input: ResolveInput): WriteResu
     try {
       db.reindex();
       const copies = conflictCopiesOf(cfg, input.id);
-      const copy = copies.length === 1 ? parsePage(cfg, copies[0], readFileSync(join(cfg.wikiDir, copies[0]), "utf8")) : null;
+      const copy = copies.length === 1 ? parsePage(cfg, copies[0], readSafe(cfg.root, join(cfg.wikiDir, copies[0]))) : null;
       let page = readPage(cfg, input.id);
       // The upstream deleted the page while this clone edited it: the conflict copy is all that is left, so restore from it.
       const restoring = !page;
@@ -502,8 +507,8 @@ export function resolveConflict(cfg: WikiConfig, input: ResolveInput): WriteResu
       if (hasErrors(issues)) return { id: input.id, path: page.relPath, created: false, issues, sync, refused: "lint errors" };
       // A copy left by an autostash conflict is untracked; `git add` of a deleted untracked path fails, so stage only tracked copies.
       const tracked = copies.filter((c) => git(cfg, ["ls-files", "--error-unmatch", "--", `wiki/${c}`], { allowFail: true }).ok);
-      writeFileSync(page.absPath, raw);
-      for (const c of copies) unlinkSync(join(cfg.wikiDir, c));
+      writeSafe(cfg.root, page.absPath, raw);
+      for (const c of copies) unlinkSync(safePath(cfg.root, join(cfg.wikiDir, c)));
       db.reindex();
       const hubs = regenerateHubLists(cfg, db);
       const touched = [join("wiki", page.relPath), ...tracked.map((c) => `wiki/${c}`), ...hubs.map((rel) => join("wiki", rel))];
@@ -523,7 +528,7 @@ export function lintAll(cfg: WikiConfig, ids?: string[]): LintIssue[] {
     const ctx = buildLintContext(cfg, db.allIds(), inboundMap(db), deprecatedIds(db));
     const out: LintIssue[] = [];
     for (const b of broken) if (!ids || ids.includes(b.id)) out.push({ id: b.id, level: "error", rule: "frontmatter-invalid", message: `${b.relPath}: ${b.error}` });
-    for (const i of symlinkIssues(cfg, db)) if (!ids || ids.includes(i.id)) out.push(i);
+    for (const i of symlinkIssues(cfg)) if (!ids || ids.includes(i.id)) out.push(i);
     for (const p of pages) if (!ids || ids.includes(p.id)) out.push(...lintPage(p, ctx));
     if (!ids) out.push(...lintAssets(cfg, pages));
     return out;
@@ -547,8 +552,8 @@ export function writeIndexMd(cfg: WikiConfig): string {
       lines.push("");
     }
     const out = lines.join("\n");
-    const p = join(cfg.wikiDir, "_meta", "index.md");
-    writeFileSync(p, out);
+    // index.md is generated and gitignored, so a symlink pushed in its place is simply replaced.
+    const p = writeSafe(cfg.root, join(cfg.wikiDir, "_meta", "index.md"), out, { replaceSymlink: true });
     return relative(cfg.root, p);
   } finally {
     db.close();
@@ -558,5 +563,5 @@ export function writeIndexMd(cfg: WikiConfig): string {
 export function readIndexMd(cfg: WikiConfig): string {
   const p = join(cfg.wikiDir, "_meta", "index.md");
   if (!existsSync(p)) writeIndexMd(cfg);
-  return readFileSync(p, "utf8");
+  return readSafe(cfg.root, p);
 }

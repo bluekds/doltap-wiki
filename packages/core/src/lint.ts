@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
+import { readSafe } from "./safe.js";
 import { join } from "node:path";
 import { ASSET_MAX_BYTES, ASSET_TEXT_TYPES, ASSET_TYPES, assetExt, assetRefsIn, assetsDir, walkAssets } from "./assets.js";
 import { CATEGORIES, CONFIDENCE, isCategoryHub, isProjectOverview, today, type WikiConfig } from "./config.js";
@@ -201,7 +202,7 @@ export function lintAssets(cfg: WikiConfig, pages: Page[]): LintIssue[] {
     const id = `_assets/${f}`;
     if (!referenced.has(f)) out.push({ id, level: "warning", rule: "asset-orphan", message: "no page links this attachment; link it or remove it" });
     if (ASSET_TEXT_TYPES.has(assetExt(f))) {
-      for (const found of findSecrets(readFileSync(join(assetsDir(cfg), f), "utf8"))) out.push({ id, level: "error", rule: "secret", message: `possible secret detected (${found})` });
+      for (const found of findSecrets(readSafe(cfg.root, join(assetsDir(cfg), f)))) out.push({ id, level: "error", rule: "secret", message: `possible secret detected (${found})` });
     }
   }
   return out;

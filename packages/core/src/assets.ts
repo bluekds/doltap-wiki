@@ -1,4 +1,5 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
+import { safePath } from "./safe.js";
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import type { WikiConfig } from "./config.js";
 import { WikiDb } from "./db.js";
@@ -132,7 +133,7 @@ export function addAsset(cfg: WikiConfig, i: AddAssetInput): AddAssetResult {
   }
   return withWriteLock(cfg, () => {
     const dir = join(assetsDir(cfg), ...i.id.split("/"));
-    const dest = join(dir, name);
+    const dest = safePath(cfg.root, join(dir, name));
     if (existsSync(dest)) throw new Error(`${toPosix(relative(cfg.root, dest))} already exists; remove it first or rename the file`);
     mkdirSync(dir, { recursive: true });
     copyFileSync(i.file, dest);
