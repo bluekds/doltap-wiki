@@ -110,12 +110,13 @@ describe("write lock", () => {
     });
     expect(order).toEqual(["nested", "outer"]);
     expect(existsSync(lock)).toBe(false);
-    // Another holder: a fresh lock file makes us wait, then time out.
-    writeFileSync(lock, "999999\n");
-    expect(() => withWriteLock(cfg, () => "x", { timeoutMs: 300 })).toThrow(/another doltap write is in progress/);
-    // A stale lock (older than the stale threshold) is removed.
+    // Another live holder (this process, from the file's point of view) makes us wait, then time out, however old the file.
+    writeFileSync(lock, `${process.pid}\n`);
     const old = new Date(Date.now() - 10 * 60 * 1000);
     utimesSync(lock, old, old);
+    expect(() => withWriteLock(cfg, () => "x", { timeoutMs: 300 })).toThrow(/another doltap write is in progress/);
+    // A lock whose owner is gone is stale at once (0.9; it used to wait two minutes).
+    writeFileSync(lock, "999999\n");
     expect(withWriteLock(cfg, () => "ran", { timeoutMs: 300 })).toBe("ran");
     expect(existsSync(lock)).toBe(false);
   });

@@ -1,9 +1,10 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { platform } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import type { WikiConfig } from "./config.js";
 import { WikiDb } from "./db.js";
-import { git, hasRemote, isRepo, listConflictFiles, readSyncState, remoteBackoffMinutes } from "./git.js";
+import { git, hasRemote, isRepo, listConflictFiles, readSyncState, remoteBackoffMinutes, trackedStateFiles } from "./git.js";
+import { listSymlinks } from "./safe.js";
 import { DEFAULT_LOG_MAX_BYTES, listLogs } from "./logs.js";
 import { httpServiceStatus, scheduleStatus } from "./schedule.js";
 import { loadTags, tagsPath } from "./tags.js";
@@ -100,6 +101,16 @@ function repoChecks(cfg: WikiConfig, checks: DoctorCheck[]): void {
   const conflicts = listConflictFiles(cfg);
   if (conflicts.length) checks.push({ name: "conflicts", status: "warn", detail: `${conflicts.length} conflict copy(ies): ${conflicts.slice(0, 3).join(", ")}${conflicts.length > 3 ? ", …" : ""}`, fix: "doltap resolve <id> --file <merged.md> (or --take conflict)" });
   else checks.push({ name: "conflicts", status: "ok", detail: "none" });
+}
+
+/** `.doltap/` must be this machine's private state: nothing in it tracked by git, no symlinks (a collaborator can push both). */
+function stateCheck(cfg: WikiConfig, checks: DoctorCheck[]): void {
+  const rel = relative(cfg.root, cfg.stateDir).split("\\").join("/");
+  const tracked = trackedStateFiles(cfg);
+  const links = listSymlinks(cfg.root).filter((p) => p === rel || p.startsWith(`${rel}/`));
+  const problems = [...tracked.map((f) => `${f} tracked by git`), ...links.map((f) => `${f} is a symlink`)];
+  if (problems.length) checks.push({ name: "state", status: "fail", detail: problems.join("; "), fix: `git rm --cached -r ${rel} && git commit -m "untrack state"; remove symlinks; then doltap serve token --rotate --quiet && doltap serve install, and recreate client tokens` });
+  else checks.push({ name: "state", status: "ok", detail: `${rel}/ private (untracked, no symlinks)` });
 }
 
 function syncAgeCheck(cfg: WikiConfig, checks: DoctorCheck[], maxAge: number, scheduled: boolean): void {
@@ -258,6 +269,7 @@ export async function doctor(cfg: WikiConfig, o: DoctorOptions = {}): Promise<Do
   const checks: DoctorCheck[] = [];
   nodeCheck(checks);
   repoChecks(cfg, checks);
+  stateCheck(cfg, checks);
   const svc = o.services === false ? { scheduled: false, interval: undefined } : await serviceChecks(cfg, checks, o);
   if (o.healthzUrl) await remoteHealthCheck(checks, o.healthzUrl, o.timeoutMs ?? 3000);
   const maxAge = o.maxPullAgeMinutes ?? (svc.interval ? svc.interval * 3 : 60);

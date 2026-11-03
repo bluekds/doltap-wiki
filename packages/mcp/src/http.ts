@@ -1,10 +1,10 @@
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { chmodSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { createServer as createHttpServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { join } from "node:path";
-import { appendCall, pushPendingAsync, readSyncState, type SyncReport, type WikiConfig } from "@bluekds/doltap-core";
+import { appendCall, pushPendingAsync, readSyncState, trackedStateFiles, trackedStateWarning, type SyncReport, type WikiConfig } from "@bluekds/doltap-core";
 import { createServer } from "./server.js";
 
 export interface HttpOptions {
@@ -46,6 +46,7 @@ function writeToken(p: string, t: string): void {
  */
 export function loadOrCreateToken(cfg: WikiConfig): string {
   const p = tokenPath(cfg);
+  assertPrivateStateFile(cfg, p);
   const read = (): string | null => {
     if (!existsSync(p)) return null;
     const t = readFileSync(p, "utf8").trim();
@@ -88,15 +89,41 @@ export function clientsPath(cfg: WikiConfig): string {
 /** Client names land in commit trailers (`[agent:<name>]`), so they are kebab-case tokens only. */
 export const CLIENT_NAME_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
+/** Client tokens are what `serve client add` issues: 64 lowercase hex. Anything else in the file is not ours. */
+export const CLIENT_TOKEN_RE = /^[0-9a-f]{64}$/;
+
+/**
+ * A token or client file is used only when it is this machine's own: a regular file (never a symlink) that
+ * git does not track. A collaborator can push either under `.doltap/` and git checks it out here.
+ */
+function assertPrivateStateFile(cfg: WikiConfig, p: string): void {
+  let st;
+  try { st = lstatSync(p); } catch { return; } // absent: fine, it will be created
+  const rel = p.slice(cfg.root.length + 1).split("\\").join("/");
+  if (st.isSymbolicLink()) throw new Error(`${rel} is a symbolic link; refusing to use it (remove it)`);
+  const tracked = trackedStateFiles(cfg);
+  if (tracked.includes(rel)) throw new Error(trackedStateWarning(cfg, [rel]));
+}
+
 export function loadClients(cfg: WikiConfig): Record<string, HttpClient> {
   const p = clientsPath(cfg);
-  if (!existsSync(p)) return {};
+  if (!existsSync(p) && !(() => { try { lstatSync(p); return true; } catch { return false; } })()) return {};
+  try {
+    assertPrivateStateFile(cfg, p);
+  } catch (e) {
+    process.stderr.write(`doltap mcp http: ignoring http-clients.json: ${(e as Error).message}\n`);
+    return {};
+  }
   try {
     const raw = JSON.parse(readFileSync(p, "utf8")) as Record<string, HttpClient>;
     const out: Record<string, HttpClient> = {};
     for (const [name, c] of Object.entries(raw)) {
       if (!CLIENT_NAME_RE.test(name) || typeof c?.token !== "string") {
         process.stderr.write(`doltap mcp http: ignoring client ${JSON.stringify(name)} in http-clients.json (name must match ${CLIENT_NAME_RE})\n`);
+        continue;
+      }
+      if (!CLIENT_TOKEN_RE.test(c.token)) {
+        process.stderr.write(`doltap mcp http: ignoring client ${JSON.stringify(name)} in http-clients.json (token is not 64 hex; reissue it with doltap serve client add)\n`);
         continue;
       }
       out[name] = c;
