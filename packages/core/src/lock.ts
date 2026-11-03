@@ -1,11 +1,11 @@
-import { closeSync, existsSync, openSync, readFileSync, statSync, unlinkSync, writeSync } from "node:fs";
+import { closeSync, existsSync, lstatSync, openSync, readFileSync, unlinkSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import type { WikiConfig } from "./config.js";
 
 export interface LockOptions {
   /** How long to wait for another writer before giving up. */
   timeoutMs?: number;
-  /** A lock file older than this is treated as left behind by a crashed process and removed. */
+  /** How long a lock file that has no pid yet (between open and write) counts as held. Default 2 s. */
   staleMs?: number;
 }
 
@@ -16,10 +16,10 @@ function sleep(ms: number): void {
   Atomics.wait(sleeper, 0, 0, ms);
 }
 
-/** Whether the pid recorded in the lock file still runs (EPERM counts as alive: it exists but is not ours). */
-function ownerAlive(path: string): boolean {
-  const pid = Number(readFileSync(path, "utf8").split(/\s/)[0]);
-  if (!Number.isInteger(pid) || pid <= 0) return false;
+/** Whether the pid recorded in the lock file still runs (EPERM counts as alive: it exists but is not ours). pid 1 is never a doltap writer. */
+function ownerAlive(content: string): boolean {
+  const pid = Number(content.split(/\s/)[0]);
+  if (!Number.isInteger(pid) || pid <= 1) return false;
   try {
     process.kill(pid, 0);
     return true;
@@ -38,8 +38,10 @@ export function writeLockPath(cfg: WikiConfig): string {
  * their git commits and hub edits. Re-entrant within one process.
  */
 /**
- * One attempt to take the lock file. Returns true when taken, false when another live writer holds it
- * (a stale file, older than staleMs with a dead owner, is removed and the attempt repeated).
+ * One attempt to take the lock file. Returns true when taken, false when another live writer holds it.
+ * A lock whose recorded owner is dead is stale at once, however fresh the file (a crashed writer must not
+ * cost two minutes of refused writes); a live owner keeps it however old (a long push). A file with no pid
+ * yet counts as held for staleMs. A symlink in the lock's place (a collaborator can push one) is replaced.
  */
 function tryAcquire(path: string, staleMs: number): boolean {
   for (;;) {
@@ -51,11 +53,15 @@ function tryAcquire(path: string, staleMs: number): boolean {
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
       try {
-        // Stale means: older than staleMs AND its owner is gone. A live writer (long push, slow remote) keeps the lock.
-        if (Date.now() - statSync(path).mtimeMs > staleMs && !ownerAlive(path)) {
+        const st = lstatSync(path);
+        if (st.isSymbolicLink()) { unlinkSync(path); continue; }
+        const content = readFileSync(path, "utf8");
+        if (!content.trim()) {
+          if (Date.now() - st.mtimeMs <= staleMs) return false;
           unlinkSync(path);
           continue;
         }
+        if (!ownerAlive(content)) { unlinkSync(path); continue; }
       } catch {
         continue; // vanished between open and stat: retry immediately
       }
@@ -63,6 +69,8 @@ function tryAcquire(path: string, staleMs: number): boolean {
     }
   }
 }
+
+const EMPTY_LOCK_GRACE_MS = 2000;
 
 const timeoutError = (path: string) => new Error(`another doltap write is in progress (lock ${path}); retry in a moment`);
 
@@ -80,7 +88,7 @@ export function withWriteLock<T>(cfg: WikiConfig, fn: () => T, o: LockOptions = 
   const path = writeLockPath(cfg);
   if (held.has(path)) return fn();
   const timeoutMs = o.timeoutMs ?? 30_000;
-  const staleMs = o.staleMs ?? 2 * 60_000;
+  const staleMs = o.staleMs ?? EMPTY_LOCK_GRACE_MS;
   const deadline = Date.now() + timeoutMs;
   while (!tryAcquire(path, staleMs)) {
     if (Date.now() >= deadline) throw timeoutError(path);
@@ -106,7 +114,7 @@ const queues = new Map<string, Promise<void>>();
 export async function withWriteLockAsync<T>(cfg: WikiConfig, fn: () => T, o: LockOptions = {}): Promise<T> {
   const path = writeLockPath(cfg);
   const timeoutMs = o.timeoutMs ?? 30_000;
-  const staleMs = o.staleMs ?? 2 * 60_000;
+  const staleMs = o.staleMs ?? EMPTY_LOCK_GRACE_MS;
   const deadline = Date.now() + timeoutMs;
   const prev = queues.get(path) ?? Promise.resolve();
   let done!: () => void;

@@ -1,6 +1,6 @@
 import { execFile, execFileSync, type ExecFileSyncOptions } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join, sep } from "node:path";
+import { join, relative, sep } from "node:path";
 import type { WikiConfig } from "./config.js";
 import { withWriteLock } from "./lock.js";
 
@@ -47,6 +47,23 @@ export function git(cfg: WikiConfig, args: string[], opts: { timeoutMs?: number;
     if (opts.allowFail) return res;
     throw new Error(redactCredentials(`git ${args.join(" ")} failed: ${res.stderr || res.stdout}`));
   }
+}
+
+/**
+ * Files under the state dir (.doltap/) that git tracks. The directory is gitignored, but a collaborator can
+ * `git add -f` a token file, client list or lock and push it; git then checks it out on every clone. Nothing
+ * doltap does may trust such a file: sync and doctor report it, the HTTP server ignores it.
+ */
+export function trackedStateFiles(cfg: WikiConfig): string[] {
+  if (!isRepo(cfg)) return [];
+  const rel = relative(cfg.root, cfg.stateDir).split(sep).join("/");
+  return git(cfg, ["ls-files", "--", rel], { allowFail: true }).stdout.split("\n").filter(Boolean).sort();
+}
+
+/** The warning other code puts in a sync report or an error when state files are tracked. */
+export function trackedStateWarning(cfg: WikiConfig, files: string[]): string {
+  const rel = relative(cfg.root, cfg.stateDir).split(sep).join("/");
+  return `${files.join(", ")} tracked by git (pushed by another clone?): private state must never be committed. Run git rm --cached -r ${rel} && git commit -m "untrack state", then rotate the token (doltap serve token --rotate --quiet && doltap serve install) and recreate client tokens`;
 }
 
 export function isRepo(cfg: WikiConfig): boolean {
@@ -341,6 +358,8 @@ export function syncAll(cfg: WikiConfig): SyncReport {
     const report = emptyReport();
     pull(cfg, report, { force: true });
     pushPending(cfg, report);
+    const tracked = trackedStateFiles(cfg);
+    if (tracked.length) report.messages.push(`WARNING: ${trackedStateWarning(cfg, tracked)}`);
     return report;
   });
 }
