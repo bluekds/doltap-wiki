@@ -6,7 +6,7 @@ import { WikiDb, type SearchHit } from "./db.js";
 import { assertOnBranch, commitAndPush, commitMessage, emptyReport, git, pull, type SyncReport } from "./git.js";
 import { buildLintContext, hasErrors, lintAssets, lintPage, type LintIssue } from "./lint.js";
 import { withWriteLock } from "./lock.js";
-import { parsePage, readPage, relPathFromId, replaceSection, serializePage, type Page, type PageMeta } from "./page.js";
+import { dropSections, parsePage, readPage, relPathFromId, replaceSection, serializePage, type Page, type PageMeta } from "./page.js";
 import { getTemplate } from "./template.js";
 
 export interface WriteResult {
@@ -113,11 +113,14 @@ export function regenerateHubLists(cfg: WikiConfig, db: WikiDb): string[] {
     const list = (members.get(hubId) ?? [])
       .sort((a, b) => a.id.localeCompare(b.id))
       .map((r) => `- [[${r.id}]] — ${r.confidence === "deprecated" ? "(deprecated) " : ""}${r.summary.replace(/\s+/g, " ").trim()}`);
-    const sec = page.sections.find((s) => s.heading === HUB_LIST && s.level === 2);
+    const lists = page.sections.filter((s) => s.heading === HUB_LIST && s.level === 2);
+    const sec = lists[0];
     if (!sec && !list.length) continue;
     const intro = sec ? sec.content.split("\n").filter((l) => !/^- \[\[/.test(l)).join("\n").trim() : "";
     const content = [intro, list.join("\n")].filter(Boolean).join("\n\n");
-    const body = replaceSection(page.body, HUB_LIST, content, "replace", { create: true });
+    // A hand edit or an old patch may have left a second "Manual list"; it is generated content, so collapse it instead of failing every write.
+    const base = lists.length > 1 ? dropSections(page.body, lists.slice(1)) : page.body;
+    const body = replaceSection(base, HUB_LIST, content, "replace", { create: true });
     if (body === page.body) continue;
     writeSafe(cfg.root, page.absPath, serializePage(page.meta, body));
     changed.push(page.relPath);

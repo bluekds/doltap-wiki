@@ -1,3 +1,4 @@
+import { maskToken } from "./mask.js";
 import { Command } from "commander";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -124,7 +125,8 @@ function readContent(opts: { content?: string; file?: string; stdin?: boolean })
 }
 
 function fail(e: unknown): never {
-  const msg = e instanceof Error ? e.message : String(e);
+  // A failing child process (claude mcp add …) reports its whole command line; never let the token through.
+  const msg = maskToken(e instanceof Error ? e.message : String(e));
   if (program.opts<GlobalOpts>().json) process.stdout.write(JSON.stringify({ error: msg }) + "\n");
   else console.error(`error: ${msg}`);
   process.exit(1);
@@ -641,9 +643,6 @@ schedule.command("status").action(() => { try { const r = scheduleStatus(); out(
 // ---------------------------------------------------------------- serve (always-on HTTP MCP)
 const serve = program.command("serve").description("always-on HTTP MCP server for remote clients (claude.ai connectors, other machines)");
 /** Mask the 64-hex path token in a connector URL for anything that is printed. */
-function maskToken(url: string): string {
-  return url.replace(/\/[0-9a-f]{32,}\/mcp\b/g, "/<token>/mcp");
-}
 
 /** Create the HTTP path token if missing and keep the file private, before any service reads it. */
 function ensureToken(cfg: WikiConfig, rotate = false): string {

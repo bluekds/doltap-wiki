@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -112,6 +112,13 @@ function appendInstructions(file: string, dryRun: boolean): string {
   return `${existing ? "append Doltap section to" : "create"} ${file}`;
 }
 
+/** Write a client config; when it carries the connector URL (the credential), keep it readable by the user only. */
+function writePrivate(file: string, text: string, secret: boolean): void {
+  mkdirSync(join(file, ".."), { recursive: true });
+  writeFileSync(file, text, secret ? { mode: 0o600 } : undefined);
+  if (secret) { try { chmodSync(file, 0o600); } catch { /* Windows: no POSIX modes */ } }
+}
+
 /** Add or replace the `doltap` server in the client's config file and its instruction file. */
 export function register(client: FileClient, i: RegisterInput, dryRun = false): RegisterResult {
   if (!!i.stdio === !!i.remoteUrl) throw new Error("register needs exactly one of stdio or remoteUrl");
@@ -123,7 +130,7 @@ export function register(client: FileClient, i: RegisterInput, dryRun = false): 
     const had = hasCodexBlock(existing);
     const base = stripCodexBlock(existing).trimEnd();
     const next = `${base}${base ? "\n\n" : ""}${codexBlock(i)}`;
-    if (!dryRun) { mkdirSync(join(file, ".."), { recursive: true }); writeFileSync(file, next); }
+    if (!dryRun) writePrivate(file, next, !!i.remoteUrl);
     summary = `${had ? "replace" : "add"} [mcp_servers.doltap] in ${file}`;
   } else {
     const cfg = readJson(file);
@@ -131,7 +138,7 @@ export function register(client: FileClient, i: RegisterInput, dryRun = false): 
     const had = "doltap" in servers;
     servers.doltap = jsonEntry(client, i);
     cfg.mcpServers = servers;
-    if (!dryRun) { mkdirSync(join(file, ".."), { recursive: true }); writeFileSync(file, JSON.stringify(cfg, null, 2) + "\n"); }
+    if (!dryRun) writePrivate(file, JSON.stringify(cfg, null, 2) + "\n", !!i.remoteUrl);
     summary = `${had ? "replace" : "add"} mcpServers.doltap in ${file}`;
   }
   const ip = instructionsPath(client, home);

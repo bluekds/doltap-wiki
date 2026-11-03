@@ -4,6 +4,7 @@ import { parse, stringify } from "yaml";
 import type { WikiConfig } from "./config.js";
 import { commitAndPush, commitMessage, emptyReport, pull, assertOnBranch, type SyncReport } from "./git.js";
 import { withWriteLock } from "./lock.js";
+import { findSecrets } from "./secrets.js";
 
 export interface TagInfo {
   tag: string;
@@ -82,6 +83,8 @@ export function addTag(cfg: WikiConfig, input: AddTagInput): TagWriteResult {
   if (!TAG_RE.test(tag)) throw new Error(`tag "${tag}" must be kebab-case (letters, digits, hyphens)`);
   if (!TAG_RE.test(group)) throw new Error(`group "${group}" must be kebab-case`);
   if (!description) throw new Error("a one-line description is required");
+  const found = findSecrets(description);
+  if (found.length) throw new Error(`description contains a possible secret (${found.join(", ")}); tags.yaml is shared through git`);
   return withWriteLock(cfg, () => {
     assertOnBranch(cfg);
     const sync = emptyReport();
