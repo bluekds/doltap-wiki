@@ -4,6 +4,8 @@
 
 - **`doltap audit --report` / `wiki_audit report=true`.** Writes the audit as markdown to `wiki/_meta/reports/<date>.md` and commits it like a stats file (newest 12 kept, `--keep <n>`), so the weekly pass can compare with last week's. Reports are not pages: index, search and lint skip `_meta`. Deprecate, merge and delete still need a human decision
 - **Writes no longer stall the HTTP server while waiting for the lock.** MCP write tools (`wiki_upsert`, `wiki_patch_section`, `wiki_set_meta`, `wiki_verify`, `wiki_deprecate`, `wiki_resolve_conflict`, `wiki_add_tag`, `wiki_sync`) now wait for the machine's write lock with `withWriteLockAsync`, which yields to the event loop instead of `Atomics.wait`; other clients' searches and reads answer meanwhile. Queued writes in one process run in arrival order; the timeout and its message are unchanged (30 s, configurable per server with `lockTimeoutMs`). The CLI keeps the synchronous lock
+- **A key split across two lines is caught.** The secret filter also scans the page with line breaks between token characters removed, so a credential wrapped by an editor or a narrow terminal is reported as `secret (…, split across lines)`. Wrapped prose, lists and hyphenated line ends do not trigger it; placeholders stay exempt
+
 
 ## 0.7.1 (2026-11-02)
 

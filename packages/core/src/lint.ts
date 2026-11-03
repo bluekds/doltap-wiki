@@ -64,6 +64,11 @@ const PLACEHOLDER_RE = /EXAMPLE|YOUR_|xxxx|<[^>]*>|\.\.\.|…/i;
  * Does `raw` contain a credential of this shape? Every match is checked against the placeholder list, and a
  * key-shaped match without a single digit (`sk-learn-preprocessing-pipeline-guide`) is prose, not a key.
  */
+/** Remove a line break (and continuation indentation) that sits between two token characters, so a wrapped credential reads as one. */
+export function joinWrappedLines(raw: string): string {
+  return raw.replace(/([A-Za-z0-9_-])\r?\n[ \t]*(?=[A-Za-z0-9_])/g, "$1");
+}
+
 export function secretMatches(name: string, re: RegExp, raw: string): boolean {
   const g = new RegExp(re.source, re.flags.includes("g") ? re.flags : re.flags + "g");
   for (const m of raw.matchAll(g)) {
@@ -145,7 +150,13 @@ export function lintPage(page: Page, ctx: LintContext): LintIssue[] {
   } else if (m.replaced_by) warn("replaced-by-on-active", "replaced_by is set but the page is not deprecated");
 
   // Secrets
-  for (const [name, re] of SECRET_PATTERNS) if (secretMatches(name, re, page.raw)) err("secret", `possible secret detected (${name})`);
+  // A key wrapped by an editor or a narrow terminal: also look at the text with line breaks between token
+  // characters removed. Prose joins into harmless "wordword" runs; the patterns all need a specific prefix.
+  const joined = joinWrappedLines(page.raw);
+  for (const [name, re] of SECRET_PATTERNS) {
+    if (secretMatches(name, re, page.raw)) err("secret", `possible secret detected (${name})`);
+    else if (joined !== page.raw && secretMatches(name, re, joined)) err("secret", `possible secret detected (${name}, split across lines)`);
+  }
 
   // Language: crude check for non-Latin scripts in prose.
   const nonLatin = (page.raw.match(/[ㄱ-힝぀-ヿ一-鿿]/g) ?? []).length;
