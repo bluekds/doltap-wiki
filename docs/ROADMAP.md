@@ -66,13 +66,13 @@ Validity follows what a page depends on, not the calendar (the design review fou
 - Two wikis on one machine: `doltap integrations install claude --name <server>` with `--root` / `DOLTAP_ROOT` switching documented.
 - The secret filter catches a key split across two lines.
 
-## 0.9 Stabilization
+## 0.9 Stabilization (0.9.0 shipped 2026-11-04; the rest continues in 0.9.x)
 
 - Reads cost one `stat()` per page, not a parse: the incremental reindex opens only changed files (~60 ms per request at five thousand pages, down from ~400 ms). Shipped on main.
 - Tool reference generated from the zod schemas (docs/TOOLS.md, `npm run reference`, drift fails CI). Shipped on main.
 - Interface freeze. Migration tooling complete.
 - npm publishing through GitHub Actions trusted publishing with provenance, replacing manual publish.
-- Every release gets two independent audits (security and core logic) before tagging, and each confirmed finding lands as a reproduction test in the regression suite. 0.3.1 set this precedent with 14 findings, all covered by tests.
+- Every release gets two independent audits (security and core logic) before tagging, and each confirmed finding lands as a reproduction test in the regression suite. 0.3.1 set this precedent with 14 findings, all covered by tests. 0.9.0 ran both again on everything since 0.5 (48 findings: symlink boundary, planted state files, ReDoS, binary conflict copies, secret scans beyond pages, …); the critical and high items shipped in 0.9.0 with tests, the medium and low ones are the 0.9.1 list (reports kept in the private wiki under `_meta/audits/`).
 - schtasks verified on a real Windows machine. Long-running operation on two or more machines. External security audit.
 
 ## 1.0
