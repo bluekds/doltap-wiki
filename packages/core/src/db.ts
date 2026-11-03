@@ -77,6 +77,18 @@ function containsToken(text: string, token: string): boolean {
   return new RegExp(`(^|[^\\p{L}\\p{N}_])${token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "u").test(text);
 }
 
+export interface ReindexResult {
+  /** Pages (re)parsed and written to the index. */
+  indexed: number;
+  /** Rows dropped because the file is gone or no longer parses. */
+  removed: number;
+  /** Page files that parse (or were unchanged since they last did). */
+  total: number;
+  /** Set only when requested with `{ pages: true }`: every page, parsed. */
+  pages?: Page[];
+  broken: BrokenPage[];
+}
+
 export interface BrokenPage {
   id: string;
   relPath: string;
@@ -220,10 +232,14 @@ export class WikiDb {
   }
 
   /**
-   * Incremental reindex: re-parse files whose mtime/size changed, drop rows for deleted files.
-   * Returns counts. `full` forces re-parsing everything.
+   * Incremental reindex: stat every page file, re-parse only those whose mtime or size differs from the
+   * indexed row, drop rows for deleted files. Unchanged pages are neither read nor parsed, so a request
+   * on a quiet wiki costs one stat per page. `full` re-parses everything; `pages: true` additionally
+   * parses the unchanged pages and returns them all (lint, assets), reporting any that no longer parse.
    */
-  reindex(full = false): { indexed: number; removed: number; total: number; pages: Page[]; broken: BrokenPage[] } {
+  reindex(full?: boolean): ReindexResult;
+  reindex(full: boolean, o: { pages: true }): ReindexResult & { pages: Page[] };
+  reindex(full = false, o: { pages?: boolean } = {}): ReindexResult {
     const files = this.listFiles();
     const known = new Map<string, { mtime: number; size: number }>();
     for (const r of this.db.prepare("SELECT id, mtime, size FROM pages").all() as { id: string; mtime: number; size: number }[]) {
@@ -239,20 +255,23 @@ export class WikiDb {
     try {
       for (const abs of files) {
         const rel = relative(this.cfg.wikiDir, abs);
+        const id = idFromRelPath(rel);
         const st = statSync(abs);
         const mtime = Math.floor(st.mtimeMs);
+        const prev = known.get(id);
+        const unchanged = !full && prev !== undefined && prev.mtime === mtime && prev.size === st.size;
+        if (unchanged && !o.pages) { seen.add(id); continue; }
         let page: Page;
         try {
           page = parsePage(this.cfg, rel, readFileSync(abs, "utf8"));
         } catch (e) {
           // One malformed page must not take search, get and lint down with it: drop its row and report it.
-          broken.push({ id: idFromRelPath(rel), relPath: toPosix(rel), error: e instanceof Error ? e.message : String(e) });
+          broken.push({ id, relPath: toPosix(rel), error: e instanceof Error ? e.message : String(e) });
           continue;
         }
         seen.add(page.id);
         pages.push(page);
-        const prev = known.get(page.id);
-        if (!full && prev && prev.mtime === mtime && prev.size === st.size) continue;
+        if (unchanged) continue;
         this.indexPage(page, mtime, st.size);
         indexed++;
       }
@@ -264,7 +283,9 @@ export class WikiDb {
         }
       }
       this.db.prepare("COMMIT").run();
-      return { indexed, removed, total: files.length - broken.length, pages, broken };
+      const r: ReindexResult = { indexed, removed, total: files.length - broken.length, broken };
+      if (o.pages) r.pages = pages;
+      return r;
     } catch (e) {
       this.db.prepare("ROLLBACK").run();
       throw e;

@@ -62,12 +62,13 @@ Validity follows what a page depends on, not the calendar (the design review fou
 - MCP write tools wait for the write lock without blocking the HTTP server (`withWriteLockAsync`, queued in arrival order).
 - `doltap audit --report` / `wiki_audit report=true` write the weekly report to `wiki/_meta/reports/<date>.md` (newest 12 kept). Deprecate, merge and delete keep requiring human approval.
 - Attachment policy: `wiki/_assets/<page id>/<file>`, 2 MB cap, listed types, lint (`asset-missing`, `asset-orphan`, `asset-too-large`, `asset-type`, secrets in text attachments), `doltap assets add`.
-- Scale check at five thousand pages (`DOLTAP_BENCH=1`, docs/BENCH.md): full reindex ~3 s, no-op reindex ~0.4 s per call, search p95 under 10 ms. The no-op reindex (a `stat()` per page on every call) is the next thing to optimise if wikis grow past this size.
+- Scale check at five thousand pages (`DOLTAP_BENCH=1`, docs/BENCH.md): full reindex ~3 s, no-op reindex ~0.4 s per call, search p95 under 10 ms. The no-op reindex was the next thing to optimise; 0.9.0 stops it parsing unchanged pages.
 - Two wikis on one machine: `doltap integrations install claude --name <server>` with `--root` / `DOLTAP_ROOT` switching documented.
 - The secret filter catches a key split across two lines.
 
 ## 0.9 Stabilization
 
+- Reads cost one `stat()` per page, not a parse: the incremental reindex opens only changed files (~60 ms per request at five thousand pages, down from ~400 ms). Shipped on main.
 - Interface freeze. Tool reference generated from the zod schemas. Migration tooling complete.
 - npm publishing through GitHub Actions trusted publishing with provenance, replacing manual publish.
 - Every release gets two independent audits (security and core logic) before tagging, and each confirmed finding lands as a reproduction test in the regression suite. 0.3.1 set this precedent with 14 findings, all covered by tests.
