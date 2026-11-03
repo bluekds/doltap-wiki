@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased (0.8.0)
+
+- **A key split across two lines is caught.** The secret filter also scans the page with line breaks between token characters removed, so a credential wrapped by an editor or a narrow terminal is reported as `secret (…, split across lines)`. Wrapped prose, lists and hyphenated line ends do not trigger it; placeholders stay exempt
+
 ## 0.7.1 (2026-11-02)
 
 Secret filter fixes from the MCP/security review.
