@@ -1,6 +1,6 @@
 # MCP tool reference
 
-Generated from the server's zod schemas by `npm run reference` (`doltap-mcp --reference`); do not edit by hand. Server `doltap` 0.9.0: 16 tools, 3 resources.
+Generated from the server's zod schemas by `npm run reference` (`doltap-mcp --reference`); do not edit by hand. Server `doltap` 0.9.1: 16 tools, 3 resources.
 
 ## Server instructions
 
