@@ -141,11 +141,11 @@ program
   .option("--repo <url>", "git URL of an existing wiki repository to clone")
   .option("--new", "create a new wiki (protocol, templates, hubs, Obsidian config) and git init it")
   .option("--remote <url>", "with --new: add this empty repository as origin and push")
-  .option("--dir <path>", "where to clone or create", join(homedir(), ".doltap"))
+  .option("--dir <path>", "where to clone or create (default: ~/.doltap)")
   .option("--force", "with --new: set up inside a directory that already has files (its .gitignore is merged, only the skeleton is committed)")
-  .action((o: { repo?: string; new?: boolean; remote?: string; dir: string; force?: boolean }) => {
+  .action((o: { repo?: string; new?: boolean; remote?: string; dir?: string; force?: boolean }) => {
     try {
-      const dir = resolve(o.dir);
+      const dir = resolve(o.dir ?? join(homedir(), ".doltap"));
       if (o.new) {
         const r = scaffoldWiki(dir, { remote: o.remote, force: o.force });
         console.log(`created wiki at ${r.dir} (${r.files} files, 1 commit${r.pushed ? ", pushed" : ""})`);
@@ -254,7 +254,7 @@ const listTags = () => {
   } catch (e) { fail(e); }
 };
 tagsCmd.action(listTags);
-tagsCmd.command("list").action(listTags);
+tagsCmd.command("list").description("print the tag vocabulary with descriptions and usage counts").action(listTags);
 tagsCmd.command("add <tag> <description...>").description("add a tag to _meta/tags.yaml and commit").option("--group <group>", "group heading (default other)").action((tag: string, description: string[], o: { group?: string }) => {
   try {
     const { cfg, json } = cfgFrom();
@@ -520,7 +520,7 @@ const listAssetsAction = () => {
   } catch (e) { fail(e); }
 };
 assetsCmd.action(listAssetsAction);
-assetsCmd.command("list").action(listAssetsAction);
+assetsCmd.command("list").description("list attachments with the pages that link them (orphans flagged)").action(listAssetsAction);
 assetsCmd
   .command("add <id> <file>")
   .description("copy a file into wiki/_assets/<id>/, commit it, and print the markdown link to paste into the page")
@@ -638,7 +638,7 @@ program
 
 // ---------------------------------------------------------------- schedule
 const schedule = program.command("schedule").description("periodic `doltap sync` via launchd (macOS) or crontab");
-schedule.command("install").option("--every <minutes>", "interval (under 60, or a multiple of 60)", "10").action((o: { every: string }) => {
+schedule.command("install").description("install the periodic sync for this wiki (launchd, Task Scheduler or crontab); re-run after a Node or doltap upgrade").option("--every <minutes>", "interval (under 60, or a multiple of 60)", "10").action((o: { every: string }) => {
   try {
     const { cfg, json } = cfgFrom();
     // Unix: launchd/cron run the `wiki` shim; Windows: schtasks runs node + this JS entry.
@@ -647,8 +647,8 @@ schedule.command("install").option("--every <minutes>", "interval (under 60, or 
     out(json, r, () => console.log(`${r.platform}: ${r.detail}`));
   } catch (e) { fail(e); }
 });
-schedule.command("uninstall").action(() => { try { const r = uninstallSchedule(cfgFrom().cfg); out(!!program.opts<GlobalOpts>().json, r, () => console.log(`${r.platform}: ${r.detail}`)); } catch (e) { fail(e); } });
-schedule.command("status").action(() => { try { const r = scheduleStatus(cfgFrom().cfg); out(!!program.opts<GlobalOpts>().json, r, () => console.log(`${r.platform}: ${r.installed ? "installed" : "not installed"} — ${r.detail}`)); } catch (e) { fail(e); } });
+schedule.command("uninstall").description("remove this wiki's periodic sync job (and a pre-0.10 global one)").action(() => { try { const r = uninstallSchedule(cfgFrom().cfg); out(!!program.opts<GlobalOpts>().json, r, () => console.log(`${r.platform}: ${r.detail}`)); } catch (e) { fail(e); } });
+schedule.command("status").description("whether the periodic sync job is installed and loaded, and its interval").action(() => { try { const r = scheduleStatus(cfgFrom().cfg); out(!!program.opts<GlobalOpts>().json, r, () => console.log(`${r.platform}: ${r.installed ? "installed" : "not installed"} — ${r.detail}`)); } catch (e) { fail(e); } });
 
 // ---------------------------------------------------------------- serve (always-on HTTP MCP)
 const serve = program.command("serve").description("always-on HTTP MCP server for remote clients (claude.ai connectors, other machines)");
@@ -668,7 +668,7 @@ function ensureToken(cfg: WikiConfig, rotate = false): string {
   return p;
 }
 
-serve.command("install").option("--port <n>", "listen port", "8765").option("--host <h>", "bind address", "127.0.0.1").option("--show-url", "print the local URL including the secret token").action((o: { port: string; host: string; showUrl?: boolean }) => {
+serve.command("install").description("install and (re)start the always-on HTTP MCP service for this wiki (macOS launchd; other platforms get the command to run)").option("--port <n>", "listen port", "8765").option("--host <h>", "bind address", "127.0.0.1").option("--show-url", "print the local URL including the secret token").action((o: { port: string; host: string; showUrl?: boolean }) => {
   try {
     const { cfg, json } = cfgFrom();
     const binDir = resolve(process.argv[1], "..");
@@ -683,8 +683,8 @@ serve.command("install").option("--port <n>", "listen port", "8765").option("--h
     });
   } catch (e) { fail(e); }
 });
-serve.command("uninstall").action(() => { try { const r = uninstallHttpService(cfgFrom().cfg); out(!!program.opts<GlobalOpts>().json, r, () => console.log(`${r.platform}: ${r.detail}`)); } catch (e) { fail(e); } });
-serve.command("status").action(() => { try { const r = httpServiceStatus(cfgFrom().cfg); out(!!program.opts<GlobalOpts>().json, r, () => console.log(`${r.platform}: ${r.detail}`)); } catch (e) { fail(e); } });
+serve.command("uninstall").description("stop and remove this wiki's HTTP service (and a pre-0.10 global one)").action(() => { try { const r = uninstallHttpService(cfgFrom().cfg); out(!!program.opts<GlobalOpts>().json, r, () => console.log(`${r.platform}: ${r.detail}`)); } catch (e) { fail(e); } });
+serve.command("status").description("whether the HTTP service is installed and running, with its pid, host and port").action(() => { try { const r = httpServiceStatus(cfgFrom().cfg); out(!!program.opts<GlobalOpts>().json, r, () => console.log(`${r.platform}: ${r.detail}`)); } catch (e) { fail(e); } });
 serve.command("token").description("print the secret path token (rotate with --rotate: a running service picks the new one up within seconds and the old one stops working; then re-register remote clients)").option("--rotate").option("--quiet", "do not print the token (use with --rotate in scripts and agent sessions)").action((o: { rotate?: boolean; quiet?: boolean }) => {
   try {
     const { cfg } = cfgFrom();
@@ -747,7 +747,7 @@ client.command("add <name>").description("create a token for a client and print 
     process.stdout.write(token + "\n");
   } catch (e) { fail(e); }
 });
-client.command("list").action(() => {
+client.command("list").description("named clients with access level, creation and expiry").action(() => {
   try {
     const { cfg, json } = cfgFrom();
     const recs = loadClientRecs(cfg);
@@ -768,7 +768,7 @@ client.command("extend <name>").description("set a new expiry for a client token
     console.log(`client ${name} now ${recs[name].expires ? `expires ${recs[name].expires}` : "never expires"}`);
   } catch (e) { fail(e); }
 });
-client.command("remove <name>").action((name: string) => {
+client.command("remove <name>").description("revoke a client token; the running service stops accepting it at once").action((name: string) => {
   try {
     const { cfg } = cfgFrom();
     const recs = loadClientRecs(cfg);
@@ -928,4 +928,11 @@ integrations
     } catch (e) { fail(e); }
   });
 
-program.parseAsync(process.argv).catch(fail);
+// `doltap --reference` prints the command reference (docs/CLI.md) from the commander definitions; `--check <file>`
+// exits 1 when that file differs, so CI catches a stale reference. Neither needs a wiki.
+if (process.argv.includes("--reference")) {
+  const { cliReference } = await import("./reference.js");
+  process.exitCode = cliReference(program, process.argv);
+} else {
+  program.parseAsync(process.argv).catch(fail);
+}
