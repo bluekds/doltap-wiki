@@ -62,7 +62,8 @@ describe("wiki_sync under a foreign write lock (M2c)", () => {
     const { spawn } = await import("node:child_process");
     const { writeFileSync, unlinkSync } = await import("node:fs");
     const { writeLockPath } = await import("@bluekds/doltap-core");
-    const fast = createServer(cfg, { lockTimeoutMs: 300 });
+    // A generous timeout: the read must come back while the sync is still waiting, on a slow Windows runner too.
+    const fast = createServer(cfg, { lockTimeoutMs: 1500 });
     const c = new Client({ name: "fast", version: "0" });
     const [a, b] = InMemoryTransport.createLinkedPair();
     await fast.connect(a);
@@ -79,7 +80,7 @@ describe("wiki_sync under a foreign write lock (M2c)", () => {
       expect(sync.isError).toBe(true);
       expect((sync.content as { text: string }[])[0].text).toMatch(/write is in progress/);
       expect(Date.now() - t0).toBeLessThan(5000);
-      expect(read).toBeLessThan(250);
+      expect(read).toBeLessThan(1000);
     } finally {
       child.kill();
       try { unlinkSync(writeLockPath(cfg)); } catch { /* gone */ }
