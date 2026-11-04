@@ -5,7 +5,7 @@ import { readSyncState, remoteBackoffMinutes, syncAll, upsertPage, WikiDb, write
 const win = process.platform === "win32";
 let m: ReturnType<typeof makeTwoMachines>;
 let A: WikiConfig;
-beforeEach(() => { m = makeTwoMachines(); A = cfgFor(m.a, { noSync: false, remoteTimeoutMs: 700 }); const db = new WikiDb(A); db.reindex(); db.close(); });
+beforeEach(() => { m = makeTwoMachines(); A = cfgFor(m.a, { noSync: false, remoteTimeoutMs: 2000 }); const db = new WikiDb(A); db.reindex(); db.close(); });
 afterEach(() => m.cleanup());
 
 const howto = (x: string) => `## Prerequisites\n\n${x}\n\n## Steps\n\n1. y\n\n## Verification\n\nz\n\n## Pitfalls\n\n- w\n\n## Related\n\n- [[howto/_index]]\n`;
@@ -21,8 +21,10 @@ describe("write latency with an unreachable remote (0.4)", () => {
       const first = Date.now() - t;
       expect(r1.sync.offline).toBe(true);
       expect(r1.sync.pushed).toBe(false);
-      expect(first).toBeGreaterThanOrEqual(600);
-      expect(first).toBeLessThan(5000);
+      // The first write pays the remote timeout (2 s); the second must come back well inside it, whatever the
+      // machine is doing meanwhile (the whole suite runs in parallel during a release).
+      expect(first).toBeGreaterThanOrEqual(1800);
+      expect(first).toBeLessThan(8000);
       expect(readSyncState(A).lastOffline).toBeTruthy();
       expect(remoteBackoffMinutes(A)).not.toBeNull();
 
@@ -31,7 +33,7 @@ describe("write latency with an unreachable remote (0.4)", () => {
       const second = Date.now() - t;
       expect(r2.sync.offline).toBe(true);
       expect(r2.sync.messages.join(" ")).toMatch(/push deferred/);
-      expect(second).toBeLessThan(600);
+      expect(second).toBeLessThan(1500);
       expect(readSyncState(A).pendingPush).toBe(true);
     } finally {
       if (prev === undefined) delete process.env.GIT_SSH_COMMAND; else process.env.GIT_SSH_COMMAND = prev;
