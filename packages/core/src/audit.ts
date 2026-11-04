@@ -166,6 +166,7 @@ export function audit(cfg: WikiConfig, o: AuditOptions = {}): AuditReport {
     // Merge this host's live log with every published stats file (including an older copy of our own).
     const all = loadAllStats(cfg).filter((s) => s.host !== cfg.hostname);
     all.push(collectHostStats(cfg, db, thresholds.unreferencedDays));
+    const windowStart = new Date(Date.now() - thresholds.unreferencedDays * 86400000).toISOString().slice(0, 10);
     const reads = new Map<string, AuditEntry>();
     const rows = db.list({ includeDeprecated: true }).filter((r) => !isCategoryHub(r.id));
     const entry = (r: PageRow): AuditEntry => reads.get(r.id) ?? { id: r.id, category: r.category, confidence: r.confidence, updated: r.updated, reviewBy: r.review_by, verifiedOn: r.verified_on, reads: 0, lastRead: null, hosts: [] };
@@ -174,6 +175,9 @@ export function audit(cfg: WikiConfig, o: AuditOptions = {}): AuditReport {
       for (const [id, c] of Object.entries(s.counts)) {
         const e = reads.get(id);
         if (!e) continue;
+        // A published file keeps counting for ever once its host stops syncing; only reads inside the window count (audit L7).
+        const lastSeen = s.lastAccess[id];
+        if (lastSeen && lastSeen.slice(0, 10) < windowStart) continue;
         e.reads += c;
         e.hosts.push(s.host);
         const last = s.lastAccess[id];

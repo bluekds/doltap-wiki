@@ -62,7 +62,8 @@ export function fencedLines(lines: string[]): boolean[] {
   const out = new Array<boolean>(lines.length).fill(false);
   let open: { ch: string; len: number } | null = null;
   for (let i = 0; i < lines.length; i++) {
-    const m = /^ {0,3}(`{3,}|~{3,})/.exec(lines[i]);
+    // Any indentation: a fence inside a list item sits four or more spaces in and is still a fence to the reader.
+    const m = /^[ \t]*(`{3,}|~{3,})/.exec(lines[i]);
     if (open) {
       out[i] = true;
       if (m && m[1][0] === open.ch && m[1].length >= open.len) open = null;
@@ -212,8 +213,12 @@ function toDate(v: unknown): string {
   return v == null ? "" : String(v);
 }
 
+/** `key: null` and `key: ~` read as the strings "null" / "~" under the failsafe schema; for an optional field they mean absent (audit I2). */
+const isNullish = (v: unknown): boolean => v == null || v === "" || v === "null" || v === "~";
+
 export function normalizeMeta(data: Record<string, unknown>): PageMeta {
   const { review_by: _rb, verified_on: _vo, ...rest } = data;
+  for (const key of ["replaced_by", "verified_by"]) if (key in rest && isNullish(rest[key])) delete rest[key];
   return {
     ...rest,
     title: String(data.title ?? ""),
@@ -231,7 +236,7 @@ export function normalizeMeta(data: Record<string, unknown>): PageMeta {
 
 /** Lifecycle dates are optional: an empty placeholder (`review_by:` from a template) is the same as absent. */
 function optionalDate(key: string, v: unknown): Record<string, string> {
-  const s = v == null ? "" : toDate(v).trim();
+  const s = isNullish(v) ? "" : toDate(v).trim();
   return s ? { [key]: s } : {};
 }
 

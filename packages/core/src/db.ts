@@ -402,17 +402,35 @@ export class WikiDb {
     if (!tokens.length) return [];
     const limit = o.limit ?? 10;
     const hits = new Map<string, SearchHit & { text: string; exact: boolean }>();
-    for (const h of this.searchOnce(WikiDb.toFtsQuery(query, "AND"), tokens, o, limit)) hits.set(h.id, { ...h, exact: true });
+    // Fetch more candidates than asked for: the boosts (confidence, recency, title) re-rank them, and the
+    // first hit must not depend on how many were requested (audit L1).
+    const exact = this.searchOnce(WikiDb.toFtsQuery(query, "AND"), tokens, o, limit * 3);
+    for (const h of exact) hits.set(h.id, { ...h, exact: true });
     // Fallback hits must still contain at least half of the terms (and at least two), so a single common word never drags in noise.
     const minMatched = Math.max(2, Math.ceil(tokens.length / 2));
-    if (hits.size < limit && tokens.length > 2) {
+    if (exact.length < limit && tokens.length > 2) {
       for (const h of this.searchOnce(WikiDb.toFtsQuery(query, "OR"), tokens, o, limit * 3)) if (!hits.has(h.id)) hits.set(h.id, { ...h, exact: false });
     }
-    const matchedIn = (text: string) => tokens.filter((t) => containsToken(text, t));
+    // Which terms a fallback hit contains is decided by FTS itself (stems, folded diacritics), not by a literal
+    // scan: "deploying" matches a page that says "deployed" (audit M3). The literal scan only adds to it.
+    const fallbackIds = [...hits.values()].filter((h) => !h.exact).map((h) => h.id);
+    const byFts = new Map<string, Set<string>>();
+    if (fallbackIds.length) {
+      const sql = `SELECT id FROM pages_fts WHERE pages_fts MATCH ? AND id IN (${fallbackIds.map(() => "?").join(",")})`;
+      for (const t of tokens) {
+        for (const r of this.db.prepare(sql).all(`"${t.replace(/"/g, "")}"*`, ...fallbackIds) as { id: string }[]) {
+          if (!byFts.has(r.id)) byFts.set(r.id, new Set());
+          byFts.get(r.id)!.add(t);
+        }
+      }
+    }
+    const matchedIn = (h: { id: string; text: string }) => tokens.filter((t) => byFts.get(h.id)?.has(t) || containsToken(h.text, t));
+    const dep = (h: { confidence: string }) => Number(h.confidence === "deprecated");
     return [...hits.values()]
-      .map((h) => ({ ...h, matched: h.exact ? tokens : matchedIn(h.text) }))
+      .map((h) => ({ ...h, matched: h.exact ? tokens : matchedIn(h) }))
       .filter((h) => h.exact || h.matched.length >= minMatched)
-      .sort((a, b) => Number(b.exact) - Number(a.exact) || b.matched.length - a.matched.length || Number(a.confidence === "deprecated") - Number(b.confidence === "deprecated") || a.score - b.score)
+      // Deprecated pages come after every live page, however well they match (audit L2).
+      .sort((a, b) => dep(a) - dep(b) || Number(b.exact) - Number(a.exact) || b.matched.length - a.matched.length || a.score - b.score)
       .slice(0, limit)
       .map(({ text: _t, exact: _e, ...hit }) => hit);
   }
