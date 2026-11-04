@@ -53,20 +53,20 @@ export function git(cfg: WikiConfig, args: string[], opts: { timeoutMs?: number;
 }
 
 /**
- * Files under the state dir (.doltap/) that git tracks. The directory is gitignored, but a collaborator can
- * `git add -f` a token file, client list or lock and push it; git then checks it out on every clone. Nothing
- * doltap does may trust such a file: sync and doctor report it, the HTTP server ignores it.
+ * Files under the 0.x state dir (`<root>/.doltap/`) that git tracks. Since 0.10 the live state lives outside
+ * the tree, so such a file can no longer become this machine's token or client list; it is still someone
+ * committing what looks like private state into the shared repository, so sync and doctor report it.
  */
 export function trackedStateFiles(cfg: WikiConfig): string[] {
   if (!isRepo(cfg)) return [];
-  const rel = relative(cfg.root, cfg.stateDir).split(sep).join("/");
+  const rel = relative(cfg.root, cfg.legacyStateDir).split(sep).join("/");
   return git(cfg, ["ls-files", "--", rel], { allowFail: true }).stdout.split("\n").filter(Boolean).sort();
 }
 
-/** The warning other code puts in a sync report or an error when state files are tracked. */
+/** The warning other code puts in a sync report when state-looking files are tracked. */
 export function trackedStateWarning(cfg: WikiConfig, files: string[]): string {
-  const rel = relative(cfg.root, cfg.stateDir).split(sep).join("/");
-  return `${files.join(", ")} tracked by git (pushed by another clone?): private state must never be committed. Run git rm --cached -r ${rel} && git commit -m "untrack state", then rotate the token (doltap serve token --rotate --quiet && doltap serve install) and recreate client tokens`;
+  const rel = relative(cfg.root, cfg.legacyStateDir).split(sep).join("/");
+  return `${files.join(", ")} tracked by git (pushed by another clone?): doltap keeps its state in ${cfg.stateDir} and never reads these, but private files do not belong in the repository. Run git rm --cached -r ${rel} && git commit -m "untrack state"; if a real token was in there, rotate it on the machine it came from`;
 }
 
 export function isRepo(cfg: WikiConfig): boolean {

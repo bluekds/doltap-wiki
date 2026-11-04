@@ -9,7 +9,7 @@ Versions below are ordering, not dates. Items move between versions when real us
 1.0 is a promise about stability, not a feature count.
 
 **Frozen at 1.0**
-- Interface contract: MCP tool names and arguments, CLI commands and flags, page frontmatter fields and PROTOCOL structure, `.doltap/` file formats (`http-clients.json`, sync state), index schema version.
+- Interface contract: MCP tool names and arguments, CLI commands and flags, page frontmatter fields and PROTOCOL structure, state directory layout and file formats (`http-clients.json`, sync state), index schema version.
 - Compatibility policy: semver. An interface slated for removal is warned about for at least one minor release first. Index and config files migrate automatically.
 - Quality bar: zero HIGH findings in an external security audit, one release cycle of incident-free operation on two or more machines, every tool and flag documented.
 
@@ -41,7 +41,7 @@ The wiki is worth what its first result is worth.
 ## 0.6 Clients and access control (shipped in 0.6.0)
 
 - `integrations install codex|cursor|gemini|generic`: user-level config files (TOML for Codex, JSON for Cursor and Gemini), stdio or `--remote`, instruction section where the client has a global file. Claude Code keeps its CLI path. Config formats were taken from each vendor's documentation at the time; the Gemini CLI page already announced a successor product, so that entry may need renaming later.
-- Client tokens: `--expires`, `extend`, 404 after expiry, `doctor` warning a week ahead. Call log in `.doltap/logs/http-calls.log` with `serve calls`.
+- Client tokens: `--expires`, `extend`, 404 after expiry, `doctor` warning a week ahead. Call log in the state directory (`logs/http-calls.log`) with `serve calls`.
 - HTTP sessions are MCP sessions (`Mcp-Session-Id`, `[session:<client>/<id>]`), stateless fallback for clients that send none.
 - Background push in the HTTP server (moved here from 0.4): the write returns after its commit; a child process pushes; rejected pushes pull and retry; the scheduler covers a crash before the push.
 - Per-category write scope, evaluated: no client has asked for it; read-only tokens cover the one real case (a viewer that must not write). Left out until a request appears.
@@ -72,8 +72,13 @@ Validity follows what a page depends on, not the calendar (the design review fou
 - Tool reference generated from the zod schemas (docs/TOOLS.md, `npm run reference`, drift fails CI). Shipped on main.
 - Interface freeze. Migration tooling complete.
 - npm publishing through GitHub Actions trusted publishing with provenance, replacing manual publish.
-- Every release gets two independent audits (security and core logic) before tagging, and each confirmed finding lands as a reproduction test in the regression suite. 0.3.1 set this precedent with 14 findings, all covered by tests. 0.9.0 ran both again on everything since 0.5 (48 findings: symlink boundary, planted state files, ReDoS, binary conflict copies, secret scans beyond pages, …); the critical and high items shipped in 0.9.0 with tests, the medium and low ones in 0.9.1 (write rollback, every git call under the lock, FTS-backed search fallback, Obsidian config checks, HTTP session and token hardening; reports kept in the private wiki under `_meta/audits/`). Still open from the audits: moving `.doltap/` out of the git tree (0.10, needs a migration), per-wiki service labels, rename-based lock takeover.
+- Every release gets two independent audits (security and core logic) before tagging, and each confirmed finding lands as a reproduction test in the regression suite. 0.3.1 set this precedent with 14 findings, all covered by tests. 0.9.0 ran both again on everything since 0.5 (48 findings: symlink boundary, planted state files, ReDoS, binary conflict copies, secret scans beyond pages, …); the critical and high items shipped in 0.9.0 with tests, the medium and low ones in 0.9.1 (write rollback, every git call under the lock, FTS-backed search fallback, Obsidian config checks, HTTP session and token hardening; reports kept in the private wiki under `_meta/audits/`). Still open from the audits after 0.10: rename-based lock takeover.
 - schtasks verified on a real Windows machine. Long-running operation on two or more machines. External security audit.
+
+## 0.10 State outside the tree (shipped in 0.10.0)
+
+- Per-machine state (index, lock, sync state, token, client list, logs) moved from `<root>/.doltap/` to `$XDG_STATE_HOME/doltap/<wiki-id>/`, migrated once on first use, token bytes kept. The 0.9 finding S2 (pushed files becoming this machine's state) has no surface left; `.doltap/` inside a clone is reported as a leftover, never read.
+- Service names carry the wiki id (`com.doltap.sync.<id>`, `com.doltap.mcp.<id>`, `DoltapSync-<id>`); installing the second wiki on a machine no longer replaces the first wiki's jobs.
 
 ## 1.0
 

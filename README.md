@@ -159,7 +159,7 @@ doltap upgrade [--diff] [--apply]         # 설치된 버전의 스켈레톤과 
 doltap schedule install [--every <분>] [--force]|status|uninstall  # 주기적 sync (--every는 60 미만이거나 60의 배수; --force는 다른 위키용으로 설치된 작업을 교체)
 doltap serve install [--show-url]|status|uninstall|token [--rotate] [--quiet]   # 상시 HTTP MCP 서비스
 doltap serve client add <name> [--read-only] [--expires <days|date>] | list | extend <name> --expires … | remove <name>   # 이름 붙은 토큰: commit에 이름이 남음
-doltap serve calls [--since 7] [-n 20]      # 어느 클라이언트가 어떤 도구를 불렀는지 (.doltap/logs/http-calls.log)
+doltap serve calls [--since 7] [-n 20]      # 어느 클라이언트가 어떤 도구를 불렀는지 (<상태 디렉토리>/logs/http-calls.log)
 doltap integrations install|uninstall|status claude|codex|cursor|gemini|generic [--remote [<url>]] [--dry-run]   # --remote에 값을 빼면 $DOLTAP_REMOTE_URL을 읽음
 ```
 
@@ -196,10 +196,11 @@ doltap integrations install|uninstall|status claude|codex|cursor|gemini|generic 
 
 - 원격 접속을 보호하는 것은 **경로에 들어가는 64자리 무작위 토큰 하나**입니다. OAuth는 아직 없습니다. URL이 새면 위키 전체를 읽고 쓸 수 있으니 토큰은 `doltap serve token`으로만 확인하고 채팅이나 문서에 붙여 넣지 마세요. 새면 `doltap serve token --rotate --quiet`로 교체합니다. 실행 중인 서비스가 몇 초 안에 새 토큰을 읽어 옛 토큰은 바로 막히고, 원격 클라이언트만 새 URL로 다시 등록하면 됩니다. CLI 출력은 토큰을 가리고(`serve install`은 `--show-url`이 없으면 `<token>`으로 표시), `integrations install --remote`는 URL을 `DOLTAP_REMOTE_URL`에서 읽어 셸 히스토리에 남기지 않으며, lint는 커넥터 URL이 든 페이지를 거부합니다.
 - 서버는 `Host`로 루프백, 바인드 주소, `*.ts.net`만 받고(추가는 `DOLTAP_HTTP_ALLOWED_HOSTS`), 요청 본문은 2 MiB까지만 받으며, 오류는 일반 문구만 돌려주고 상세는 서비스 로그에 남깁니다.
-- 페이지 id는 모든 경로에서 검증되므로(`<category>/<slug>` 문자만 허용) 요청이 `wiki/` 밖의 파일을 가리킬 수 없습니다. 루트 아래 어디에 있든 심볼릭 링크는 읽기도 쓰기도 따라가지 않습니다. 경로의 모든 구성 요소를 검사합니다(페이지, `_meta`의 템플릿·프로토콜·태그·리포트·통계, 첨부, `.doltap`). 공유 원격을 통해 커밋된 링크가 서비스 머신의 임의 파일을 읽거나 덮어쓰게 만들 수 있기 때문입니다. 생성 파일인 `_meta/index.md`는 일반 파일로 다시 만들고, 나머지는 거부하며, lint가 트리의 모든 링크를 보고합니다. 같은 경로로 `.doltap/` 아래 파일(심어 둔 클라이언트 목록이나 토큰)이 들어올 수도 있어, 서버는 git이 추적하는 클라이언트 목록을 무시하고 `doltap sync`가 경고, `doltap doctor`는 추적을 풀고 토큰을 회전할 때까지 실패로 표시합니다.
+- 페이지 id는 모든 경로에서 검증되므로(`<category>/<slug>` 문자만 허용) 요청이 `wiki/` 밖의 파일을 가리킬 수 없습니다. 루트 아래 어디에 있든 심볼릭 링크는 읽기도 쓰기도 따라가지 않습니다. 경로의 모든 구성 요소를 검사합니다(페이지, `_meta`의 템플릿·프로토콜·태그·리포트·통계, 첨부). 공유 원격을 통해 커밋된 링크가 서비스 머신의 임의 파일을 읽거나 덮어쓰게 만들 수 있기 때문입니다. 생성 파일인 `_meta/index.md`는 일반 파일로 다시 만들고, 나머지는 거부하며, lint가 트리의 모든 링크를 보고합니다.
+- 머신 전용 상태(검색 인덱스, 쓰기 락, sync 상태, HTTP 토큰, 클라이언트 목록, 로그)는 클론 밖 `~/.local/state/doltap/<wiki-id>/`(`$XDG_STATE_HOME`; Windows는 `%LOCALAPPDATA%\doltap\state\`)에 있어, 공유 원격으로 들어온 파일이 이 머신의 토큰이나 클라이언트 목록이 될 길이 없습니다. 클론 안의 `.doltap/`은 0.x의 잔재로, 한 번 옮겨진 뒤에는 `doltap sync`와 `doctor`가 보고만 하고 읽지 않습니다. 경로는 `doltap doctor`가 보여 주며 `DOLTAP_STATE_HOME` / `DOLTAP_STATE_DIR`로 옮길 수 있습니다.
 - 서비스는 기본으로 127.0.0.1에만 바인딩합니다. 인터넷에 내는 것은 Tailscale Funnel 같은 바깥 계층의 선택입니다.
 - 위키 내용은 git 이력에 영구히 남고, 에이전트가 읽은 페이지는 그 에이전트의 모델 제공사로 전송됩니다. 비밀값을 적지 않는 이유입니다.
-- 원격으로 쓴 commit은 서버 머신 이름과, 이름 붙은 토큰(`doltap serve client add <name>`)을 쓰면 그 이름으로 기록됩니다. `--read-only` 토큰은 검색과 읽기만 되고, `--expires`로 만료일을 두면 그날 이후 404입니다(`doctor`가 일주일 전에 경고). 세션은 MCP 세션 id 단위(`[session:<client>/<id>]`)라 페이지를 만든 대화가 그 페이지를 verify할 수 없습니다. 서버는 요청마다 시간·클라이언트·도구·상태를 `.doltap/logs/http-calls.log`에 남기며 인자나 토큰은 기록하지 않습니다(`doltap serve calls`). 쓰기 응답은 commit 직후 돌아오고 push는 뒤에서 이어집니다.
+- 원격으로 쓴 commit은 서버 머신 이름과, 이름 붙은 토큰(`doltap serve client add <name>`)을 쓰면 그 이름으로 기록됩니다. `--read-only` 토큰은 검색과 읽기만 되고, `--expires`로 만료일을 두면 그날 이후 404입니다(`doctor`가 일주일 전에 경고). 세션은 MCP 세션 id 단위(`[session:<client>/<id>]`)라 페이지를 만든 대화가 그 페이지를 verify할 수 없습니다. 서버는 요청마다 시간·클라이언트·도구·상태를 상태 디렉토리의 `logs/http-calls.log`에 남기며 인자나 토큰은 기록하지 않습니다(`doltap serve calls`). 쓰기 응답은 commit 직후 돌아오고 push는 뒤에서 이어집니다.
 
 </details>
 

@@ -638,17 +638,17 @@ program
 
 // ---------------------------------------------------------------- schedule
 const schedule = program.command("schedule").description("periodic `doltap sync` via launchd (macOS) or crontab");
-schedule.command("install").option("--every <minutes>", "interval (under 60, or a multiple of 60)", "10").option("--force", "replace a schedule installed for another wiki root").action((o: { every: string; force?: boolean }) => {
+schedule.command("install").option("--every <minutes>", "interval (under 60, or a multiple of 60)", "10").action((o: { every: string }) => {
   try {
     const { cfg, json } = cfgFrom();
     // Unix: launchd/cron run the `wiki` shim; Windows: schtasks runs node + this JS entry.
     const bin = process.platform === "win32" ? fileURLToPath(import.meta.url) : process.argv[1];
-    const r = installSchedule(cfg, bin, Number(o.every), { force: o.force });
+    const r = installSchedule(cfg, bin, Number(o.every));
     out(json, r, () => console.log(`${r.platform}: ${r.detail}`));
   } catch (e) { fail(e); }
 });
-schedule.command("uninstall").action(() => { try { const r = uninstallSchedule(); out(!!program.opts<GlobalOpts>().json, r, () => console.log(`${r.platform}: ${r.detail}`)); } catch (e) { fail(e); } });
-schedule.command("status").action(() => { try { const r = scheduleStatus(); out(!!program.opts<GlobalOpts>().json, r, () => console.log(`${r.platform}: ${r.installed ? "installed" : "not installed"} — ${r.detail}`)); } catch (e) { fail(e); } });
+schedule.command("uninstall").action(() => { try { const r = uninstallSchedule(cfgFrom().cfg); out(!!program.opts<GlobalOpts>().json, r, () => console.log(`${r.platform}: ${r.detail}`)); } catch (e) { fail(e); } });
+schedule.command("status").action(() => { try { const r = scheduleStatus(cfgFrom().cfg); out(!!program.opts<GlobalOpts>().json, r, () => console.log(`${r.platform}: ${r.installed ? "installed" : "not installed"} — ${r.detail}`)); } catch (e) { fail(e); } });
 
 // ---------------------------------------------------------------- serve (always-on HTTP MCP)
 const serve = program.command("serve").description("always-on HTTP MCP server for remote clients (claude.ai connectors, other machines)");
@@ -668,13 +668,13 @@ function ensureToken(cfg: WikiConfig, rotate = false): string {
   return p;
 }
 
-serve.command("install").option("--port <n>", "listen port", "8765").option("--host <h>", "bind address", "127.0.0.1").option("--show-url", "print the local URL including the secret token").option("--force", "replace a service installed for another wiki root").action((o: { port: string; host: string; showUrl?: boolean; force?: boolean }) => {
+serve.command("install").option("--port <n>", "listen port", "8765").option("--host <h>", "bind address", "127.0.0.1").option("--show-url", "print the local URL including the secret token").action((o: { port: string; host: string; showUrl?: boolean }) => {
   try {
     const { cfg, json } = cfgFrom();
     const binDir = resolve(process.argv[1], "..");
     const mcpBin = existsSync(join(binDir, "doltap-mcp")) ? join(binDir, "doltap-mcp") : "doltap-mcp";
     const tokenFile = ensureToken(cfg);
-    const r = installHttpService(cfg, mcpBin, Number(o.port), o.host, { force: o.force });
+    const r = installHttpService(cfg, mcpBin, Number(o.port), o.host);
     const token = readFileSync(tokenFile, "utf8").trim();
     const url = `http://${o.host}:${o.port}/${token}/mcp`;
     out(json, { ...r, url: o.showUrl ? url : maskToken(url), tokenFile }, () => {
@@ -683,8 +683,8 @@ serve.command("install").option("--port <n>", "listen port", "8765").option("--h
     });
   } catch (e) { fail(e); }
 });
-serve.command("uninstall").action(() => { try { const r = uninstallHttpService(); out(!!program.opts<GlobalOpts>().json, r, () => console.log(`${r.platform}: ${r.detail}`)); } catch (e) { fail(e); } });
-serve.command("status").action(() => { try { const r = httpServiceStatus(); out(!!program.opts<GlobalOpts>().json, r, () => console.log(`${r.platform}: ${r.detail}`)); } catch (e) { fail(e); } });
+serve.command("uninstall").action(() => { try { const r = uninstallHttpService(cfgFrom().cfg); out(!!program.opts<GlobalOpts>().json, r, () => console.log(`${r.platform}: ${r.detail}`)); } catch (e) { fail(e); } });
+serve.command("status").action(() => { try { const r = httpServiceStatus(cfgFrom().cfg); out(!!program.opts<GlobalOpts>().json, r, () => console.log(`${r.platform}: ${r.detail}`)); } catch (e) { fail(e); } });
 serve.command("token").description("print the secret path token (rotate with --rotate: a running service picks the new one up within seconds and the old one stops working; then re-register remote clients)").option("--rotate").option("--quiet", "do not print the token (use with --rotate in scripts and agent sessions)").action((o: { rotate?: boolean; quiet?: boolean }) => {
   try {
     const { cfg } = cfgFrom();
@@ -694,7 +694,7 @@ serve.command("token").description("print the secret path token (rotate with --r
   } catch (e) { fail(e); }
 });
 
-serve.command("calls").description("who called which tool over HTTP, from .doltap/logs/http-calls.log (no arguments or tokens are logged)").option("--since <days>", "window in days", "7").option("-n, --limit <n>", "recent lines to print", "20").action((o: { since: string; limit: string }) => {
+serve.command("calls").description("who called which tool over HTTP, from <state dir>/logs/http-calls.log (no arguments or tokens are logged)").option("--since <days>", "window in days", "7").option("-n, --limit <n>", "recent lines to print", "20").action((o: { since: string; limit: string }) => {
   try {
     const { cfg, json } = cfgFrom();
     const since = new Date(Date.now() - Number(o.since) * 86400000).toISOString();
@@ -711,7 +711,7 @@ serve.command("calls").description("who called which tool over HTTP, from .dolta
   } catch (e) { fail(e); }
 });
 
-// Named HTTP client tokens (.doltap/http-clients.json, read by doltap-mcp --http on each request).
+// Named HTTP client tokens (<state dir>/http-clients.json, read by doltap-mcp --http on each request).
 interface HttpClientRec { token: string; readOnly: boolean; created: string; expires?: string }
 /** `--expires 90` (days from today) or `--expires 2027-01-31`; returns YYYY-MM-DD. */
 function expiryDate(v: string): string {

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.10.0 (unreleased)
+
+Per-machine state leaves the git tree. This is the root fix for the 0.9 security finding S2 (files pushed under `.doltap/` landing as this machine's token, client list or lock) and it changes where things live, hence the minor bump.
+
+- **State directory**: the index, write lock, sync state, HTTP token, client list and logs now live in `$XDG_STATE_HOME/doltap/<wiki-id>/` (default `~/.local/state/doltap/<wiki-id>/`; Windows `%LOCALAPPDATA%\doltap\state\<wiki-id>\`), never inside the clone. `<wiki-id>` is `<root name>-<8 hex of the root's real path>`. `DOLTAP_STATE_HOME` moves the base, `DOLTAP_STATE_DIR` pins one wiki's directory. `doltap doctor` shows the path in its `state` check
+- **Migration**: the first command of 0.10 on a clone that still has `<root>/.doltap/` moves it over once (same token bytes, so no connector changes; a stale lock is dropped; files git tracks and symlinks stay behind and are reported). A `.doltap/` that appears in the clone later is never read: `doltap sync` warns when git tracks files there and `doctor` warns on the leftover
+- **Services are named per wiki**: `com.doltap.sync.<wiki-id>`, `com.doltap.mcp.<wiki-id>`, Task Scheduler `DoltapSync-<wiki-id>`, and the crontab marker carries the id, so two wikis on one machine no longer replace each other's jobs. **After upgrading run `doltap serve install` and `doltap schedule install` once**: they remove the 0.x global entries and write new ones with the new log path; until then `status` and `doctor` say the job is "installed under the pre-0.10 global name". The 0.9.1 `--force` flags are gone (nothing to collide with any more)
+- Tool errors mask the state directory as `<state>` alongside `<wiki>` for the root
+- The `.doltap/` line stays in the skeleton `.gitignore` so a mixed-version fleet never commits the old directory
+
 ## 0.9.1 (2026-11-04)
 
 Follow-up to the 0.9.0 audits: the medium and low findings (core M1–M10, M12, L1–L14; security S9–S14), each with a regression test.

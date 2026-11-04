@@ -73,15 +73,47 @@ export function launchdPlist(spec: LaunchdSpec): string {
   return lines.join("\n");
 }
 
-const LABEL = "com.doltap.sync";
-const TASK_NAME = "DoltapSync";
-
-function plistPath(): string {
-  return join(homedir(), "Library", "LaunchAgents", `${LABEL}.plist`);
+export interface ServiceLabels {
+  /** launchd label of the periodic sync job. */
+  sync: string;
+  /** launchd label of the HTTP MCP service. */
+  mcp: string;
+  /** Windows Task Scheduler task name of the periodic sync. */
+  task: string;
+  /** Trailing comment that marks this wiki's crontab line. */
+  cronMarker: string;
+  /** The global names doltap used before 0.10 (one per user); install removes them, status and uninstall still see them. */
+  legacy: { sync: string; mcp: string; task: string; cronMarker: string };
 }
 
-function cronMarker(): string {
-  return "# doltap-sync";
+/** Service names carry the wiki id since 0.10, so two wikis on one machine keep separate jobs. */
+export function serviceLabels(cfg: Pick<WikiConfig, "wikiId">): ServiceLabels {
+  return {
+    sync: `com.doltap.sync.${cfg.wikiId}`,
+    mcp: `com.doltap.mcp.${cfg.wikiId}`,
+    task: `DoltapSync-${cfg.wikiId}`,
+    cronMarker: `# doltap-sync ${cfg.wikiId}`,
+    legacy: { sync: "com.doltap.sync", mcp: "com.doltap.mcp", task: "DoltapSync", cronMarker: "# doltap-sync" },
+  };
+}
+
+const plistFile = (label: string): string => join(homedir(), "Library", "LaunchAgents", `${label}.plist`);
+
+/** Unload and delete a launchd plist if present; returns whether there was one. */
+function dropPlist(p: string): boolean {
+  if (!existsSync(p)) return false;
+  try { execFileSync("launchctl", ["unload", p], { stdio: "ignore" }); } catch { /* not loaded */ }
+  rmSync(p, { force: true });
+  return true;
+}
+
+/** The crontab line carrying `marker` as its trailing comment. A legacy line has the bare marker and nothing after it. */
+function cronLine(current: string, marker: string): string | undefined {
+  return current.split("\n").find((l) => l.trimEnd().endsWith(marker));
+}
+
+function readCrontab(): string {
+  try { return execFileSync("crontab", ["-l"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }); } catch { return ""; }
 }
 
 /**
@@ -101,6 +133,8 @@ export interface ScheduleResult {
   /** HTTP service bind address and port recorded in the plist, when known. */
   host?: string;
   port?: number;
+  /** The job or service exists only under the pre-0.10 global name; the install command must be re-run. */
+  legacy?: boolean;
   /** Process id of a running service, when the service manager reports one. */
   pid?: number;
 }
@@ -129,155 +163,142 @@ export function cronStep(intervalMinutes: number): string {
   return `0 */${intervalMinutes / 60} * * *`;
 }
 
-export interface InstallOptions {
-  /** Replace a job or service that was installed for another wiki root. Without it the install refuses (the labels are global, one per user). */
-  force?: boolean;
-}
-
-/** The wiki root an installed launchd job was written for, read back from its plist (null when not installed or unknown). */
-function installedRoot(plist: string, key: "--root" | "DOLTAP_ROOT"): string | null {
-  if (!existsSync(plist)) return null;
-  const { args } = plistArgs(plist);
-  if (key === "--root") return argValue(args, "--root") ?? null;
-  const m = /<key>DOLTAP_ROOT<\/key><string>([^<]*)<\/string>/.exec(readFileSync(plist, "utf8"));
-  return m ? m[1].replace(/&amp;/g, "&") : null;
-}
-
-function refuseOtherRoot(installed: string | null, cfg: WikiConfig, what: string, o: InstallOptions): void {
-  if (installed && resolve(installed) !== resolve(cfg.root) && !o.force) {
-    throw new Error(`${what} is installed for another wiki (${installed}); there is one per user. Pass --force to replace it`);
-  }
-}
-
-/** Install a periodic `doltap sync` (launchd on macOS, crontab elsewhere). */
-export function installSchedule(cfg: WikiConfig, wikiBin: string, intervalMinutes = 10, o: InstallOptions = {}): ScheduleResult {
+/** Install a periodic `doltap sync` (launchd on macOS, Task Scheduler on Windows, crontab elsewhere). A job left by doltap 0.x under the global name is removed. */
+export function installSchedule(cfg: WikiConfig, wikiBin: string, intervalMinutes = 10): ScheduleResult {
   const logDir = join(cfg.stateDir, "logs");
   mkdirSync(logDir, { recursive: true });
-  if (platform() === "darwin") refuseOtherRoot(installedRoot(plistPath(), "--root"), cfg, "the sync schedule", o);
+  const labels = serviceLabels(cfg);
   if (platform() === "win32") {
+    try { execFileSync("schtasks", ["/Delete", "/F", "/TN", labels.legacy.task], { stdio: "ignore" }); } catch { /* none */ }
     const tr = windowsCommand(cfg, wikiBin, join(logDir, "sync.log"));
-    execFileSync("schtasks", ["/Create", "/F", "/SC", "MINUTE", "/MO", String(intervalMinutes), "/TN", TASK_NAME, "/TR", tr], { stdio: "ignore" });
-    return { platform: "schtasks", installed: true, detail: `task ${TASK_NAME} every ${intervalMinutes} min; logs in ${logDir}` };
+    execFileSync("schtasks", ["/Create", "/F", "/SC", "MINUTE", "/MO", String(intervalMinutes), "/TN", labels.task, "/TR", tr], { stdio: "ignore" });
+    return { platform: "schtasks", installed: true, detail: `task ${labels.task} every ${intervalMinutes} min; logs in ${logDir}` };
   }
   if (platform() === "darwin") {
     const plist = launchdPlist({
-      label: LABEL,
+      label: labels.sync,
       program: [stableNodePath(), wikiBin, "--root", cfg.root, "--agent", "scheduler", "sync"],
       startInterval: intervalMinutes * 60,
       stdout: join(logDir, "sync.log"),
       stderr: join(logDir, "sync.err"),
     });
-    const p = plistPath();
+    const p = plistFile(labels.sync);
     mkdirSync(join(homedir(), "Library", "LaunchAgents"), { recursive: true });
-    if (existsSync(p)) { try { execFileSync("launchctl", ["unload", p], { stdio: "ignore" }); } catch { /* not loaded */ } }
+    dropPlist(plistFile(labels.legacy.sync));
+    dropPlist(p);
     writeFileSync(p, plist);
     execFileSync("launchctl", ["load", p], { stdio: "ignore" });
     return { platform: "launchd", installed: true, detail: `${p} every ${intervalMinutes} min; logs in ${logDir}` };
   }
   const q = (v: string) => `'${v.replace(/'/g, "'\\''")}'`;
-  const line = `${cronStep(intervalMinutes)} ${q(stableNodePath())} ${q(wikiBin)} --root ${q(cfg.root)} --agent scheduler sync >> ${q(join(logDir, "sync.log"))} 2>&1 ${cronMarker()}`;
-  let current = "";
-  try { current = execFileSync("crontab", ["-l"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }); } catch { current = ""; }
-  const existing = current.split("\n").find((l) => l.includes(cronMarker()));
-  const other = existing ? /--root (?:'((?:[^']|'\\'')*)'|(\S+))/.exec(existing) : null;
-  refuseOtherRoot(other ? (other[1] ?? other[2]).replace(/'\\''/g, "'") : null, cfg, "the sync schedule", o);
-  const kept = current.split("\n").filter((l) => l && !l.includes(cronMarker()));
+  const line = `${cronStep(intervalMinutes)} ${q(stableNodePath())} ${q(wikiBin)} --root ${q(cfg.root)} --agent scheduler sync >> ${q(join(logDir, "sync.log"))} 2>&1 ${labels.cronMarker}`;
+  const current = readCrontab();
+  const kept = current.split("\n").filter((l) => l && l !== cronLine(current, labels.cronMarker) && l !== cronLine(current, labels.legacy.cronMarker));
   execFileSync("crontab", ["-"], { input: [...kept, line].join("\n") + "\n" });
   return { platform: "crontab", installed: true, detail: line };
 }
 
-export function uninstallSchedule(): ScheduleResult {
+export function uninstallSchedule(cfg: WikiConfig): ScheduleResult {
+  const labels = serviceLabels(cfg);
   if (platform() === "win32") {
-    try { execFileSync("schtasks", ["/Delete", "/F", "/TN", TASK_NAME], { stdio: "ignore" }); } catch { return { platform: "schtasks", installed: false, detail: "not installed" }; }
-    return { platform: "schtasks", installed: false, detail: `removed task ${TASK_NAME}` };
+    let removed = false;
+    for (const t of [labels.task, labels.legacy.task]) { try { execFileSync("schtasks", ["/Delete", "/F", "/TN", t], { stdio: "ignore" }); removed = true; } catch { /* not there */ } }
+    return { platform: "schtasks", installed: false, detail: removed ? `removed task ${labels.task}` : "not installed" };
   }
   if (platform() === "darwin") {
-    const p = plistPath();
-    if (!existsSync(p)) return { platform: "launchd", installed: false, detail: "not installed" };
-    try { execFileSync("launchctl", ["unload", p], { stdio: "ignore" }); } catch { /* already unloaded */ }
-    rmSync(p);
-    return { platform: "launchd", installed: false, detail: `removed ${p}` };
+    const removed = [plistFile(labels.sync), plistFile(labels.legacy.sync)].filter(dropPlist);
+    return { platform: "launchd", installed: false, detail: removed.length ? `removed ${removed.join(", ")}` : "not installed" };
   }
-  let current = "";
-  try { current = execFileSync("crontab", ["-l"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }); } catch { current = ""; }
-  const kept = current.split("\n").filter((l) => l && !l.includes(cronMarker()));
+  const current = readCrontab();
+  const kept = current.split("\n").filter((l) => l && l !== cronLine(current, labels.cronMarker) && l !== cronLine(current, labels.legacy.cronMarker));
   execFileSync("crontab", ["-"], { input: kept.join("\n") + (kept.length ? "\n" : "") });
   return { platform: "crontab", installed: false, detail: "removed doltap line" };
 }
 
-export function scheduleStatus(): ScheduleResult {
+const LEGACY_HINT = "installed under the pre-0.10 global name; re-run the install command so it carries this wiki's id and the new log path";
+
+export function scheduleStatus(cfg: WikiConfig): ScheduleResult {
+  const labels = serviceLabels(cfg);
   if (platform() === "win32") {
-    try {
-      const out = execFileSync("schtasks", ["/Query", "/TN", TASK_NAME, "/FO", "LIST"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
-      const status = /Status:\s*(.+)/.exec(out)?.[1]?.trim() ?? "unknown";
-      return { platform: "schtasks", installed: true, detail: `task ${TASK_NAME} (${status})` };
-    } catch { return { platform: "schtasks", installed: false, detail: "not installed" }; }
+    for (const t of [labels.task, labels.legacy.task]) {
+      try {
+        const out = execFileSync("schtasks", ["/Query", "/TN", t, "/FO", "LIST"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+        const status = /Status:\s*(.+)/.exec(out)?.[1]?.trim() ?? "unknown";
+        const legacy = t === labels.legacy.task;
+        return { platform: "schtasks", installed: true, legacy, detail: `task ${t} (${status})${legacy ? `; ${LEGACY_HINT}` : ""}` };
+      } catch { /* try the next name */ }
+    }
+    return { platform: "schtasks", installed: false, detail: "not installed" };
   }
   if (platform() === "darwin") {
-    const p = plistPath();
-    if (!existsSync(p)) return { platform: "launchd", installed: false, detail: "not installed" };
-    let loaded = false;
-    try { loaded = execFileSync("launchctl", ["list"], { encoding: "utf8" }).includes(LABEL); } catch { /* ignore */ }
-    const si = plistArgs(p).startInterval;
-    return { platform: "launchd", installed: true, detail: `${p} (${loaded ? "loaded" : "NOT loaded"})`, intervalMinutes: si ? Math.round(si / 60) : undefined };
+    for (const label of [labels.sync, labels.legacy.sync]) {
+      const p = plistFile(label);
+      if (!existsSync(p)) continue;
+      let loaded = false;
+      try { loaded = execFileSync("launchctl", ["list"], { encoding: "utf8" }).includes(label); } catch { /* ignore */ }
+      const si = plistArgs(p).startInterval;
+      const legacy = label === labels.legacy.sync;
+      return { platform: "launchd", installed: true, legacy, detail: `${p} (${loaded ? "loaded" : "NOT loaded"})${legacy ? `; ${LEGACY_HINT}` : ""}`, intervalMinutes: si ? Math.round(si / 60) : undefined };
+    }
+    return { platform: "launchd", installed: false, detail: "not installed" };
   }
-  let current = "";
-  try { current = execFileSync("crontab", ["-l"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }); } catch { current = ""; }
-  const line = current.split("\n").find((l) => l.includes(cronMarker()));
+  const current = readCrontab();
+  const mine = cronLine(current, labels.cronMarker);
+  const line = mine ?? cronLine(current, labels.legacy.cronMarker);
   const step = line ? /^\*\/(\d+)\s/.exec(line)?.[1] : undefined;
-  return { platform: "crontab", installed: !!line, detail: line ?? "not installed", intervalMinutes: step ? Number(step) : undefined };
+  return { platform: "crontab", installed: !!line, legacy: !!line && !mine, detail: line ? `${line}${mine ? "" : `; ${LEGACY_HINT}`}` : "not installed", intervalMinutes: step ? Number(step) : undefined };
 }
 
 // ------------------------------------------------------------------ always-on HTTP MCP service
-const SERVICE_LABEL = "com.doltap.mcp";
 
-function servicePlistPath(): string {
-  return join(homedir(), "Library", "LaunchAgents", `${SERVICE_LABEL}.plist`);
-}
-
-/** Keep `doltap-mcp --http` running (launchd KeepAlive). macOS only for now; other platforms get instructions. */
-export function installHttpService(cfg: WikiConfig, mcpBin: string, port = 8765, host = "127.0.0.1", o: InstallOptions = {}): ScheduleResult {
+/** Keep `doltap-mcp --http` running (launchd KeepAlive). macOS only for now; other platforms get instructions. A service left by doltap 0.x under the global name is removed. */
+export function installHttpService(cfg: WikiConfig, mcpBin: string, port = 8765, host = "127.0.0.1"): ScheduleResult {
   const logDir = join(cfg.stateDir, "logs");
   mkdirSync(logDir, { recursive: true });
-  if (platform() === "darwin") refuseOtherRoot(installedRoot(servicePlistPath(), "DOLTAP_ROOT"), cfg, "the HTTP service", o);
   if (platform() !== "darwin") {
     return { platform: platform(), installed: false, detail: `run as a service: ${mcpBin} --http --port ${port} --host ${host} (DOLTAP_ROOT=${cfg.root})` };
   }
+  const labels = serviceLabels(cfg);
   const plist = launchdPlist({
-    label: SERVICE_LABEL,
+    label: labels.mcp,
     program: [stableNodePath(), mcpBin, "--http", "--port", String(port), "--host", host],
     env: { DOLTAP_ROOT: cfg.root, DOLTAP_AGENT: "mcp-http" },
     keepAlive: true,
     stdout: join(logDir, "mcp-http.log"),
     stderr: join(logDir, "mcp-http.err"),
   });
-  const p = servicePlistPath();
+  const p = plistFile(labels.mcp);
   mkdirSync(join(homedir(), "Library", "LaunchAgents"), { recursive: true });
-  if (existsSync(p)) { try { execFileSync("launchctl", ["unload", p], { stdio: "ignore" }); } catch { /* not loaded */ } }
+  dropPlist(plistFile(labels.legacy.mcp));
+  dropPlist(p);
   writeFileSync(p, plist);
   execFileSync("launchctl", ["load", p], { stdio: "ignore" });
   return { platform: "launchd", installed: true, detail: `${p} -> http://${host}:${port}; logs in ${logDir}` };
 }
 
-export function uninstallHttpService(): ScheduleResult {
+export function uninstallHttpService(cfg: WikiConfig): ScheduleResult {
   if (platform() !== "darwin") return { platform: platform(), installed: false, detail: "no service manager integration on this platform" };
-  const p = servicePlistPath();
-  if (!existsSync(p)) return { platform: "launchd", installed: false, detail: "not installed" };
-  try { execFileSync("launchctl", ["unload", p], { stdio: "ignore" }); } catch { /* already unloaded */ }
-  rmSync(p);
-  return { platform: "launchd", installed: false, detail: `removed ${p}` };
+  const labels = serviceLabels(cfg);
+  const removed = [plistFile(labels.mcp), plistFile(labels.legacy.mcp)].filter(dropPlist);
+  return { platform: "launchd", installed: false, detail: removed.length ? `removed ${removed.join(", ")}` : "not installed" };
 }
 
-export function httpServiceStatus(): ScheduleResult {
+export function httpServiceStatus(cfg: WikiConfig): ScheduleResult {
   if (platform() !== "darwin") return { platform: platform(), installed: false, detail: "no service manager integration on this platform" };
-  const p = servicePlistPath();
-  if (!existsSync(p)) return { platform: "launchd", installed: false, detail: "not installed" };
-  let line = "";
-  try { line = execFileSync("launchctl", ["list"], { encoding: "utf8" }).split("\n").find((l) => l.includes(SERVICE_LABEL)) ?? ""; } catch { /* ignore */ }
-  const pid = line.split("\t")[0];
-  const args = plistArgs(p).args;
-  const port = Number(argValue(args, "--port") ?? 8765);
-  const host = argValue(args, "--host") ?? "127.0.0.1";
-  const running = !!pid && pid !== "-";
-  return { platform: "launchd", installed: true, detail: running ? `running (pid ${pid}) on ${host}:${port}` : `loaded but not running (${line ? "" : "not loaded; "}${host}:${port})`, host, port, pid: running ? Number(pid) : undefined };
+  const labels = serviceLabels(cfg);
+  for (const label of [labels.mcp, labels.legacy.mcp]) {
+    const p = plistFile(label);
+    if (!existsSync(p)) continue;
+    let line = "";
+    try { line = execFileSync("launchctl", ["list"], { encoding: "utf8" }).split("\n").find((l) => l.endsWith(`\t${label}`)) ?? ""; } catch { /* ignore */ }
+    const pid = line.split("\t")[0];
+    const args = plistArgs(p).args;
+    const port = Number(argValue(args, "--port") ?? 8765);
+    const host = argValue(args, "--host") ?? "127.0.0.1";
+    const running = !!pid && pid !== "-";
+    const legacy = label === labels.legacy.mcp;
+    const detail = running ? `running (pid ${pid}) on ${host}:${port}` : `loaded but not running (${line ? "" : "not loaded; "}${host}:${port})`;
+    return { platform: "launchd", installed: true, legacy, detail: legacy ? `${detail}; ${LEGACY_HINT}` : detail, host, port, pid: running ? Number(pid) : undefined };
+  }
+  return { platform: "launchd", installed: false, detail: "not installed" };
 }

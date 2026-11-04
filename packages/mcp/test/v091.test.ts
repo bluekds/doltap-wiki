@@ -121,8 +121,9 @@ describe("M7 / S13: conflict copies over MCP, paths in errors", () => {
       expect(r.isError).toBe(true);
       expect(text).toMatch(/write is in progress/);
       expect(text).not.toContain(m.a);
+      expect(text).not.toContain(cfg.stateDir);
       // The tool result is JSON, so a Windows backslash arrives doubled.
-      expect(text).toMatch(/<wiki>[\\/]+\.doltap[\\/]+write\.lock/);
+      expect(text).toMatch(/<state>[\\/]+write\.lock/);
     } finally {
       child.kill();
       try { unlinkSync(writeLockPath(cfg)); } catch { /* gone */ }
