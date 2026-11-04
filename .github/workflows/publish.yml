@@ -70,7 +70,8 @@ jobs:
           set -euo pipefail
           for p in packages/core packages/mcp packages/cli; do
             name=$(node -p "require('./$p/package.json').name")
-            if npm view "$name@$VERSION" version >/dev/null 2>&1; then
+            # A re-run after a partial failure skips what already landed; a dry run always exercises npm publish.
+            if [ "$DRY" != "true" ] && npm view "$name@$VERSION" version >/dev/null 2>&1; then
               echo "== $name@$VERSION is already on the registry, skipping"
               continue
             fi
