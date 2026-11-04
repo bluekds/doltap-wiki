@@ -47,6 +47,11 @@ export interface AssetRef {
 // `[` is excluded from the label class so a run of `[[[` or `![![` is scanned once (audit S4).
 const MD_LINK_RE = /!?\[[^\][]*\]\(([^()\s[\]]+)(?:\s+"[^"]*")?\)/g;
 
+/** Markdown links may percent-encode a name (`my%20shot.png`); the file on disk has the plain name. */
+function decodeTarget(t: string): string {
+  try { return decodeURIComponent(t); } catch { return t; }
+}
+
 /** Markdown links in `raw` that point under wiki/_assets, resolved from the page's own directory (or from wiki/ when they start with "/"). */
 export function assetRefsIn(raw: string, pageAbsPath: string, wikiDir: string): AssetRef[] {
   const out: AssetRef[] = [];
@@ -54,7 +59,7 @@ export function assetRefsIn(raw: string, pageAbsPath: string, wikiDir: string): 
   for (const m of stripCode(raw).matchAll(MD_LINK_RE)) { // a link inside a code example is not an attachment
     const target = m[1];
     if (/^[a-z][a-z0-9+.-]*:/i.test(target) || !target.includes("_assets/")) continue;
-    const clean = target.replace(/[?#].*$/, "");
+    const clean = decodeTarget(target.replace(/[?#].*$/, ""));
     const abs = resolve(clean.startsWith("/") ? join(wikiDir, clean) : join(dirname(pageAbsPath), clean));
     const rel = relative(base, abs);
     if (!rel || rel.startsWith("..") || resolve(abs) !== abs) continue;
