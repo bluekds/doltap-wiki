@@ -88,3 +88,44 @@ describe("wiki_sync under a foreign write lock (M2c)", () => {
     }
   });
 });
+
+describe("M7 / S13: conflict copies over MCP, paths in errors", () => {
+  it("wiki_get returns each conflict copy with its body so an MCP-only agent can merge", async () => {
+    const { writeFileSync, readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const page = join(m.a, "wiki", "howto", "add-wiki-page-manually.md");
+    writeFileSync(join(m.a, "wiki", "howto", "add-wiki-page-manually.conflict-other-box.md"), readFileSync(page, "utf8").replace("## Steps", "## Steps\n\nOTHER-BOX-EDIT"));
+    const r = await call("wiki_get", { id: "howto/add-wiki-page-manually" });
+    expect(r.isError).toBe(false);
+    expect(r.json.conflict_copies).toHaveLength(1);
+    expect(r.json.conflict_copies[0].path).toBe("howto/add-wiki-page-manually.conflict-other-box.md");
+    expect(r.json.conflict_copies[0].body).toContain("OTHER-BOX-EDIT");
+    const done = await call("wiki_resolve_conflict", { id: "howto/add-wiki-page-manually", take: "conflict" });
+    expect(done.isError).toBe(false);
+  });
+
+  it("a tool error never carries the wiki's absolute path", async () => {
+    const { spawn } = await import("node:child_process");
+    const { writeFileSync, unlinkSync } = await import("node:fs");
+    const { writeLockPath } = await import("@bluekds/doltap-core");
+    const fast = createServer(cfg, { lockTimeoutMs: 200 });
+    const c = new Client({ name: "fast", version: "0" });
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    await fast.connect(a);
+    await c.connect(b);
+    const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], { stdio: "ignore" });
+    writeFileSync(writeLockPath(cfg), `${child.pid} ${new Date().toISOString()}\n`);
+    try {
+      const r = await c.callTool({ name: "wiki_set_meta", arguments: { id: "howto/add-wiki-page-manually", add_sources: ["x"] } });
+      const text = (r.content as { text: string }[])[0].text;
+      expect(r.isError).toBe(true);
+      expect(text).toMatch(/write is in progress/);
+      expect(text).not.toContain(m.a);
+      expect(text).toContain("<wiki>/.doltap/write.lock");
+    } finally {
+      child.kill();
+      try { unlinkSync(writeLockPath(cfg)); } catch { /* gone */ }
+      await c.close();
+    }
+  });
+});

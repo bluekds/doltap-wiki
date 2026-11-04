@@ -27,6 +27,15 @@ export interface WikiConfig {
 export const CATEGORIES = ["howto", "patterns", "reference", "decisions", "projects"] as const;
 
 /** Structural pages: `Home` and the category hubs (`<category>/_index`). Project hubs (`projects/<name>/_index`) are content. */
+/** Agent names doltap itself writes into commit trailers and session ids; a named HTTP client may not take one. */
+export const RESERVED_AGENT_NAMES: ReadonlySet<string> = new Set(["mcp-http", "mcp", "scheduler", "doltap-init", "cli"]);
+
+/** Client names land in commit trailers (`[agent:<name>]`): kebab-case, never a name doltap uses itself. */
+export function assertClientName(name: string): void {
+  if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(name)) throw new Error("client name must be kebab-case (letters, digits, single dashes)");
+  if (RESERVED_AGENT_NAMES.has(name)) throw new Error(`client name ${name} is reserved for doltap itself; pick another`);
+}
+
 export function isCategoryHub(id: string): boolean {
   return id === "Home" || /^[^/]+\/_index$/.test(id);
 }

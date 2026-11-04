@@ -3,7 +3,7 @@ import { git, isRepo } from "./git.js";
 import { assertPageId, relPathFromId, toPosix } from "./page.js";
 
 export interface HistoryEntry {
-  /** Short commit hash; the same value `wiki_get` returns as `rev` for the newest entry. */
+  /** Short commit hash of the change (not the page `rev` from `wiki_get`, which hashes the page's content). */
   rev: string;
   /** Author date, ISO 8601. */
   date: string;

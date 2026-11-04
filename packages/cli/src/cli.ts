@@ -2,7 +2,7 @@ import { maskToken } from "./mask.js";
 import { Command } from "commander";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
@@ -14,6 +14,7 @@ import { ALL_CLIENTS, FILE_CLIENTS, genericSnippets, register, registrations, un
 const PKG_VERSION: string = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
 import {
   addTag,
+  assertClientName,
   CATEGORIES,
   CONFIDENCE,
   conflictCopiesOf,
@@ -153,7 +154,7 @@ program
         if (!o.repo) throw new Error(`no wiki at ${dir}; pass --repo <git-url> to clone one or --new to create one`);
         mkdirSync(resolve(dir, ".."), { recursive: true });
         console.log(`cloning ${o.repo} -> ${dir}`);
-        execFileSync("git", ["clone", "--quiet", o.repo, dir], { stdio: "inherit" });
+        execFileSync("git", ["clone", "--quiet", "--", o.repo, dir], { stdio: "inherit" });
       } else console.log(`existing wiki at ${dir}`);
       const cfg = resolveConfig({ root: dir, noSync: true });
       const db = new WikiDb(cfg);
@@ -637,12 +638,12 @@ program
 
 // ---------------------------------------------------------------- schedule
 const schedule = program.command("schedule").description("periodic `doltap sync` via launchd (macOS) or crontab");
-schedule.command("install").option("--every <minutes>", "interval", "10").action((o: { every: string }) => {
+schedule.command("install").option("--every <minutes>", "interval (under 60, or a multiple of 60)", "10").option("--force", "replace a schedule installed for another wiki root").action((o: { every: string; force?: boolean }) => {
   try {
     const { cfg, json } = cfgFrom();
     // Unix: launchd/cron run the `wiki` shim; Windows: schtasks runs node + this JS entry.
     const bin = process.platform === "win32" ? fileURLToPath(import.meta.url) : process.argv[1];
-    const r = installSchedule(cfg, bin, Number(o.every));
+    const r = installSchedule(cfg, bin, Number(o.every), { force: o.force });
     out(json, r, () => console.log(`${r.platform}: ${r.detail}`));
   } catch (e) { fail(e); }
 });
@@ -656,18 +657,24 @@ const serve = program.command("serve").description("always-on HTTP MCP server fo
 /** Create the HTTP path token if missing and keep the file private, before any service reads it. */
 function ensureToken(cfg: WikiConfig, rotate = false): string {
   const p = join(cfg.stateDir, "http-token");
-  if (rotate || !existsSync(p)) writeFileSync(p, randomBytes(32).toString("hex") + "\n", { mode: 0o600 });
+  if (rotate || !existsSync(p)) {
+    // Temp file and rename: a service reading the token at that moment sees the old or the new one, never an empty file.
+    const tmp = `${p}.${process.pid}.tmp`;
+    writeFileSync(tmp, randomBytes(32).toString("hex") + "\n", { mode: 0o600 });
+    chmodSync(tmp, 0o600);
+    renameSync(tmp, p);
+  }
   chmodSync(p, 0o600);
   return p;
 }
 
-serve.command("install").option("--port <n>", "listen port", "8765").option("--host <h>", "bind address", "127.0.0.1").option("--show-url", "print the local URL including the secret token").action((o: { port: string; host: string; showUrl?: boolean }) => {
+serve.command("install").option("--port <n>", "listen port", "8765").option("--host <h>", "bind address", "127.0.0.1").option("--show-url", "print the local URL including the secret token").option("--force", "replace a service installed for another wiki root").action((o: { port: string; host: string; showUrl?: boolean; force?: boolean }) => {
   try {
     const { cfg, json } = cfgFrom();
     const binDir = resolve(process.argv[1], "..");
     const mcpBin = existsSync(join(binDir, "doltap-mcp")) ? join(binDir, "doltap-mcp") : "doltap-mcp";
     const tokenFile = ensureToken(cfg);
-    const r = installHttpService(cfg, mcpBin, Number(o.port), o.host);
+    const r = installHttpService(cfg, mcpBin, Number(o.port), o.host, { force: o.force });
     const token = readFileSync(tokenFile, "utf8").trim();
     const url = `http://${o.host}:${o.port}/${token}/mcp`;
     out(json, { ...r, url: o.showUrl ? url : maskToken(url), tokenFile }, () => {
@@ -678,11 +685,11 @@ serve.command("install").option("--port <n>", "listen port", "8765").option("--h
 });
 serve.command("uninstall").action(() => { try { const r = uninstallHttpService(); out(!!program.opts<GlobalOpts>().json, r, () => console.log(`${r.platform}: ${r.detail}`)); } catch (e) { fail(e); } });
 serve.command("status").action(() => { try { const r = httpServiceStatus(); out(!!program.opts<GlobalOpts>().json, r, () => console.log(`${r.platform}: ${r.detail}`)); } catch (e) { fail(e); } });
-serve.command("token").description("print the secret path token (rotate with --rotate, then re-run serve install)").option("--rotate").option("--quiet", "do not print the token (use with --rotate in scripts and agent sessions)").action((o: { rotate?: boolean; quiet?: boolean }) => {
+serve.command("token").description("print the secret path token (rotate with --rotate: a running service picks the new one up within seconds and the old one stops working; then re-register remote clients)").option("--rotate").option("--quiet", "do not print the token (use with --rotate in scripts and agent sessions)").action((o: { rotate?: boolean; quiet?: boolean }) => {
   try {
     const { cfg } = cfgFrom();
     const p = ensureToken(cfg, !!o.rotate);
-    if (o.quiet) { if (o.rotate) console.error(`token rotated: ${p}`); return; }
+    if (o.quiet) { if (o.rotate) console.error(`token rotated: ${p} (the running service re-reads it; the old token no longer works; re-register remote clients with the new URL)`); return; }
     process.stdout.write(readFileSync(p, "utf8"));
   } catch (e) { fail(e); }
 });
@@ -730,7 +737,7 @@ const client = serve.command("client").description("named tokens for remote clie
 client.command("add <name>").description("create a token for a client and print it (pipe it to the clipboard; it is not shown again)").option("--read-only").option("--expires <days|date>", "last day the token works: days from today or YYYY-MM-DD (default: never)").action((name: string, o: { readOnly?: boolean; expires?: string }) => {
   try {
     const { cfg } = cfgFrom();
-    if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(name)) throw new Error("client name must be kebab-case");
+    assertClientName(name);
     const recs = loadClientRecs(cfg);
     if (recs[name]) throw new Error(`client ${name} exists; remove it first to issue a new token`);
     const token = randomBytes(32).toString("hex");

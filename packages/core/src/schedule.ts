@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, platform } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { WikiConfig } from "./config.js";
 
 export function xmlEscape(s: string): string {
@@ -121,10 +121,39 @@ function argValue(args: string[], flag: string): string | undefined {
   return i >= 0 ? args[i + 1] : undefined;
 }
 
+/** The crontab time fields for "every N minutes": a minute step below an hour, an hourly step for whole hours (cron reads a 90-minute step as "every 90th minute of the hour", which is hourly). */
+export function cronStep(intervalMinutes: number): string {
+  if (!Number.isInteger(intervalMinutes) || intervalMinutes <= 0) throw new Error(`--every must be a positive number of minutes (got ${intervalMinutes})`);
+  if (intervalMinutes < 60) return `*/${intervalMinutes} * * * *`;
+  if (intervalMinutes % 60 !== 0 || intervalMinutes > 1440) throw new Error(`--every above 59 minutes must be a multiple of 60 up to 1440 (got ${intervalMinutes}): cron cannot express it`);
+  return `0 */${intervalMinutes / 60} * * *`;
+}
+
+export interface InstallOptions {
+  /** Replace a job or service that was installed for another wiki root. Without it the install refuses (the labels are global, one per user). */
+  force?: boolean;
+}
+
+/** The wiki root an installed launchd job was written for, read back from its plist (null when not installed or unknown). */
+function installedRoot(plist: string, key: "--root" | "DOLTAP_ROOT"): string | null {
+  if (!existsSync(plist)) return null;
+  const { args } = plistArgs(plist);
+  if (key === "--root") return argValue(args, "--root") ?? null;
+  const m = /<key>DOLTAP_ROOT<\/key><string>([^<]*)<\/string>/.exec(readFileSync(plist, "utf8"));
+  return m ? m[1].replace(/&amp;/g, "&") : null;
+}
+
+function refuseOtherRoot(installed: string | null, cfg: WikiConfig, what: string, o: InstallOptions): void {
+  if (installed && resolve(installed) !== resolve(cfg.root) && !o.force) {
+    throw new Error(`${what} is installed for another wiki (${installed}); there is one per user. Pass --force to replace it`);
+  }
+}
+
 /** Install a periodic `doltap sync` (launchd on macOS, crontab elsewhere). */
-export function installSchedule(cfg: WikiConfig, wikiBin: string, intervalMinutes = 10): ScheduleResult {
+export function installSchedule(cfg: WikiConfig, wikiBin: string, intervalMinutes = 10, o: InstallOptions = {}): ScheduleResult {
   const logDir = join(cfg.stateDir, "logs");
   mkdirSync(logDir, { recursive: true });
+  if (platform() === "darwin") refuseOtherRoot(installedRoot(plistPath(), "--root"), cfg, "the sync schedule", o);
   if (platform() === "win32") {
     const tr = windowsCommand(cfg, wikiBin, join(logDir, "sync.log"));
     execFileSync("schtasks", ["/Create", "/F", "/SC", "MINUTE", "/MO", String(intervalMinutes), "/TN", TASK_NAME, "/TR", tr], { stdio: "ignore" });
@@ -146,9 +175,12 @@ export function installSchedule(cfg: WikiConfig, wikiBin: string, intervalMinute
     return { platform: "launchd", installed: true, detail: `${p} every ${intervalMinutes} min; logs in ${logDir}` };
   }
   const q = (v: string) => `'${v.replace(/'/g, "'\\''")}'`;
-  const line = `*/${intervalMinutes} * * * * ${q(stableNodePath())} ${q(wikiBin)} --root ${q(cfg.root)} --agent scheduler sync >> ${q(join(logDir, "sync.log"))} 2>&1 ${cronMarker()}`;
+  const line = `${cronStep(intervalMinutes)} ${q(stableNodePath())} ${q(wikiBin)} --root ${q(cfg.root)} --agent scheduler sync >> ${q(join(logDir, "sync.log"))} 2>&1 ${cronMarker()}`;
   let current = "";
   try { current = execFileSync("crontab", ["-l"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }); } catch { current = ""; }
+  const existing = current.split("\n").find((l) => l.includes(cronMarker()));
+  const other = existing ? /--root (?:'((?:[^']|'\\'')*)'|(\S+))/.exec(existing) : null;
+  refuseOtherRoot(other ? (other[1] ?? other[2]).replace(/'\\''/g, "'") : null, cfg, "the sync schedule", o);
   const kept = current.split("\n").filter((l) => l && !l.includes(cronMarker()));
   execFileSync("crontab", ["-"], { input: [...kept, line].join("\n") + "\n" });
   return { platform: "crontab", installed: true, detail: line };
@@ -204,9 +236,10 @@ function servicePlistPath(): string {
 }
 
 /** Keep `doltap-mcp --http` running (launchd KeepAlive). macOS only for now; other platforms get instructions. */
-export function installHttpService(cfg: WikiConfig, mcpBin: string, port = 8765, host = "127.0.0.1"): ScheduleResult {
+export function installHttpService(cfg: WikiConfig, mcpBin: string, port = 8765, host = "127.0.0.1", o: InstallOptions = {}): ScheduleResult {
   const logDir = join(cfg.stateDir, "logs");
   mkdirSync(logDir, { recursive: true });
+  if (platform() === "darwin") refuseOtherRoot(installedRoot(servicePlistPath(), "DOLTAP_ROOT"), cfg, "the HTTP service", o);
   if (platform() !== "darwin") {
     return { platform: platform(), installed: false, detail: `run as a service: ${mcpBin} --http --port ${port} --host ${host} (DOLTAP_ROOT=${cfg.root})` };
   }

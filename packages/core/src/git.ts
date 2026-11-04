@@ -1,6 +1,7 @@
 import { execFile, execFileSync, type ExecFileSyncOptions } from "node:child_process";
 import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { extname, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { WikiConfig } from "./config.js";
 import { withWriteLock, withWriteLockIfFree } from "./lock.js";
 
@@ -418,8 +419,38 @@ export function syncAll(cfg: WikiConfig): SyncReport {
     pushPending(cfg, report);
     const tracked = trackedStateFiles(cfg);
     if (tracked.length) report.messages.push(`WARNING: ${trackedStateWarning(cfg, tracked)}`);
+    for (const w of obsidianWarnings(cfg)) report.messages.push(`WARNING: ${w}`);
     return report;
   });
+}
+
+const SKELETON_OBSIDIAN = fileURLToPath(new URL("../skeleton/wiki/dot.obsidian/", import.meta.url));
+
+/**
+ * The shared Obsidian config is pushed by every collaborator and runs on every machine that opens the vault
+ * (security audit S9). Report what would run code there: a tracked plugin binary (`plugins/<x>/main.js`,
+ * normally ignored), a community plugin the skeleton does not ship, and DataviewJS switched on. Doltap never
+ * executes any of it; the warning is for the human who opens the vault.
+ */
+export function obsidianWarnings(cfg: WikiConfig): string[] {
+  const dir = join(cfg.wikiDir, ".obsidian");
+  if (!existsSync(dir)) return [];
+  const out: string[] = [];
+  if (isRepo(cfg)) {
+    const tracked = git(cfg, ["ls-files", "--", "wiki/.obsidian/plugins"], { allowFail: true }).stdout.split("\n").filter((f) => /\/(main|styles)\.(js|css)$/.test(f) || f.endsWith("/manifest.json"));
+    const js = tracked.filter((f) => f.endsWith(".js"));
+    if (js.length) out.push(`${js.join(", ")} tracked in git: a plugin binary pushed by a collaborator runs on every machine that opens the vault (git rm --cached it; the skeleton .gitignore excludes it)`);
+  }
+  const readJson = (p: string): unknown => { try { return JSON.parse(readFileSync(p, "utf8")); } catch { return null; } };
+  const have = readJson(join(dir, "community-plugins.json"));
+  const skel = readJson(join(SKELETON_OBSIDIAN, "community-plugins.json"));
+  if (Array.isArray(have) && Array.isArray(skel)) {
+    const extra = have.filter((p) => !skel.includes(p));
+    if (extra.length) out.push(`community-plugins.json enables plugins the skeleton does not ship: ${extra.map(String).join(", ")} (every enabled plugin runs with Node access in Obsidian; remove the entry unless you installed it yourself)`);
+  }
+  const dv = readJson(join(dir, "plugins", "dataview", "data.json")) as Record<string, unknown> | null;
+  for (const key of ["enableDataviewJs", "enableInlineDataviewJs"]) if (dv && dv[key] === true) out.push(`${key} is on in .obsidian/plugins/dataview/data.json: a dataviewjs block in any pushed page runs JavaScript when the vault is opened (set it to false)`);
+  return out;
 }
 
 /** Pull if the last pull is older than cfg.autoPullMinutes. Cheap no-op otherwise. */

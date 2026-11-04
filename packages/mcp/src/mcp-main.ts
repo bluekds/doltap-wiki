@@ -1,7 +1,7 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { resolveConfig } from "@bluekds/doltap-core";
 import { createServer } from "./server.js";
-import { defaultSession, serveHttp } from "./http.js";
+import { assertTokenFormat, defaultSession, serveHttp } from "./http.js";
 
 const args = process.argv.slice(2);
 const flag = (name: string): string | undefined => {
@@ -40,11 +40,17 @@ const cfg = resolveConfig({
   deferPush: http ? process.env.DOLTAP_DEFER_PUSH !== "0" : undefined,
 });
 
+/** `--token` is visible in `ps`; prefer DOLTAP_HTTP_TOKEN or the stored file. Either way it must look like a doltap token. */
+function checkedToken(t: string | undefined): string | undefined {
+  if (t !== undefined) assertTokenFormat(t);
+  return t;
+}
+
 if (http) {
   await serveHttp(cfg, {
     port: Number(flag("--port") ?? process.env.DOLTAP_HTTP_PORT ?? 8765),
     host: flag("--host") ?? process.env.DOLTAP_HTTP_HOST ?? "127.0.0.1",
-    token: flag("--token") ?? process.env.DOLTAP_HTTP_TOKEN,
+    token: checkedToken(flag("--token") ?? process.env.DOLTAP_HTTP_TOKEN),
   });
 } else {
   const server = createServer(cfg);
