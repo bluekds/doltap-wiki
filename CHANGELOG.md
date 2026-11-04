@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.9.1 (unreleased)
+## 0.9.1 (2026-11-04)
 
 Follow-up to the 0.9.0 audits: the medium and low findings (core M1–M10, M12, L1–L14; security S9–S14), each with a regression test.
 
