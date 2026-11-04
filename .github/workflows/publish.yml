@@ -70,13 +70,20 @@ jobs:
           set -euo pipefail
           for p in packages/core packages/mcp packages/cli; do
             name=$(node -p "require('./$p/package.json').name")
-            # A re-run after a partial failure skips what already landed; a dry run always exercises npm publish.
-            if [ "$DRY" != "true" ] && npm view "$name@$VERSION" version >/dev/null 2>&1; then
+            # A dry run packs instead of publishing: npm refuses even a --dry-run publish of a version that is
+            # already on the registry, and the OIDC exchange only happens on a real publish anyway.
+            if [ "$DRY" = "true" ]; then
+              echo "== pack $name@$VERSION (dry run)"
+              npm pack --dry-run --workspace "$p"
+              continue
+            fi
+            # A re-run after a partial failure skips what already landed.
+            if npm view "$name@$VERSION" version >/dev/null 2>&1; then
               echo "== $name@$VERSION is already on the registry, skipping"
               continue
             fi
-            echo "== publish $name@$VERSION${DRY:+ (dry run)}"
-            npm publish --workspace "$p" --access public --provenance ${DRY:+--dry-run}
+            echo "== publish $name@$VERSION"
+            npm publish --workspace "$p" --access public --provenance
           done
 
       - name: verify registry and clean install
