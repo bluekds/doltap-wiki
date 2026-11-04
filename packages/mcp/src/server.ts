@@ -347,12 +347,18 @@ server.registerTool(
   async () => {
     try {
       const ro = readOnly(); if (ro) return ro;
-      const report = await locked(() => syncAll(cfg));
-      const hubs = refreshHubs(cfg, report);
-      const db = new WikiDb(cfg);
-      const r = db.reindex();
-      publishHostStats(cfg, db, report);
-      db.close();
+      // One lock for the whole sync: pull, hub refresh and the stats commit never interleave with another
+      // process's write, and the wait yields to the event loop (reads keep flowing) with the configured timeout.
+      const { report, hubs, r } = await locked(() => {
+        const report = syncAll(cfg);
+        const hubs = refreshHubs(cfg, report);
+        const db = new WikiDb(cfg);
+        try {
+          const r = db.reindex();
+          publishHostStats(cfg, db, report);
+          return { report, hubs, r };
+        } finally { db.close(); }
+      });
       writeIndexMd(cfg);
       return text({ ...report, pages: r.total, reindexed: r.indexed, removed: r.removed, hub_lists_refreshed: hubs, broken_pages: r.broken, conflict_files: listConflictFiles(cfg) });
     } catch (e) { return errorText(e); }

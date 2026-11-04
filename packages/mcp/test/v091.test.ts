@@ -56,3 +56,35 @@ describe("wiki_upsert ids", () => {
     expect(hub.isError).toBe(true);
   });
 });
+
+describe("wiki_sync under a foreign write lock (M2c)", () => {
+  it("fails fast with the configured lock timeout instead of blocking the event loop for 30 s", async () => {
+    const { spawn } = await import("node:child_process");
+    const { writeFileSync, unlinkSync } = await import("node:fs");
+    const { writeLockPath } = await import("@bluekds/doltap-core");
+    // A generous timeout: the read must come back while the sync is still waiting, on a slow Windows runner too.
+    const fast = createServer(cfg, { lockTimeoutMs: 1500 });
+    const c = new Client({ name: "fast", version: "0" });
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    await fast.connect(a);
+    await c.connect(b);
+    const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], { stdio: "ignore" });
+    writeFileSync(writeLockPath(cfg), `${child.pid} ${new Date().toISOString()}\n`);
+    try {
+      const t0 = Date.now();
+      // A read served while the sync waits proves the loop is not blocked by a synchronous lock wait.
+      const [sync, read] = await Promise.all([
+        c.callTool({ name: "wiki_sync", arguments: {} }),
+        new Promise((r) => setTimeout(r, 100)).then(() => c.callTool({ name: "wiki_list", arguments: {} })).then(() => Date.now() - t0),
+      ]);
+      expect(sync.isError).toBe(true);
+      expect((sync.content as { text: string }[])[0].text).toMatch(/write is in progress/);
+      expect(Date.now() - t0).toBeLessThan(5000);
+      expect(read).toBeLessThan(1000);
+    } finally {
+      child.kill();
+      try { unlinkSync(writeLockPath(cfg)); } catch { /* gone */ }
+      await c.close();
+    }
+  });
+});

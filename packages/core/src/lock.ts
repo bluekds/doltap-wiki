@@ -102,6 +102,23 @@ export function withWriteLock<T>(cfg: WikiConfig, fn: () => T, o: LockOptions = 
   }
 }
 
+/**
+ * Run `fn` under the lock only if nobody holds it right now; otherwise do nothing. For work that is
+ * optional at this moment (a read's auto-pull): a reader must never rebase the tree under a writer, and
+ * must not wait for one either.
+ */
+export function withWriteLockIfFree<T>(cfg: WikiConfig, fn: () => T, o: LockOptions = {}): { ran: true; result: T } | { ran: false } {
+  const path = writeLockPath(cfg);
+  if (held.has(path)) return { ran: true, result: fn() };
+  if (!tryAcquire(path, o.staleMs ?? EMPTY_LOCK_GRACE_MS)) return { ran: false };
+  held.add(path);
+  try {
+    return { ran: true, result: fn() };
+  } finally {
+    releaseFile(path);
+  }
+}
+
 /** Tail of the in-process queue per lock path: async callers take turns instead of re-entering each other. */
 const queues = new Map<string, Promise<void>>();
 
@@ -123,6 +140,9 @@ export async function withWriteLockAsync<T>(cfg: WikiConfig, fn: () => T, o: Loc
   queues.set(path, tail);
   try {
     await prev;
+    // The queue ahead may have taken longer than this caller's budget (a long synchronous writer blocks the
+    // loop, so the timer could not fire meanwhile): give up now rather than run a write the client abandoned.
+    if (Date.now() >= deadline) throw timeoutError(path);
     if (held.has(path)) return fn(); // re-entered from inside a holder (sync-nested path keeps held set)
     while (!tryAcquire(path, staleMs)) {
       if (Date.now() >= deadline) throw timeoutError(path);

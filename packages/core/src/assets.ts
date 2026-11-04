@@ -5,7 +5,7 @@ import { findSecrets } from "./secrets.js";
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import type { WikiConfig } from "./config.js";
 import { WikiDb } from "./db.js";
-import { commitAndPush, type SyncReport } from "./git.js";
+import { commitAndPush, commitMessage, type SyncReport } from "./git.js";
 import { withWriteLock } from "./lock.js";
 import { readPage } from "./page.js";
 
@@ -145,7 +145,7 @@ export function addAsset(cfg: WikiConfig, i: AddAssetInput): AddAssetResult {
     if (existsSync(dest)) throw new Error(`${toPosix(relative(cfg.root, dest))} already exists; remove it first or rename the file`);
     mkdirSync(dir, { recursive: true });
     copyFileSync(i.file, dest);
-    const sync = commitAndPush(cfg, [join("wiki", "_assets", ...i.id.split("/"), name)], `wiki: asset ${i.id} ${name}\n\n[host:${cfg.hostname}] [agent:${cfg.agent}]${cfg.session ? ` [session:${cfg.session}]` : ""}`);
+    const sync = commitAndPush(cfg, [join("wiki", "_assets", ...i.id.split("/"), name)], commitMessage(cfg, "asset", `${i.id} ${name}`));
     const image = ["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(ext);
     const label = image ? name.replace(/\.[^.]+$/, "") : name;
     return { path: `${i.id}/${name}`, link: `${image ? "!" : ""}[${label}](${assetLinkFor(i.id, name)})`, bytes, sync };

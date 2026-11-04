@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync, type Stats } from "node:fs";
 import { join, relative } from "node:path";
 import { CATEGORIES, DURABLE_CATEGORIES, isCategoryHub, type WikiConfig } from "./config.js";
 import { idFromRelPath, parsePage, toPosix, type Page } from "./page.js";
@@ -96,7 +96,7 @@ export interface BrokenPage {
 }
 
 /** Bump when the table layout changes: an older index file is dropped and rebuilt on open. */
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS pages (
@@ -170,7 +170,8 @@ export class WikiDb {
   constructor(readonly cfg: WikiConfig, path = cfg.dbPath) {
     this.db = new DatabaseSync(path);
     // Readers also write (incremental reindex), so a concurrent process must wait instead of failing with "database is locked".
-    this.db.exec("PRAGMA busy_timeout=5000");
+    // 15 s: a full reindex of a few thousand pages in another process must finish before this one gives up.
+    this.db.exec("PRAGMA busy_timeout=15000");
     this.db.exec("PRAGMA journal_mode=WAL");
     const v = Number((this.db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version);
     if (v !== SCHEMA_VERSION) {
@@ -210,26 +211,31 @@ export class WikiDb {
     return { files: files.sort(), symlinks: symlinks.sort() };
   }
 
+  /** The FTS row of a page shares the page's rowid, so it can be deleted by key instead of by scanning the UNINDEXED id column. */
+  private dropFts(id: string): void {
+    this.db.prepare("DELETE FROM pages_fts WHERE rowid = (SELECT rowid FROM pages WHERE id = ?)").run(id);
+  }
+
   indexPage(page: Page, mtime: number, size: number): void {
     const { meta } = page;
+    this.dropFts(page.id);
     this.db
       .prepare(
         `INSERT OR REPLACE INTO pages (id, rel_path, title, category, summary, tags, confidence, created, updated, mtime, size, replaced_by, review_by, verified_on)
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       )
       .run(page.id, page.relPath, meta.title, meta.category, meta.summary, JSON.stringify(meta.tags), meta.confidence, meta.created, meta.updated, mtime, size, meta.replaced_by ? String(meta.replaced_by) : null, meta.review_by ?? null, meta.verified_on ?? null);
-    this.db.prepare("DELETE FROM pages_fts WHERE id = ?").run(page.id);
     this.db
-      .prepare("INSERT INTO pages_fts (id, title, summary, tags, body) VALUES (?,?,?,?,?)")
-      .run(page.id, meta.title, meta.summary, meta.tags.join(" "), page.body);
+      .prepare("INSERT INTO pages_fts (rowid, id, title, summary, tags, body) VALUES ((SELECT rowid FROM pages WHERE id = ?),?,?,?,?,?)")
+      .run(page.id, page.id, meta.title, meta.summary, meta.tags.join(" "), page.body);
     this.db.prepare("DELETE FROM links WHERE src = ?").run(page.id);
     const ins = this.db.prepare("INSERT OR IGNORE INTO links (src, dst) VALUES (?,?)");
     for (const dst of page.links) ins.run(page.id, dst);
   }
 
   removePage(id: string): void {
+    this.dropFts(id);
     this.db.prepare("DELETE FROM pages WHERE id = ?").run(id);
-    this.db.prepare("DELETE FROM pages_fts WHERE id = ?").run(id);
     this.db.prepare("DELETE FROM links WHERE src = ?").run(id);
   }
 
@@ -251,6 +257,7 @@ export class WikiDb {
     const pages: Page[] = [];
     const broken: BrokenPage[] = [];
     let indexed = 0;
+    let vanished = 0;
     // IMMEDIATE takes the write lock up front; a deferred transaction that upgrades later can fail with SQLITE_BUSY despite busy_timeout.
     const tx = this.db.prepare("BEGIN IMMEDIATE");
     tx.run();
@@ -258,7 +265,12 @@ export class WikiDb {
       for (const abs of files) {
         const rel = relative(this.cfg.wikiDir, abs);
         const id = idFromRelPath(rel);
-        const st = statSync(abs);
+        let st: Stats;
+        try { st = statSync(abs); } catch (e) {
+          // Deleted between the directory walk and now (a pull in another process): simply not here any more.
+          if ((e as NodeJS.ErrnoException).code === "ENOENT") { vanished++; continue; }
+          throw e;
+        }
         const mtime = Math.floor(st.mtimeMs);
         const prev = known.get(id);
         const unchanged = !full && prev !== undefined && prev.mtime === mtime && prev.size === st.size;
@@ -285,7 +297,7 @@ export class WikiDb {
         }
       }
       this.db.prepare("COMMIT").run();
-      const r: ReindexResult = { indexed, removed, total: files.length - broken.length, broken };
+      const r: ReindexResult = { indexed, removed, total: files.length - broken.length - vanished, broken };
       if (o.pages) r.pages = pages;
       return r;
     } catch (e) {
