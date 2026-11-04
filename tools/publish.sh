@@ -6,6 +6,8 @@
 #
 #   tools/publish.sh [--otp CODE] [--dry-run] [--skip-tests] [--no-smoke] [--tag TAG]
 #
+# Fallback only: since 0.11 a pushed v* tag publishes through .github/workflows/publish.yml (trusted publishing).
+#
 # Checks before anything is uploaded: all package versions agree, the working tree is clean,
 # HEAD is the v<version> tag or a later commit with packages/ unchanged (both only warnings under --dry-run), and `npm whoami` succeeds. Then build, test, publish, verify
 # the registry, and do a clean install of doltap-wiki@<version> in a temp dir.

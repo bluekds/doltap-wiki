@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.11.0 (unreleased)
+
+- **Releases publish themselves**: pushing a `v*` tag on `main` runs the Publish workflow (`.github/workflows/publish.yml`), which checks that the tag matches the package versions, runs the whole suite, publishes `@bluekds/doltap-core`, `@bluekds/doltap-mcp` and `doltap-wiki` through npm trusted publishing with provenance, waits for the registry and clean-installs the CLI. No npm token or one-time password; a manual run with `dry_run` rehearses it. `tools/publish.sh` stays as the fallback
+
 ## 0.10.0 (2026-11-04)
 
 Per-machine state leaves the git tree. This is the root fix for the 0.9 security finding S2 (files pushed under `.doltap/` landing as this machine's token, client list or lock) and it changes where things live, hence the minor bump.

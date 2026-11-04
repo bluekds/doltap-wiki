@@ -227,8 +227,10 @@ doltap integrations install|uninstall|status claude|codex|cursor|gemini|generic 
 ```sh
 npm ci && npm run build && npm test
 npm link -w doltap-wiki            # 이 체크아웃의 `doltap`, `doltap-mcp`를 전역으로
-npm run publish:all                # 태그 뒤: core, mcp, cli 순으로 publish하고 레지스트리와 클린 설치까지 확인 (tools/publish.sh --dry-run으로 예행)
+git tag -a v1.2.3 -m 1.2.3 && git push origin v1.2.3   # 릴리스: Publish 워크플로가 테스트 후 core, mcp, cli를 provenance 붙여 publish
 ```
+
+릴리스는 GitHub Actions의 npm trusted publishing(`.github/workflows/publish.yml`)으로 나갑니다. `main` 위의 `v*` 태그(버전이 패키지와 일치해야 함)가 전체 테스트를 돌리고 세 패키지를 `--provenance`로 publish한 뒤 레지스트리 확인과 클린 설치까지 합니다. npm 토큰이나 OTP는 쓰지 않으며, npmjs.com의 각 패키지에 이 저장소와 워크플로가 trusted publisher로 등록돼 있습니다. 워크플로를 수동 실행(`dry_run`)하면 업로드만 빼고 리허설합니다. `npm run publish:all`(tools/publish.sh)은 수동 대체 수단으로 남겨 둡니다.
 
 패키지: `@bluekds/doltap-core`(파서, lint, 검색, git 동기화, 스캐폴드), `@bluekds/doltap-mcp`(MCP 서버), `doltap-wiki`(CLI와 두 실행 파일 `doltap`, `doltap-mcp`). CI는 macOS, Linux, Windows에서 빌드와 테스트, 빈 위키 생성까지 확인합니다.
 

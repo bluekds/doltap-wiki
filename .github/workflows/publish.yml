@@ -1,0 +1,96 @@
+name: Publish
+
+# Trusted publishing: pushing a release tag (v1.2.3) publishes the three packages to npm with provenance,
+# authenticated by this workflow's OIDC token (no npm token, no OTP). The tag must sit on main and match the
+# package versions; the whole suite runs first on the same runner. `workflow_dispatch` with dry_run rehearses
+# everything except the upload.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run every step but publish with --dry-run"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      # Trusted publishing needs npm 11.5.1 or newer; the Node image may ship an older one.
+      - run: npm install -g npm@latest && npm --version
+      - run: git config --global user.name ci && git config --global user.email ci@example.invalid
+
+      - name: version and tag agree, tag is on main
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./package.json').version")
+          for p in packages/core packages/mcp packages/cli; do
+            v=$(node -p "require('./$p/package.json').version")
+            [ "$v" = "$version" ] || { echo "::error::$p is $v, root is $version"; exit 1; }
+          done
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            [ "$GITHUB_REF_NAME" = "v$version" ] || { echo "::error::tag $GITHUB_REF_NAME does not match version $version"; exit 1; }
+            git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "::error::tag $GITHUB_REF_NAME is not on main"; exit 1; }
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "dry=${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}" >> "$GITHUB_OUTPUT"
+
+      - run: npm ci
+      - run: npm run build
+      - run: npm run reference:check
+      - run: npm test
+
+      - name: publish core, mcp, cli
+        shell: bash
+        env:
+          DRY: ${{ steps.meta.outputs.dry }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          for p in packages/core packages/mcp packages/cli; do
+            name=$(node -p "require('./$p/package.json').name")
+            if npm view "$name@$VERSION" version >/dev/null 2>&1; then
+              echo "== $name@$VERSION is already on the registry, skipping"
+              continue
+            fi
+            echo "== publish $name@$VERSION${DRY:+ (dry run)}"
+            npm publish --workspace "$p" --access public --provenance ${DRY:+--dry-run}
+          done
+
+      - name: verify registry and clean install
+        if: steps.meta.outputs.dry != 'true'
+        shell: bash
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          for name in @bluekds/doltap-core @bluekds/doltap-mcp doltap-wiki; do
+            for _ in $(seq 1 24); do npm view "$name@$VERSION" version >/dev/null 2>&1 && break; sleep 5; done
+            npm view "$name@$VERSION" version >/dev/null 2>&1 || { echo "::error::$name@$VERSION not visible after 2 min"; exit 1; }
+            echo "   $name@$VERSION (latest: $(npm view "$name" dist-tags.latest))"
+          done
+          tmp=$(mktemp -d)
+          cd "$tmp" && npm init -y >/dev/null && npm install --silent --no-audit --no-fund "doltap-wiki@$VERSION"
+          ./node_modules/.bin/doltap --version
+          ./node_modules/.bin/doltap-mcp --reference | sed -n 3p
