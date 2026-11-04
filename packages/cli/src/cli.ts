@@ -38,6 +38,7 @@ import {
   search,
   upsertPage,
   WikiDb,
+  withWriteLock,
   writeIndexMd,
   addAsset,
   audit,
@@ -471,12 +472,15 @@ program.command("sync").description("pull, push pending commits, reindex, refres
   try {
     const { cfg, json } = cfgFrom();
     const rotated = rotateLogs(cfg);
-    const report = syncAll(cfg);
-    const hubs = refreshHubs(cfg, report);
-    const db = new WikiDb(cfg);
-    const r = db.reindex();
-    const published = publishHostStats(cfg, db, report);
-    db.close();
+    const { report, hubs, r, published } = withWriteLock(cfg, () => {
+      const report = syncAll(cfg);
+      const hubs = refreshHubs(cfg, report);
+      const db = new WikiDb(cfg);
+      try {
+        const r = db.reindex();
+        return { report, hubs, r, published: publishHostStats(cfg, db, report) };
+      } finally { db.close(); }
+    });
     writeIndexMd(cfg);
     const conflicts = listConflictFiles(cfg);
     out(json, { ...report, reindexed: r.indexed, removed: r.removed, total: r.total, hubListsRefreshed: hubs, brokenPages: r.broken, statsPublished: published, conflictFiles: conflicts, logsRotated: rotated }, () => {

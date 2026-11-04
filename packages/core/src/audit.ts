@@ -3,7 +3,8 @@ import { readSafe, writeSafe } from "./safe.js";
 import { join } from "node:path";
 import { DURABLE_CATEGORIES, REVIEW_DEFAULT_DAYS, isCategoryHub, today, type WikiConfig } from "./config.js";
 import { WikiDb, type PageRow } from "./db.js";
-import { assertOnBranch, commitAndPush, listConflictFiles, readSyncState, writeSyncState, type SyncReport } from "./git.js";
+import { assertOnBranch, commitAndPush, commitMessage, listConflictFiles, readSyncState, writeSyncState, type SyncReport } from "./git.js";
+import { withWriteLock, type LockOptions } from "./lock.js";
 import { loadTags } from "./tags.js";
 
 /** Per-host access counts shared through git: wiki/_meta/stats/<host>.json */
@@ -37,24 +38,28 @@ export function collectHostStats(cfg: WikiConfig, db: WikiDb, windowDays = 90): 
  * Write this host's stats file and commit it when the counts changed and the last publish is older
  * than `minHours`. Called from `doltap sync`. Separate files per host never conflict.
  */
-export function publishHostStats(cfg: WikiConfig, db: WikiDb, report: SyncReport, minHours = 6): boolean {
+export function publishHostStats(cfg: WikiConfig, db: WikiDb, report: SyncReport, minHours = 6, lock: LockOptions = {}): boolean {
   const state = readSyncState(cfg) as { lastStatsPublish?: string };
   const ageH = state.lastStatsPublish ? (Date.now() - Date.parse(state.lastStatsPublish)) / 3600000 : Infinity;
   if (ageH < minHours) return false;
   const stats = collectHostStats(cfg, db);
   if (!Object.keys(stats.counts).length) return false;
-  assertOnBranch(cfg);
-  mkdirSync(statsDir(cfg), { recursive: true });
-  const file = join(statsDir(cfg), `${cfg.hostname}.json`);
-  const next = JSON.stringify({ ...stats, generated: undefined }, null, 2);
-  if (existsSync(file)) {
-    const prev = JSON.parse(readSafe(cfg.root, file)) as HostStats;
-    if (JSON.stringify({ ...prev, generated: undefined }, null, 2) === next) return false;
-  }
-  writeSafe(cfg.root, file, JSON.stringify(stats, null, 2) + "\n");
-  commitAndPush(cfg, [join("wiki", "_meta", "stats", `${cfg.hostname}.json`)], `wiki: stats ${cfg.hostname}\n\n[host:${cfg.hostname}] [agent:${cfg.agent}]`, report);
-  writeSyncState(cfg, { lastStatsPublish: new Date().toISOString() } as Record<string, unknown>);
-  return true;
+  // The commit goes through the machine write lock like every other: a page write in another process
+  // must not find its index.lock taken or its hub edit interleaved with this commit.
+  return withWriteLock(cfg, () => {
+    assertOnBranch(cfg);
+    mkdirSync(statsDir(cfg), { recursive: true });
+    const file = join(statsDir(cfg), `${cfg.hostname}.json`);
+    const next = JSON.stringify({ ...stats, generated: undefined }, null, 2);
+    if (existsSync(file)) {
+      const prev = JSON.parse(readSafe(cfg.root, file)) as HostStats;
+      if (JSON.stringify({ ...prev, generated: undefined }, null, 2) === next) return false;
+    }
+    writeSafe(cfg.root, file, JSON.stringify(stats, null, 2) + "\n");
+    commitAndPush(cfg, [join("wiki", "_meta", "stats", `${cfg.hostname}.json`)], commitMessage(cfg, "stats", cfg.hostname), report);
+    writeSyncState(cfg, { lastStatsPublish: new Date().toISOString() } as Record<string, unknown>);
+    return true;
+  }, lock);
 }
 
 export function loadAllStats(cfg: WikiConfig): HostStats[] {

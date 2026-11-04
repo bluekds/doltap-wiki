@@ -1,8 +1,8 @@
 import { execFile, execFileSync, type ExecFileSyncOptions } from "node:child_process";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { extname, join, relative, resolve, sep } from "node:path";
 import type { WikiConfig } from "./config.js";
-import { withWriteLock } from "./lock.js";
+import { withWriteLock, withWriteLockIfFree } from "./lock.js";
 
 /** Mask `user:password@` in URLs so git errors can be shown to callers (remote URLs may embed credentials). */
 export function redactCredentials(text: string): string {
@@ -102,8 +102,12 @@ export function readSyncState(cfg: WikiConfig): SyncState {
   }
 }
 
+/** Merge `patch` into sync.json through a temp file and rename, so a concurrent reader never sees a torn file. */
 export function writeSyncState(cfg: WikiConfig, patch: SyncState): void {
-  writeFileSync(statePath(cfg), JSON.stringify({ ...readSyncState(cfg), ...patch }, null, 2));
+  const path = statePath(cfg);
+  const tmp = `${path}.${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify({ ...readSyncState(cfg), ...patch }, null, 2));
+  renameSync(tmp, path);
 }
 
 /** Authentication, permission and URL problems: retrying will not help, a human must fix the remote or the credentials. */
@@ -187,10 +191,17 @@ export function conflictCopyName(cfg: WikiConfig, file: string): string {
  * change is discarded, since only wiki/ is meant to be edited on client machines. Stage numbers are the
  * same for a rebase stop and for a failed autostash pop.
  */
+/** Files doltap regenerates or rewrites whole: a conflict on them takes upstream and keeps no copy. */
+export function isGeneratedPath(file: string): boolean {
+  return /^wiki\/(Home\.md|[^/]+\/_index\.md|_meta\/reports\/[^/]+)$/.test(file);
+}
+
 function resolveOneConflict(cfg: WikiConfig, file: string, saved: string[]): void {
   const upstream = stageBytes(cfg, 2, file);
   const local = stageBytes(cfg, 3, file);
-  const keepLocal = file.startsWith("wiki/") && !file.startsWith("wiki/.obsidian/") && local !== null;
+  // Hub lists are regenerated from the pages after every sync and an audit report is rewritten by the next
+  // audit, so a copy of the local version would only be noise that no resolve tool accepts.
+  const keepLocal = file.startsWith("wiki/") && !file.startsWith("wiki/.obsidian/") && !isGeneratedPath(file) && local !== null;
   const copy = keepLocal ? conflictCopyName(cfg, file) : null;
   if (copy) writeFileSync(join(cfg.root, copy), local!);
   if (upstream !== null) writeFileSync(join(cfg.root, file), upstream);
@@ -419,7 +430,10 @@ export function maybeAutoPull(cfg: WikiConfig): SyncReport {
   const ageMin = (iso?: string) => (iso ? (Date.now() - Date.parse(iso)) / 60000 : Infinity);
   // Back off from the last attempt, not only the last success: a hanging or dead remote costs one timeout per interval, not one per read.
   if (ageMin(st.lastPull) < cfg.autoPullMinutes || ageMin(st.lastPullAttempt) < cfg.autoPullMinutes) return report;
-  return pull(cfg, report);
+  // Never rebase the tree under another process's write; the next read after it finishes will pull.
+  const r = withWriteLockIfFree(cfg, () => pull(cfg, report));
+  if (!r.ran) report.messages.push("auto-pull skipped: another doltap write is in progress");
+  return report;
 }
 
 /** Conflict files currently present in the working tree. */

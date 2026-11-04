@@ -3,7 +3,7 @@ import { safePath, writeSafe } from "./safe.js";
 import { join } from "node:path";
 import type { AuditEntry, AuditReport } from "./audit.js";
 import type { WikiConfig } from "./config.js";
-import { commitAndPush, type SyncReport } from "./git.js";
+import { commitAndPush, commitMessage, type SyncReport } from "./git.js";
 import { findSecrets } from "./secrets.js";
 import { withWriteLock } from "./lock.js";
 
@@ -85,7 +85,7 @@ export function writeAuditReport(cfg: WikiConfig, r: AuditReport, o: WriteReport
     const removed = all.slice(0, Math.max(0, all.length - keep)).filter((f) => f !== name);
     for (const f of removed) if (existsSync(join(dir, f))) unlinkSync(safePath(cfg.root, join(dir, f)));
     const rel = (f: string) => join("wiki", "_meta", "reports", f);
-    const sync = commitAndPush(cfg, [rel(name), ...removed.map(rel)], `wiki: audit report ${day}\n\n[host:${cfg.hostname}] [agent:${cfg.agent}]${cfg.session ? ` [session:${cfg.session}]` : ""}`);
+    const sync = commitAndPush(cfg, [rel(name), ...removed.map(rel)], commitMessage(cfg, "audit report", day));
     return { file: rel(name), removed, sync };
   });
 }
