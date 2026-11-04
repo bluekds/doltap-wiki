@@ -140,11 +140,12 @@ program
   .option("--new", "create a new wiki (protocol, templates, hubs, Obsidian config) and git init it")
   .option("--remote <url>", "with --new: add this empty repository as origin and push")
   .option("--dir <path>", "where to clone or create", join(homedir(), ".doltap"))
-  .action((o: { repo?: string; new?: boolean; remote?: string; dir: string }) => {
+  .option("--force", "with --new: set up inside a directory that already has files (its .gitignore is merged, only the skeleton is committed)")
+  .action((o: { repo?: string; new?: boolean; remote?: string; dir: string; force?: boolean }) => {
     try {
       const dir = resolve(o.dir);
       if (o.new) {
-        const r = scaffoldWiki(dir, { remote: o.remote });
+        const r = scaffoldWiki(dir, { remote: o.remote, force: o.force });
         console.log(`created wiki at ${r.dir} (${r.files} files, 1 commit${r.pushed ? ", pushed" : ""})`);
         for (const n of r.notes) console.log(`note: ${n}`);
       } else if (!existsSync(join(dir, "wiki", "_meta", "PROTOCOL.md"))) {
@@ -296,14 +297,13 @@ program
           console.log(`refused: ${r.refused}`);
           printIssues(r.issues);
           for (const s of r.similar ?? []) console.log(`  similar: ${s.id} — ${s.summary}`);
-          process.exitCode = 2;
           return;
         }
         console.log(`${r.created ? "created" : "updated"} ${r.id} (${r.path})`);
         printIssues(r.issues);
         for (const n of syncNotes(r.sync)) console.log(`note: ${n}`);
       });
-      if (r.refused && json) process.exitCode = 2;
+      if (r.refused) process.exitCode = 2;
     } catch (e) { fail(e); }
   });
 
@@ -324,11 +324,12 @@ program
       const { cfg, json } = cfgFrom();
       const r = patchSection(cfg, { id, section: o.section, content: readContent(o), mode: o.append ? "append" : "replace", touch: o.touch, create: o.create, baseRev: o.baseRev });
       out(json, r, () => {
-        if (r.refused) { console.log(`refused: ${r.refused}`); printIssues(r.issues); process.exitCode = 2; return; }
+        if (r.refused) { console.log(`refused: ${r.refused}`); printIssues(r.issues); return; }
         console.log(`updated ${r.id} ## ${o.section}`);
         printIssues(r.issues);
         for (const n of syncNotes(r.sync)) console.log(`note: ${n}`);
       });
+      if (r.refused) process.exitCode = 2;
     } catch (e) { fail(e); }
   });
 
@@ -348,11 +349,12 @@ program
       const { cfg, json } = cfgFrom();
       const r = patchMeta(cfg, { id, confidence: o.confidence, addSources: o.addSource, addTags: o.addTag, title: o.title, summary: o.summary, reviewBy: o.reviewBy, baseRev: o.baseRev });
       out(json, r, () => {
-        if (r.refused) { console.log(`refused: ${r.refused}`); printIssues(r.issues); process.exitCode = 2; return; }
+        if (r.refused) { console.log(`refused: ${r.refused}`); printIssues(r.issues); return; }
         console.log(`updated ${r.id} frontmatter`);
         printIssues(r.issues);
         for (const n of syncNotes(r.sync)) console.log(`note: ${n}`);
       });
+      if (r.refused) process.exitCode = 2;
     } catch (e) { fail(e); }
   });
 
@@ -368,11 +370,12 @@ program
       const { cfg, json } = cfgFrom();
       const r = verifyPage(cfg, { id, evidence: o.evidence, reviewBy: o.reviewBy, baseRev: o.baseRev });
       out(json, r, () => {
-        if (r.refused) { console.log(`refused: ${r.refused}`); printIssues(r.issues); process.exitCode = 2; return; }
+        if (r.refused) { console.log(`refused: ${r.refused}`); printIssues(r.issues); return; }
         console.log(`verified ${r.id}`);
         printIssues(r.issues);
         for (const n of syncNotes(r.sync)) console.log(`note: ${n}`);
       });
+      if (r.refused) process.exitCode = 2;
     } catch (e) { fail(e); }
   });
 program
@@ -386,11 +389,12 @@ program
       const { cfg, json } = cfgFrom();
       const r = deprecatePage(cfg, { id, replacedBy: o.replacedBy, reason: o.reason, baseRev: o.baseRev });
       out(json, r, () => {
-        if (r.refused) { console.log(`refused: ${r.refused}`); printIssues(r.issues); process.exitCode = 2; return; }
+        if (r.refused) { console.log(`refused: ${r.refused}`); printIssues(r.issues); return; }
         console.log(`deprecated ${r.id} -> ${o.replacedBy}`);
         printIssues(r.issues);
         for (const n of syncNotes(r.sync)) console.log(`note: ${n}`);
       });
+      if (r.refused) process.exitCode = 2;
     } catch (e) { fail(e); }
   });
 program
@@ -409,11 +413,12 @@ program
       }
       const r = resolveConflict(cfg, { id, body: o.take ? undefined : readContent(o), take: o.take === "conflict" ? "conflict" : undefined, baseRev: o.baseRev });
       out(json, r, () => {
-        if (r.refused) { console.log(`refused: ${r.refused}`); printIssues(r.issues); process.exitCode = 2; return; }
+        if (r.refused) { console.log(`refused: ${r.refused}`); printIssues(r.issues); return; }
         console.log(`resolved ${r.id}`);
         printIssues(r.issues);
         for (const n of syncNotes(r.sync)) console.log(`note: ${n}`);
       });
+      if (r.refused) process.exitCode = 2;
     } catch (e) { fail(e); }
   });
 

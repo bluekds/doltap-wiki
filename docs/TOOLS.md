@@ -137,14 +137,14 @@ Rules: body must follow the category template sections (get it with wiki_templat
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `id` | string | yes |  | &lt;category&gt;/&lt;kebab-slug&gt;, e.g. patterns/retry-backoff (matches `^(howto\|patterns\|reference\|decisions\|projects)\/[a-z0-9]+(-[a-z0-9]+)*(\/[a-z0-9]+(-[a-z0-9]+)*)?$`) |
+| `id` | string | yes |  | &lt;category&gt;/&lt;kebab-slug&gt;, e.g. patterns/retry-backoff; a project overview is projects/&lt;slug&gt;/_index (matches `^(howto\|patterns\|reference\|decisions\|projects)\/[a-z0-9]+(-[a-z0-9]+)*(\/[a-z0-9]+(-[a-z0-9]+)*)?$\|^projects\/[a-z0-9]+(-[a-z0-9]+)*\/_index$`) |
 | `title` | string | yes |  | (at most 200 chars) |
 | `summary` | string | yes |  | (at most 200 chars) |
 | `tags` | string[] | yes |  | (at least 1 item) |
 | `body` | string | yes |  | Markdown below the frontmatter, following the category template sections (at most 256000 chars) |
 | `sources` | string[] | no | `[]` | Evidence: URLs, SPEC ids, session ids |
 | `force` | boolean | no | `false` | Create even if similar pages exist |
-| `replace` | boolean | no | `false` | Overwrite an existing page (whole body and frontmatter) |
+| `replace` | boolean | no | `false` | Overwrite an existing page (whole body and frontmatter). Its confidence is kept; a deprecated page is refused |
 | `review_by` | string | no |  | When to re-check the page against its sources: days from today ("60"), a YYYY-MM-DD date, or "none". Set it on howto/reference pages that depend on a tool version or an external service; decisions and projects never expire |
 | `base_rev` | string | no |  | The rev returned by wiki_get for this page; the write is refused if the page changed since |
 

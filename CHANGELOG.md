@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.1 (unreleased)
+
+Follow-up to the 0.9.0 audits: the medium and low findings (core M1–M10, M12, L1–L14; security S9–S14), each with a regression test.
+
+- **A write that fails before its commit leaves a clean tree** (audit M1). When the commit itself failed (a hook, `index.lock` held by another process, no git identity), the page stayed on disk and staged: the retry was refused as "exists" and the next unrelated write swept the file into its own commit, attributing the page to the wrong session. Every writer now restores the previous bytes (or removes a new file), takes regenerated hubs back to HEAD and unstages, then rethrows. A page commit also takes only the paths of that write, so whatever else is staged stays staged
+- **`doltap init --new` refuses a non-empty directory** (audit M10). It used to replace the directory's `.gitignore`, rename every `dot.*` file in it and commit everything, including an `.env`. It now stops unless `--force` is given; with `--force` the existing `.gitignore` / `.gitattributes` keep their lines and gain the skeleton's, only copied files are renamed and only the skeleton is committed
+- **The lint gate blocks only errors the write introduces** (audit M6). A link broken by a hand commit, a tag removed from `tags.yaml` or a template that grew a required section used to freeze the page: verify, deprecate and every edit were refused with the old error. Such errors are still reported in `issues`, but only a new error refuses the write
+- **Rewriting a page keeps its confidence** (audit M5). `wiki_upsert` with `replace` demoted a verified page to draft while keeping `verified_on`, revived a deprecated page (back into default search with `replaced_by` still set), and the rewriting session could then verify its own text. A rewrite now keeps the confidence, a deprecated page is refused ("edit the replacement or create a new page"), an explicit demotion clears `verified_by` / `verified_on`, and the session of every `wiki: rewrite` commit counts as an author for the self-promotion guard. `wiki_set_meta` / `doltap meta` refuse `confidence: deprecated` (use deprecate, which records the replacement) (L6)
+- `wiki_upsert` accepts `projects/<slug>/_index` for a project overview, as PROTOCOL section 3 describes (M12); `wiki_set_meta` on a hub whose list was regenerated in the same write returns the on-disk rev (L8); `doltap patch`, `meta`, `verify`, `deprecate` and `resolve` exit 2 on a refusal with `--json` too (L5)
+
 ## 0.9.0 (2026-11-04)
 
 Stabilization: two independent audits before tagging (security: 14 findings, core logic: 34), the critical and high items fixed here with regression tests, the rest tracked for 0.9.1. Plus the per-request reindex and a generated tool reference. No index schema change.
