@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { chmodSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { resolveConfig, type WikiConfig } from "@bluekds/doltap-core";
 import { makeTwoMachines, makeWikiCopy, sh, type Fixture } from "../../core/test/helpers.js";
@@ -45,10 +45,12 @@ describe("tracked state files (pushed by a collaborator)", () => {
   });
   afterEach(() => m.cleanup());
 
-  it("a tracked client list yields no clients; a tracked token file refuses to start the server", () => {
-    chmodSync(clientsPath(B), 0o600);
+  it("a pushed client list or token file is never where the server looks (0.10: state lives outside the clone)", () => {
+    expect(clientsPath(B).startsWith(m.b)).toBe(false);
+    expect(tokenPath(B).startsWith(m.b)).toBe(false);
     expect(loadClients(B)).toEqual({});
-    expect(() => loadOrCreateToken(B)).toThrow(/tracked by git/);
-    expect(tokenPath(B)).toContain(".doltap");
+    const t = loadOrCreateToken(B);
+    expect(t).not.toBe("e".repeat(64));
+    expect(existsSync(join(m.b, ".doltap", "http-token"))).toBe(true); // the pushed file stays in the clone, unused
   });
 });

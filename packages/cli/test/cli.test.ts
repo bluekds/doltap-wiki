@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { stateDirFor } from "@bluekds/doltap-core";
 import { makeTwoMachines, sh } from "../../core/test/helpers.js";
 
 // Runs the CLI source through tsx; @bluekds/doltap-core resolves to packages/core/dist, so build first (CI does).
@@ -130,7 +131,7 @@ describe("clients, call log and integrations (0.6)", () => {
 
   it("serve calls summarises the HTTP call log", () => {
     expect(cli(["--root", m.a, "serve", "calls"])).toContain("no HTTP calls");
-    const dir = join(m.a, ".doltap", "logs");
+    const dir = join(stateDirFor(m.a), "logs");
     mkdirSync(dir, { recursive: true });
     const ts = new Date().toISOString();
     writeFileSync(join(dir, "http-calls.log"), `${ts} laptop tools/call wiki_search 200 12\n${ts} laptop tools/call wiki_get 200 8\n${ts} old - - expired 1\n${ts} laptop tools/call wiki_search 200 9\n`);

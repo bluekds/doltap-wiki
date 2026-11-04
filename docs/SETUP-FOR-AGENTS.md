@@ -93,7 +93,7 @@ doltap schedule install          # launchd (macOS), crontab (Linux) or Task Sche
 doltap schedule status
 ```
 
-The entry records the absolute paths of Node and `doltap`, so re-run `doltap schedule install` after moving Node or the wiki. On macOS and Linux the first run happens right away; check that `~/.doltap/.doltap/logs/sync.err` is empty (or absent) a minute later.
+The entry records the absolute paths of Node and `doltap`, so re-run `doltap schedule install` after moving Node or the wiki. On macOS and Linux the first run happens right away; check that `logs/sync.err` in the state directory (`doltap doctor` prints the path, normally `~/.local/state/doltap/<wiki-id>/`) is empty (or absent) a minute later.
 
 ## 6. Verify
 

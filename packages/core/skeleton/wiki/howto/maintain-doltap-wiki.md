@@ -69,7 +69,7 @@ Session-scheduled jobs live only while that session is open; if it ends, open a 
 
 ## Pitfalls
 
-- The scheduler entries record a Node binary path. Homebrew installs get a stable alias (`/opt/homebrew/opt/node@<major>/bin/node`), but a switch to another major version or an nvm keg still changes it, and then the scheduled sync and HTTP service stop silently: re-run `doltap schedule install` (and `doltap serve install` if used), then check `.doltap/logs/sync.err`
+- The scheduler entries record a Node binary path. Homebrew installs get a stable alias (`/opt/homebrew/opt/node@<major>/bin/node`), but a switch to another major version or an nvm keg still changes it, and then the scheduled sync and HTTP service stop silently: re-run `doltap schedule install` (and `doltap serve install` if used), then check `logs/sync.err` in the state directory (`doltap doctor` prints its path)
 - The maintainer does not run on its own. Without a scheduled session or a user request, the weekly and monthly passes never happen
 - Do not promote a draft because it looks right; promotion needs evidence that someone followed it and it worked
 - Never paste the HTTP token or full connector URL into chat or a page while debugging the remote endpoint

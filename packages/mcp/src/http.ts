@@ -4,7 +4,7 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypt
 import { chmodSync, existsSync, lstatSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { createServer as createHttpServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { join } from "node:path";
-import { appendCall, pushPendingAsync, readSyncState, trackedStateFiles, trackedStateWarning, type SyncReport, type WikiConfig } from "@bluekds/doltap-core";
+import { appendCall, pushPendingAsync, readSyncState, type SyncReport, type WikiConfig } from "@bluekds/doltap-core";
 import { createServer } from "./server.js";
 
 export interface HttpOptions {
@@ -133,10 +133,10 @@ export const CLIENT_TOKEN_RE = /^[0-9a-f]{64}$/;
 function assertPrivateStateFile(cfg: WikiConfig, p: string): void {
   let st;
   try { st = lstatSync(p); } catch { return; } // absent: fine, it will be created
-  const rel = p.slice(cfg.root.length + 1).split("\\").join("/");
-  if (st.isSymbolicLink()) throw new Error(`${rel} is a symbolic link; refusing to use it (remove it)`);
-  const tracked = trackedStateFiles(cfg);
-  if (tracked.includes(rel)) throw new Error(trackedStateWarning(cfg, [rel]));
+  // The state dir is outside the repository since 0.10, so nothing pushed can land here; a symlink would still
+  // make the server read (or write) whatever it points at, so it is refused.
+  if (st.isSymbolicLink()) throw new Error(`${p} is a symbolic link; refusing to use it as private state (remove it, then rotate the token if it was one)`);
+  void cfg;
 }
 
 export function loadClients(cfg: WikiConfig): Record<string, HttpClient> {

@@ -1,15 +1,21 @@
-import { existsSync, mkdirSync } from "node:fs";
-import { homedir, hostname } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { createHash } from "node:crypto";
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { homedir, hostname, platform } from "node:os";
+import { basename, dirname, join, resolve } from "node:path";
 
 export interface WikiConfig {
   /** Repository root (contains wiki/ and .git). */
   root: string;
   /** Directory holding pages: <root>/wiki */
   wikiDir: string;
-  /** Per-machine state dir: <root>/.doltap (gitignored) */
+  /** Per-machine state (index, lock, sync state, token, client list, logs): $DOLTAP_STATE_HOME/<wikiId>, outside the git tree. */
   stateDir: string;
   dbPath: string;
+  /** `<root name>-<8 hex of the root's real path>`: names the state dir and the per-wiki service labels. */
+  wikiId: string;
+  /** Where 0.x kept the state (`<root>/.doltap`). Migrated away once; anything that reappears there is reported, never read. */
+  legacyStateDir: string;
   hostname: string;
   /** Client identity recorded in commit messages. */
   agent: string;
@@ -106,6 +112,68 @@ export interface ConfigOverrides {
   deferPush?: boolean;
 }
 
+/** The directory under which every wiki's state lives: $DOLTAP_STATE_HOME, else the platform's state home plus `doltap`. */
+export function stateHome(): string {
+  const env = process.env;
+  if (env.DOLTAP_STATE_HOME) return resolve(env.DOLTAP_STATE_HOME);
+  if (platform() === "win32") return join(env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local"), "doltap", "state");
+  return join(env.XDG_STATE_HOME ? resolve(env.XDG_STATE_HOME) : join(homedir(), ".local", "state"), "doltap");
+}
+
+/**
+ * `<root name>-<8 hex>` from the root's real path. The path, not the remote, is the identity: two clones of
+ * one wiki on a machine have separate indexes and locks. Moving the root therefore starts fresh state
+ * (index rebuilt, a new token unless DOLTAP_STATE_DIR pins the directory).
+ */
+export function wikiId(root: string): string {
+  let real = resolve(root);
+  try { real = realpathSync.native(real); } catch { /* not created yet */ }
+  return `${basename(real).replace(/[^A-Za-z0-9._-]/g, "_")}-${createHash("sha256").update(real).digest("hex").slice(0, 8)}`;
+}
+
+/** The state directory for `root`: $DOLTAP_STATE_DIR when set (this wiki only), else `stateHome()/wikiId(root)`. */
+export function stateDirFor(root: string): string {
+  return process.env.DOLTAP_STATE_DIR ? resolve(process.env.DOLTAP_STATE_DIR) : join(stateHome(), wikiId(root));
+}
+
+/** Names of entries under a 0.x `.doltap/` that are not worth carrying over: a lock is only valid for a running writer, upgrade-tmp is scratch. */
+const LEGACY_SKIP = new Set(["write.lock", "upgrade-tmp"]);
+
+/**
+ * One-time move of a 0.x `<root>/.doltap/` into the private state dir. Runs only while the new dir does not
+ * exist yet, so a `.doltap/` that reappears later (a collaborator pushed one) is never merged over live state.
+ * Files git tracks and symlinks stay where they are: the first is someone else's content, the second would
+ * move whatever it points at. Returns the entries moved.
+ */
+export function migrateLegacyState(root: string, legacy: string, stateDir: string): string[] {
+  if (existsSync(stateDir)) return [];
+  let st;
+  try { st = lstatSync(legacy); } catch { return []; }
+  if (!st.isDirectory()) return [];
+  let tracked = new Set<string>();
+  try {
+    const out = execFileSync("git", ["ls-files", "-z", "--", ".doltap"], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    tracked = new Set(out.split("\0").filter(Boolean).map((f) => f.replace(/^\.doltap\//, "").split("/")[0]));
+  } catch { /* not a repo */ }
+  mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+  const moved: string[] = [];
+  for (const name of readdirSync(legacy)) {
+    const from = join(legacy, name);
+    if (LEGACY_SKIP.has(name) || tracked.has(name)) continue;
+    const entry = lstatSync(from);
+    if (entry.isSymbolicLink()) continue;
+    const to = join(stateDir, name);
+    try { renameSync(from, to); } catch {
+      cpSync(from, to, { recursive: true });
+      rmSync(from, { recursive: true, force: true });
+    }
+    moved.push(name);
+  }
+  for (const name of LEGACY_SKIP) rmSync(join(legacy, name), { recursive: true, force: true });
+  if (!readdirSync(legacy).length) rmSync(legacy, { recursive: true, force: true });
+  return moved;
+}
+
 /**
  * Resolution order for the root: explicit override > $DOLTAP_ROOT > walk up from cwd > ~/.doltap.
  * An explicit root (`--root`, `DOLTAP_ROOT`) that is not a wiki is an error, never a fallback: a typo or a
@@ -124,13 +192,18 @@ export function resolveConfig(o: ConfigOverrides = {}): WikiConfig {
       `Doltap root not found. Tried: ${candidates.join(", ")}. Run \`doltap init\` or set DOLTAP_ROOT.`,
     );
   }
-  const stateDir = join(root, ".doltap");
-  mkdirSync(stateDir, { recursive: true });
+  const legacyStateDir = join(root, ".doltap");
+  const stateDir = stateDirFor(root);
+  migrateLegacyState(root, legacyStateDir, stateDir);
+  mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+  if (platform() !== "win32") { try { chmodSync(stateDir, 0o700); } catch { /* not ours to change */ } }
   return {
     root,
     wikiDir: join(root, "wiki"),
     stateDir,
     dbPath: join(stateDir, "index.sqlite"),
+    wikiId: wikiId(root),
+    legacyStateDir,
     hostname: hostname().split(".")[0],
     agent: o.agent ?? env.DOLTAP_AGENT ?? "cli",
     // Claude Code exports CLAUDE_CODE_SESSION_ID to the commands it runs; it is the natural "same session" for the CLI.

@@ -23,7 +23,7 @@ describe("planted .doltap files", () => {
   });
   afterEach(() => m.cleanup());
 
-  it("sync warns, doctor fails, and a planted lock never blocks a write", async () => {
+  it("sync warns, doctor warns, and a planted lock never reaches this machine's lock path", async () => {
     mkdirSync(join(m.a, ".doltap"), { recursive: true });
     writeFileSync(join(m.a, ".doltap", "http-clients.json"), JSON.stringify({ evil: { token: "e".repeat(64), readOnly: false, created: "2026-01-01" } }));
     writeFileSync(join(m.a, ".doltap", "write.lock"), "1 2026-01-01T00:00:00.000Z\n");
@@ -36,10 +36,12 @@ describe("planted .doltap files", () => {
     expect(r.messages.join("\n")).toMatch(/\.doltap\/http-clients\.json.*tracked by git/);
     const d = await doctor(B, { services: false });
     const state = d.checks.find((c) => c.name === "state")!;
-    expect(state.status).toBe("fail");
+    expect(state.status).toBe("warn");
     expect(state.detail).toContain("http-clients.json");
     expect(state.fix).toContain("git rm --cached");
-    // The planted lock names pid 1 with an old date: pid 1 is never a doltap writer, so the lock is stale at once.
+    // Since 0.10 the lock lives outside the clone, so the planted file is not even looked at.
+    expect(writeLockPath(B).startsWith(m.b)).toBe(false);
+    expect(existsSync(writeLockPath(B))).toBe(false);
     const t = Date.now();
     expect(withWriteLock(B, () => "ok", { timeoutMs: 2000 })).toBe("ok");
     expect(Date.now() - t).toBeLessThan(1500);

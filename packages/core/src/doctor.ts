@@ -4,7 +4,6 @@ import { join, relative } from "node:path";
 import type { WikiConfig } from "./config.js";
 import { WikiDb } from "./db.js";
 import { git, hasRemote, isRepo, listConflictFiles, obsidianWarnings, readSyncState, remoteBackoffMinutes, trackedStateFiles } from "./git.js";
-import { listSymlinks } from "./safe.js";
 import { DEFAULT_LOG_MAX_BYTES, listLogs } from "./logs.js";
 import { httpServiceStatus, scheduleStatus } from "./schedule.js";
 import { loadTags, tagsPath } from "./tags.js";
@@ -103,14 +102,17 @@ function repoChecks(cfg: WikiConfig, checks: DoctorCheck[]): void {
   else checks.push({ name: "conflicts", status: "ok", detail: "none" });
 }
 
-/** `.doltap/` must be this machine's private state: nothing in it tracked by git, no symlinks (a collaborator can push both). */
+/**
+ * The state dir is outside the tree since 0.10, so a `.doltap/` inside the clone is a leftover (an old
+ * doltap wrote it, or a collaborator pushed one) that nothing reads; report it, and anything git tracks there.
+ */
 function stateCheck(cfg: WikiConfig, checks: DoctorCheck[]): void {
-  const rel = relative(cfg.root, cfg.stateDir).split("\\").join("/");
+  const rel = relative(cfg.root, cfg.legacyStateDir).split("\\").join("/");
   const tracked = trackedStateFiles(cfg);
-  const links = listSymlinks(cfg.root).filter((p) => p === rel || p.startsWith(`${rel}/`));
-  const problems = [...tracked.map((f) => `${f} tracked by git`), ...links.map((f) => `${f} is a symlink`)];
-  if (problems.length) checks.push({ name: "state", status: "fail", detail: problems.join("; "), fix: `git rm --cached -r ${rel} && git commit -m "untrack state"; remove symlinks; then doltap serve token --rotate --quiet && doltap serve install, and recreate client tokens` });
-  else checks.push({ name: "state", status: "ok", detail: `${rel}/ private (untracked, no symlinks)` });
+  const leftover = existsSync(cfg.legacyStateDir);
+  const problems = [...tracked.map((f) => `${f} tracked by git`), ...(leftover ? [`${rel}/ is still in the clone (leftover; doltap no longer reads it)`] : [])];
+  if (problems.length) checks.push({ name: "state", status: "warn", detail: problems.join("; "), fix: `${tracked.length ? `git rm --cached -r ${rel} && git commit -m "untrack state"; ` : ""}remove ${cfg.legacyStateDir} (an older doltap on another machine still writing there should be upgraded)` });
+  else checks.push({ name: "state", status: "ok", detail: `${cfg.stateDir} private, outside the repository` });
 }
 
 function syncAgeCheck(cfg: WikiConfig, checks: DoctorCheck[], maxAge: number, scheduled: boolean): void {
@@ -237,20 +239,23 @@ async function serviceChecks(cfg: WikiConfig, checks: DoctorCheck[], o: DoctorOp
   let scheduled = false;
   let interval: number | undefined;
   try {
-    const s = scheduleStatus();
+    const s = scheduleStatus(cfg);
     interval = s.intervalMinutes;
     if (!s.installed) checks.push({ name: "schedule", status: "warn", detail: `no scheduled sync (${s.platform})`, fix: "doltap schedule install" });
     else if (/NOT loaded/.test(s.detail)) checks.push({ name: "schedule", status: "fail", detail: `${s.platform}: installed but not loaded`, fix: "doltap schedule install" });
+    else if (s.legacy) { scheduled = true; checks.push({ name: "schedule", status: "warn", detail: `${s.platform}: ${s.detail}`, fix: "doltap schedule install" }); }
     else { scheduled = true; checks.push({ name: "schedule", status: "ok", detail: `${s.platform}${interval ? ` every ${interval} min` : ""}` }); }
   } catch (e) { checks.push({ name: "schedule", status: "warn", detail: `cannot query the scheduler: ${(e as Error).message.split("\n")[0]}` }); }
 
   try {
-    const h = httpServiceStatus();
+    const h = httpServiceStatus(cfg);
+    const errLog = join(cfg.stateDir, "logs", "mcp-http.err");
     if (!h.installed) checks.push({ name: "serve", status: "skip", detail: h.detail });
-    else if (!h.pid) checks.push({ name: "serve", status: "fail", detail: `${h.platform}: ${h.detail}`, fix: "doltap serve install, then read .doltap/logs/mcp-http.err" });
+    else if (!h.pid) checks.push({ name: "serve", status: "fail", detail: `${h.platform}: ${h.detail}`, fix: `doltap serve install, then read ${errLog}` });
     else {
       const err = await probe(`http://${h.host}:${h.port}/healthz`, timeout);
-      if (err) checks.push({ name: "serve", status: "fail", detail: `pid ${h.pid} but /healthz on ${h.host}:${h.port} failed: ${err}`, fix: "doltap serve install (restarts the service); check .doltap/logs/mcp-http.err" });
+      if (err) checks.push({ name: "serve", status: "fail", detail: `pid ${h.pid} but /healthz on ${h.host}:${h.port} failed: ${err}`, fix: `doltap serve install (restarts the service); check ${errLog}` });
+      else if (h.legacy) checks.push({ name: "serve", status: "warn", detail: `running (pid ${h.pid}), /healthz ok on ${h.host}:${h.port}; ${h.detail.split("; ").pop()}`, fix: "doltap serve install" });
       else checks.push({ name: "serve", status: "ok", detail: `running (pid ${h.pid}), /healthz ok on ${h.host}:${h.port}` });
     }
   } catch (e) { checks.push({ name: "serve", status: "warn", detail: `cannot query the service: ${(e as Error).message.split("\n")[0]}` }); }

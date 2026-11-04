@@ -69,11 +69,14 @@ function text(data: unknown): { content: { type: "text"; text: string }[] } {
 
 /**
  * Tool errors go back in-band to any token holder: keep the message but not the machine's directory layout
- * (security audit S13). The wiki root becomes `<wiki>`; what is under it (the lock path, a template name) stays.
+ * (security audit S13). The wiki root becomes `<wiki>` and the state dir `<state>`; what is under them (the
+ * lock file, a template name) stays.
  */
-function errorTextFor(root: string, e: unknown) {
+function errorTextFor(cfg: Pick<WikiConfig, "root" | "stateDir">, e: unknown) {
   let msg = e instanceof Error ? e.message : String(e);
-  for (const r of new Set([root, root.replace(/\\/g, "/")])) if (r) msg = msg.split(r).join("<wiki>");
+  for (const [dir, tag] of [[cfg.stateDir, "<state>"], [cfg.root, "<wiki>"]] as const) {
+    for (const d of new Set([dir, dir.replace(/\\/g, "/")])) if (d) msg = msg.split(d).join(tag);
+  }
   return { isError: true as const, ...text({ error: msg }) };
 }
 
@@ -88,7 +91,7 @@ export interface ServerOptions {
 export function createServer(cfg: WikiConfig, opts: ServerOptions = {}): McpServer {
 /** Write tools wait for the machine's write lock without blocking the event loop, so reads keep flowing meanwhile. */
 const locked = <T>(fn: () => T) => withWriteLockAsync(cfg, fn, { timeoutMs: opts.lockTimeoutMs });
-const errorText = (e: unknown) => errorTextFor(cfg.root, e);
+const errorText = (e: unknown) => errorTextFor(cfg, e);
 const readOnly = () => (opts.readOnly ? errorText(`this connection uses a read-only token (${cfg.agent}); writes need a full-access token`) : null);
 const INSTRUCTIONS = `Doltap is a shared wiki for agents (howto, patterns, reference, decisions, projects). Rules in short; the full protocol is the resource wiki://protocol.
 - Search first: call wiki_search before repetitive or cross-project work (deploy, build, release, auth, retry, config, library versions). Then wiki_get the page or one section.
@@ -98,7 +101,7 @@ const INSTRUCTIONS = `Doltap is a shared wiki for agents (howto, patterns, refer
 - Never write secret values (tokens, keys, passwords, connector URLs); record where the secret lives and how to load it. Internal hosts are fine.
 - English only. Tags only from wiki://tags (add one with wiki_add_tag). Hub lists are generated; do not edit them. Deprecate with wiki_deprecate, finish a conflict with wiki_resolve_conflict.`;
 
-const server = new McpServer({ name: "doltap", version: "0.9.1" }, { instructions: INSTRUCTIONS });
+const server = new McpServer({ name: "doltap", version: "0.10.0" }, { instructions: INSTRUCTIONS });
 
 // ------------------------------------------------------------------ resources
 server.registerResource("protocol", "wiki://protocol", { title: "Doltap protocol", description: "Rules for reading, writing, and classifying wiki pages. Read before writing.", mimeType: "text/markdown" }, async (uri) => ({
