@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.10.0 (unreleased)
+## 0.10.0 (2026-11-04)
 
 Per-machine state leaves the git tree. This is the root fix for the 0.9 security finding S2 (files pushed under `.doltap/` landing as this machine's token, client list or lock) and it changes where things live, hence the minor bump.
 
