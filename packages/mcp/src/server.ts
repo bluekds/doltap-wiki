@@ -194,14 +194,14 @@ server.registerTool(
     description: `Create a page. An existing id is refused unless replace=true (prefer wiki_patch_section / wiki_set_meta for edits); with replace, pass base_rev from wiki_get so a page changed by someone else in the meantime is not overwritten. Write when: solving the same problem a second time, a pitfall not in the docs, reusable cross-project code, or a decision whose rationale is not visible in code. ${CLASSIFICATION}
 Rules: body must follow the category template sections (get it with wiki_template); summary <= 200 chars and self-sufficient; tags only from wiki://tags; link related pages with [[id]]. The page is linted, similar pages are checked (refused unless force=true), then committed and pushed. Hub lists are updated automatically.`,
     inputSchema: {
-      id: z.string().regex(/^(howto|patterns|reference|decisions|projects)\/[a-z0-9]+(-[a-z0-9]+)*(\/[a-z0-9]+(-[a-z0-9]+)*)?$/).describe("<category>/<kebab-slug>, e.g. patterns/retry-backoff"),
+      id: z.string().regex(/^(howto|patterns|reference|decisions|projects)\/[a-z0-9]+(-[a-z0-9]+)*(\/[a-z0-9]+(-[a-z0-9]+)*)?$|^projects\/[a-z0-9]+(-[a-z0-9]+)*\/_index$/).describe("<category>/<kebab-slug>, e.g. patterns/retry-backoff; a project overview is projects/<slug>/_index"),
       title: Short,
       summary: z.string().max(200),
       tags: z.array(Short).min(1).max(50),
       body: Body.describe("Markdown below the frontmatter, following the category template sections"),
       sources: z.array(Text).max(100).default([]).describe("Evidence: URLs, SPEC ids, session ids"),
       force: z.boolean().default(false).describe("Create even if similar pages exist"),
-      replace: z.boolean().default(false).describe("Overwrite an existing page (whole body and frontmatter)"),
+      replace: z.boolean().default(false).describe("Overwrite an existing page (whole body and frontmatter). Its confidence is kept; a deprecated page is refused"),
       review_by: z.string().optional().describe("When to re-check the page against its sources: days from today (\"60\"), a YYYY-MM-DD date, or \"none\". Set it on howto/reference pages that depend on a tool version or an external service; decisions and projects never expire"),
       base_rev: z.string().optional().describe("The rev returned by wiki_get for this page; the write is refused if the page changed since"),
     },
@@ -209,7 +209,7 @@ Rules: body must follow the category template sections (get it with wiki_templat
   async (a) => {
     try {
       const ro = readOnly(); if (ro) return ro;
-      const r = await locked(() => upsertPage(cfg, { id: a.id, title: a.title, summary: a.summary, tags: a.tags, body: a.body, confidence: "draft", sources: a.sources, force: a.force, replace: a.replace, reviewBy: a.review_by, baseRev: a.base_rev }));
+      const r = await locked(() => upsertPage(cfg, { id: a.id, title: a.title, summary: a.summary, tags: a.tags, body: a.body, confidence: a.replace ? undefined : "draft", sources: a.sources, force: a.force, replace: a.replace, reviewBy: a.review_by, baseRev: a.base_rev }));
       if (r.refused) return { isError: true as const, ...text({ refused: r.refused, issues: r.issues, similar: r.similar?.map((s) => ({ id: s.id, summary: s.summary, overlap: s.snippet })) }) };
       return text({ id: r.id, created: r.created, rev: r.rev, warnings: r.issues, pushed: r.sync.pushed, notes: r.sync.messages, conflicts: r.sync.conflicts });
     } catch (e) { return errorText(e); }

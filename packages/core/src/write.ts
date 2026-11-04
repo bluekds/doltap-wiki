@@ -1,10 +1,10 @@
-import { existsSync, mkdirSync, readdirSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync } from "node:fs";
 import { listSymlinks, readSafe, safePath, writeSafe } from "./safe.js";
 import { dirname, join, relative } from "node:path";
 import { CATEGORIES, addDays, isCategoryHub, reviewByFrom, today, type WikiConfig } from "./config.js";
 import { WikiDb, type SearchHit } from "./db.js";
-import { assertOnBranch, commitAndPush, commitMessage, emptyReport, git, pull, type SyncReport } from "./git.js";
-import { buildLintContext, hasErrors, lintAssets, lintPage, type LintIssue } from "./lint.js";
+import { assertOnBranch, commitAndPush, commitMessage, emptyReport, git, pull, rollbackWrite, type SyncReport } from "./git.js";
+import { buildLintContext, lintAssets, lintPage, type LintIssue } from "./lint.js";
 import { withWriteLock } from "./lock.js";
 import { dropSections, parsePage, readPage, relPathFromId, replaceSection, serializePage, type Page, type PageMeta } from "./page.js";
 import { getTemplate } from "./template.js";
@@ -154,6 +154,63 @@ function revAfterHubs(cfg: WikiConfig, id: string, written: Page, changedHubs: s
 }
 
 /**
+ * The errors a write would introduce: those in `after` that the page on disk (`before`) does not already
+ * carry. A pre-existing error (a link broken by a hand commit, a tag dropped from tags.yaml, a template
+ * that grew a required section) must not freeze the page: verify, deprecate and small edits still go
+ * through and the old issue is reported alongside. Anything the write itself adds is refused as before.
+ */
+function introducedErrors(before: LintIssue[] | null, after: LintIssue[]): LintIssue[] {
+  const key = (i: LintIssue) => `${i.rule}\u0000${i.message}`;
+  const had = new Set((before ?? []).filter((i) => i.level === "error").map(key));
+  return after.filter((i) => i.level === "error" && !had.has(key(i)));
+}
+
+/** Lint of the page as it is on disk before the write (null for a new page). */
+function lintBefore(cfg: WikiConfig, db: WikiDb, page: Page | null): LintIssue[] | null {
+  return page ? lintOne(cfg, db, page) : null;
+}
+
+interface CommitOptions {
+  message: string;
+  sync: SyncReport;
+  /** Regenerate category hub lists after the write and commit them with the page. */
+  hubs?: boolean;
+  /** Extra root-relative paths to commit (conflict copies being removed). */
+  extra?: string[];
+  /** Runs after the page is written and before the index is refreshed (file removals that belong to the write). */
+  afterWrite?: () => void;
+}
+
+/**
+ * The tail of every writer: write the page, refresh the index, regenerate hubs when asked, commit the
+ * touched paths and push. If anything throws before the commit lands (a hook, index.lock held by another
+ * process, a missing git identity), the page goes back to its previous bytes or is removed, the hubs go back
+ * to HEAD and nothing stays staged, so the tree is clean and a retry is not refused as "exists". A failure
+ * after the commit (push) is reported, never rolled back. Returns the hubs that changed (wiki-relative).
+ */
+function commitPage(cfg: WikiConfig, db: WikiDb, page: { absPath: string; relPath: string }, raw: string, o: CommitOptions): string[] {
+  const safe = safePath(cfg.root, page.absPath);
+  const before = existsSync(safe) ? readFileSync(safe) : null;
+  let touched = [join("wiki", page.relPath), ...(o.extra ?? [])];
+  let hubs: string[] = [];
+  try {
+    writeSafe(cfg.root, page.absPath, raw);
+    o.afterWrite?.();
+    db.reindex();
+    if (o.hubs) hubs = regenerateHubLists(cfg, db);
+    touched = [...touched, ...hubs.map((rel) => join("wiki", rel))];
+    commitAndPush(cfg, touched, o.message, o.sync);
+    return hubs;
+  } catch (e) {
+    if (!o.sync.committed) {
+      rollbackWrite(cfg, { abs: safe, before }, touched);
+      try { db.reindex(); } catch { /* the index follows the files on the next call */ }
+    }
+    throw e;
+  }
+}
+
+/**
  * Create or fully replace a page. Runs pull → write → lint → commit → push.
  * Lint errors abort the write (file is restored) and are returned in `issues`.
  */
@@ -178,6 +235,7 @@ export function upsertPage(cfg: WikiConfig, input: UpsertInput): WriteResult {
       if (!input.replace) return { id: input.id, path: relPath, created: false, issues: [], sync, refused: `page ${input.id} exists; edit it with patch_section or set_meta, or pass replace=true (with base_rev from get) to overwrite it` };
       const stale = staleRefusal(existing.rev, input.baseRev);
       if (stale) return { id: input.id, path: relPath, created: false, issues: [], sync, refused: stale };
+      if (existing.meta.confidence === "deprecated") return { id: input.id, path: relPath, created: false, issues: [], sync, refused: `page ${input.id} is deprecated${existing.meta.replaced_by ? ` (replaced by ${existing.meta.replaced_by})` : ""}; edit the replacement or create a new page instead of rewriting it` };
     }
     if (!existing && !input.force) {
       const probe = `${input.title ?? ""} ${input.summary ?? ""} ${input.id.replace(/[/-]/g, " ")}`;
@@ -204,19 +262,21 @@ export function upsertPage(cfg: WikiConfig, input: UpsertInput): WriteResult {
     if (input.sources !== undefined) meta.sources = input.sources;
     meta.updated = today();
     if (input.reviewBy !== undefined) meta.review_by = reviewByFrom(input.reviewBy, meta.updated) ?? undefined;
+    // A rewrite keeps the page's confidence unless the caller demotes it; a demotion drops the old verification
+    // record, and the rewriting session counts as the author for the self-promotion guard (see authoringSessions).
+    if (existing?.meta.confidence === "verified" && meta.confidence !== "verified") {
+      delete meta.verified_by;
+      delete meta.verified_on;
+    }
 
     const raw = serializePage(meta, body);
     const page = parsePage(cfg, relPath, raw);
     const issues = lintOne(cfg, db, page).filter((i) => i.rule !== "orphan");
-    if (hasErrors(issues)) {
+    if (introducedErrors(lintBefore(cfg, db, existing), issues).length) {
       return { id: input.id, path: relPath, created: !existing, issues, sync, refused: "lint errors" };
     }
 
-    writeSafe(cfg.root, abs, raw);
-    db.reindex();
-    const hubs = regenerateHubLists(cfg, db);
-    const touched = [join("wiki", relPath), ...hubs.map((rel) => join("wiki", rel))];
-    commitAndPush(cfg, touched, commitMessage(cfg, existing ? "update" : "add", input.id), sync);
+    const hubs = commitPage(cfg, db, { absPath: abs, relPath }, raw, { hubs: true, message: commitMessage(cfg, existing ? "rewrite" : "add", input.id), sync });
     return { id: input.id, path: relPath, created: !existing, issues, sync, rev: revAfterHubs(cfg, input.id, page, hubs) };
   } finally {
     db.close();
@@ -255,10 +315,8 @@ export function patchSection(cfg: WikiConfig, input: PatchInput): WriteResult {
     const raw = serializePage(meta, body);
     const next = parsePage(cfg, page.relPath, raw);
     const issues = lintOne(cfg, db, next).filter((i) => i.rule !== "orphan");
-    if (hasErrors(issues)) return { id: input.id, path: page.relPath, created: false, issues, sync, refused: "lint errors" };
-    writeSafe(cfg.root, page.absPath, raw);
-    db.reindex();
-    commitAndPush(cfg, [join("wiki", page.relPath)], commitMessage(cfg, "update", input.id, `section: ${input.section}`), sync);
+    if (introducedErrors(lintBefore(cfg, db, page), issues).length) return { id: input.id, path: page.relPath, created: false, issues, sync, refused: "lint errors" };
+    commitPage(cfg, db, page, raw, { message: commitMessage(cfg, "update", input.id, `section: ${input.section}`), sync });
     return { id: input.id, path: page.relPath, created: false, issues, sync, rev: next.rev };
   } finally {
     db.close();
@@ -294,6 +352,7 @@ export function patchMeta(cfg: WikiConfig, input: MetaPatch): WriteResult {
     if (stale) return { id: input.id, path: page.relPath, created: false, issues: [], sync, refused: stale };
     const meta = { ...page.meta, updated: today() };
     if (input.confidence === "verified") throw new Error("confidence verified cannot be set directly; promote with verify (evidence, verified_by/verified_on)");
+    if (input.confidence === "deprecated") throw new Error("confidence deprecated cannot be set directly; use deprecate with the replacement page so readers are pointed to it");
     if (input.confidence) meta.confidence = input.confidence;
     if (input.title) meta.title = input.title;
     if (input.summary) meta.summary = input.summary;
@@ -303,13 +362,9 @@ export function patchMeta(cfg: WikiConfig, input: MetaPatch): WriteResult {
     const raw = serializePage(meta, page.body);
     const next = parsePage(cfg, page.relPath, raw);
     const issues = lintOne(cfg, db, next).filter((i) => i.rule !== "orphan");
-    if (hasErrors(issues)) return { id: input.id, path: page.relPath, created: false, issues, sync, refused: "lint errors" };
-    writeSafe(cfg.root, page.absPath, raw);
-    db.reindex();
-    const action = input.confidence === "deprecated" ? "deprecate" : "update";
-    const touched = [join("wiki", page.relPath), ...regenerateHubLists(cfg, db).map((rel) => join("wiki", rel))];
-    commitAndPush(cfg, touched, commitMessage(cfg, action, input.id, `meta: ${Object.keys(input).filter((k) => k !== "id" && k !== "baseRev" && input[k as keyof MetaPatch] !== undefined).join(", ")}`), sync);
-    return { id: input.id, path: page.relPath, created: false, issues, sync, rev: next.rev };
+    if (introducedErrors(lintBefore(cfg, db, page), issues).length) return { id: input.id, path: page.relPath, created: false, issues, sync, refused: "lint errors" };
+    const hubs = commitPage(cfg, db, page, raw, { hubs: true, message: commitMessage(cfg, "update", input.id, `meta: ${Object.keys(input).filter((k) => k !== "id" && k !== "baseRev" && input[k as keyof MetaPatch] !== undefined).join(", ")}`), sync });
+    return { id: input.id, path: page.relPath, created: false, issues, sync, rev: revAfterHubs(cfg, input.id, next, hubs) };
   } finally {
     db.close();
   }
@@ -353,12 +408,8 @@ export function deprecatePage(cfg: WikiConfig, input: DeprecateInput): WriteResu
       const raw = serializePage(meta, body);
       const next = parsePage(cfg, page.relPath, raw);
       const issues = lintOne(cfg, db, next).filter((i) => i.rule !== "orphan");
-      if (hasErrors(issues)) return { id: input.id, path: page.relPath, created: false, issues, sync, refused: "lint errors" };
-      writeSafe(cfg.root, page.absPath, raw);
-      db.reindex();
-      const hubs = regenerateHubLists(cfg, db);
-      const touched = [join("wiki", page.relPath), ...hubs.map((rel) => join("wiki", rel))];
-      commitAndPush(cfg, touched, commitMessage(cfg, "deprecate", input.id, `replaced by ${input.replacedBy}`), sync);
+      if (introducedErrors(lintBefore(cfg, db, page), issues).length) return { id: input.id, path: page.relPath, created: false, issues, sync, refused: "lint errors" };
+      const hubs = commitPage(cfg, db, page, raw, { hubs: true, message: commitMessage(cfg, "deprecate", input.id, `replaced by ${input.replacedBy}`), sync });
       return { id: input.id, path: page.relPath, created: false, issues, sync, rev: revAfterHubs(cfg, input.id, next, hubs) };
     } finally {
       db.close();
@@ -378,11 +429,18 @@ export interface VerifyInput {
   reviewBy?: string;
 }
 
-/** `[session:x]` of the commit that created the page, from git history (null when unknown). */
-function creatingSession(cfg: WikiConfig, relPath: string): string | null {
-  const log = git(cfg, ["log", "--diff-filter=A", "--format=%B", "--", `wiki/${relPath}`], { allowFail: true });
-  const m = /\[session:([^\]]+)\]/.exec(log.stdout);
-  return m ? m[1] : null;
+/**
+ * The `[session:x]` trailers of the commits that authored the page's current text: the one that created it
+ * and every `wiki: rewrite` (upsert with replace) since. A session in this set wrote what a verification
+ * would vouch for, so it cannot promote the page itself.
+ */
+function authoringSessions(cfg: WikiConfig, relPath: string): Set<string> {
+  const out = new Set<string>();
+  const session = (body: string) => { const m = /\[session:([^\]]+)\]/.exec(body); if (m) out.add(m[1]); };
+  session(git(cfg, ["log", "--diff-filter=A", "--format=%B", "--", `wiki/${relPath}`], { allowFail: true }).stdout);
+  const log = git(cfg, ["log", "--format=%x1e%s%n%b", "--", `wiki/${relPath}`], { allowFail: true }).stdout;
+  for (const entry of log.split("\x1e")) if (/^wiki: rewrite /.test(entry)) session(entry);
+  return out;
 }
 
 /**
@@ -412,8 +470,7 @@ export function verifyPage(cfg: WikiConfig, input: VerifyInput): WriteResult {
       if (page.meta.confidence === "deprecated") return refuse(`${input.id} is deprecated; nothing to verify`);
       const reverify = page.meta.confidence === "verified";
       if (!reverify) {
-        const creator = creatingSession(cfg, page.relPath);
-        if (creator && cfg.session && creator === cfg.session) return refuse(`refusing self-promotion: ${input.id} was created in this same session (${cfg.session}); another session or machine must follow the page first`);
+        if (cfg.session && authoringSessions(cfg, page.relPath).has(cfg.session)) return refuse(`refusing self-promotion: ${input.id} was written in this same session (${cfg.session}); another session or machine must follow the page first`);
       }
       const now = today();
       const meta: PageMeta = {
@@ -428,10 +485,8 @@ export function verifyPage(cfg: WikiConfig, input: VerifyInput): WriteResult {
       const raw = serializePage(meta, page.body);
       const next = parsePage(cfg, page.relPath, raw);
       const issues = lintOne(cfg, db, next).filter((i) => i.rule !== "orphan");
-      if (hasErrors(issues)) return { ...refuse("lint errors"), issues };
-      writeSafe(cfg.root, page.absPath, raw);
-      db.reindex();
-      commitAndPush(cfg, [join("wiki", page.relPath)], commitMessage(cfg, reverify ? "re-verify" : "verify", input.id, `evidence: ${evidence}`), sync);
+      if (introducedErrors(lintBefore(cfg, db, page), issues).length) return { ...refuse("lint errors"), issues };
+      commitPage(cfg, db, page, raw, { message: commitMessage(cfg, reverify ? "re-verify" : "verify", input.id, `evidence: ${evidence}`), sync });
       return { id: input.id, path: page.relPath, created: false, issues, sync, rev: next.rev };
     } finally {
       db.close();
@@ -507,15 +562,14 @@ export function resolveConflict(cfg: WikiConfig, input: ResolveInput): WriteResu
       const raw = serializePage(meta, body);
       const next = parsePage(cfg, page.relPath, raw);
       const issues = lintOne(cfg, db, next).filter((i) => i.rule !== "orphan");
-      if (hasErrors(issues)) return { id: input.id, path: page.relPath, created: false, issues, sync, refused: "lint errors" };
+      if (introducedErrors(lintBefore(cfg, db, restoring ? null : page), issues).length) return { id: input.id, path: page.relPath, created: false, issues, sync, refused: "lint errors" };
       // A copy left by an autostash conflict is untracked; `git add` of a deleted untracked path fails, so stage only tracked copies.
       const tracked = copies.filter((c) => git(cfg, ["ls-files", "--error-unmatch", "--", `wiki/${c}`], { allowFail: true }).ok);
-      writeSafe(cfg.root, page.absPath, raw);
-      for (const c of copies) unlinkSync(safePath(cfg.root, join(cfg.wikiDir, c)));
-      db.reindex();
-      const hubs = regenerateHubLists(cfg, db);
-      const touched = [join("wiki", page.relPath), ...tracked.map((c) => `wiki/${c}`), ...hubs.map((rel) => join("wiki", rel))];
-      commitAndPush(cfg, touched, commitMessage(cfg, "resolve conflict", input.id, `${restoring ? "restored from the conflict copy (deleted upstream); " : ""}${copies.length ? `removed: ${copies.join(", ")}` : ""}`.trim() || undefined), sync);
+      const hubs = commitPage(cfg, db, page, raw, {
+        hubs: true, extra: tracked.map((c) => `wiki/${c}`), sync,
+        afterWrite: () => { for (const c of copies) unlinkSync(safePath(cfg.root, join(cfg.wikiDir, c))); },
+        message: commitMessage(cfg, "resolve conflict", input.id, `${restoring ? "restored from the conflict copy (deleted upstream); " : ""}${copies.length ? `removed: ${copies.join(", ")}` : ""}`.trim() || undefined),
+      });
       return { id: input.id, path: page.relPath, created: restoring, issues, sync, rev: revAfterHubs(cfg, input.id, next, hubs) };
     } finally {
       db.close();

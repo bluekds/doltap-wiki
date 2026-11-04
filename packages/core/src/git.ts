@@ -1,6 +1,6 @@
 import { execFile, execFileSync, type ExecFileSyncOptions } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { extname, join, relative, sep } from "node:path";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { extname, join, relative, resolve, sep } from "node:path";
 import type { WikiConfig } from "./config.js";
 import { withWriteLock } from "./lock.js";
 
@@ -24,6 +24,8 @@ export interface SyncReport {
   remoteError?: string;
   conflicts: string[];
   messages: string[];
+  /** Set once the commit of a write has landed; a failure after this point must not roll the files back. */
+  committed?: boolean;
 }
 
 export function git(cfg: WikiConfig, args: string[], opts: { timeoutMs?: number; allowFail?: boolean } = {}): GitResult {
@@ -282,17 +284,25 @@ export function commitMessage(cfg: WikiConfig, action: string, id: string, extra
   return `wiki: ${action} ${id}\n\n${tags.join(" ")}${extra ? "\n\n" + extra : ""}`;
 }
 
-/** Stage the given paths (relative to root), commit, then push with rebase-retry. */
+/** git pathspecs are always forward-slash, even on Windows. */
+const pathspec = (paths: string[]): string[] => paths.map((p) => p.split(sep).join("/"));
+
+/**
+ * Stage the given paths (relative to root), commit them, then push with rebase-retry. Only those paths go
+ * into the commit: a file somebody else left staged (an earlier failed write, a hand `git add`) stays
+ * staged and is never swept into a page commit under the wrong message.
+ */
 export function commitAndPush(cfg: WikiConfig, paths: string[], message: string, report: SyncReport = emptyReport()): SyncReport {
   if (!isRepo(cfg)) return report;
-  // git pathspecs are always forward-slash, even on Windows.
-  git(cfg, ["add", "--", ...paths.map((p) => p.split(sep).join("/"))]);
-  const staged = git(cfg, ["diff", "--cached", "--name-only"], { allowFail: true }).stdout;
+  const spec = pathspec(paths);
+  git(cfg, ["add", "--", ...spec]);
+  const staged = git(cfg, ["diff", "--cached", "--name-only", "--", ...spec], { allowFail: true }).stdout;
   if (!staged) {
     report.messages.push("nothing to commit");
     return report;
   }
-  git(cfg, ["commit", "--quiet", "-m", message]);
+  git(cfg, ["commit", "--quiet", "-m", message, "--", ...spec]);
+  report.committed = true;
   if (cfg.noSync || !hasRemote(cfg)) return report;
   if (cfg.deferPush) {
     writeSyncState(cfg, { pendingPush: true });
@@ -319,6 +329,23 @@ export function commitAndPush(cfg: WikiConfig, paths: string[], message: string,
   report.messages.push("push failed after 3 attempts (commit saved locally)");
   writeSyncState(cfg, { pendingPush: true });
   return report;
+}
+
+/**
+ * Undo a write whose commit did not land: put the written file back to its previous bytes (or remove it when
+ * it was new), take every other touched path (regenerated hubs) back to HEAD, and unstage them all, so the
+ * tree is as clean as before the write and a retry is not refused as "exists".
+ */
+export function rollbackWrite(cfg: WikiConfig, written: { abs: string; before: Buffer | null }, touched: string[]): void {
+  try {
+    if (written.before === null) rmSync(written.abs, { force: true });
+    else writeFileSync(written.abs, written.before);
+  } catch { /* best effort; the caller rethrows the original error */ }
+  if (!isRepo(cfg)) return;
+  const spec = pathspec(touched);
+  git(cfg, ["reset", "-q", "--", ...spec], { allowFail: true });
+  const others = spec.filter((p) => resolve(cfg.root, p) !== written.abs);
+  if (others.length) git(cfg, ["checkout", "--", ...others], { allowFail: true });
 }
 
 /** Push anything left over from an earlier offline write. */

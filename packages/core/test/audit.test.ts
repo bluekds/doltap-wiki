@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { WikiDb, audit, emptyReport, get, patchMeta, publishHostStats, pull, resolveConfig, type WikiConfig } from "../src/index.js";
+import { WikiDb, audit, deprecatePage, emptyReport, get, patchMeta, publishHostStats, pull, resolveConfig, type WikiConfig } from "../src/index.js";
 import { cfgFor, makeTwoMachines, makeWikiCopy, type Fixture } from "./helpers.js";
 
 describe("audit (single machine)", () => {
@@ -27,7 +27,7 @@ describe("audit (single machine)", () => {
 
   it("reports deprecated pages that are still linked", () => {
     const cfg = cfgFor(fx.dir);
-    patchMeta(cfg, { id: "decisions/wiki-tooling-typescript", confidence: "deprecated" });
+    deprecatePage(cfg, { id: "decisions/wiki-tooling-typescript", replacedBy: "decisions/wiki-storage-markdown-git" });
     const r = audit(cfg);
     expect(r.deprecatedStillLinked.map((d) => d.id)).toContain("decisions/wiki-tooling-typescript");
     expect(r.deprecatedStillLinked[0].linkedFrom).toContain("decisions/wiki-storage-markdown-git");
