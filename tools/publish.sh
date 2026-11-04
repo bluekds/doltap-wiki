@@ -42,16 +42,16 @@ done
 # A dry run only reports these two, so the pipeline can be rehearsed from a branch.
 if [ "$DRY" = 1 ]; then guard() { echo "   warning (dry run): $*"; }; else guard() { die "$@"; }; fi
 [ -z "$(git status --porcelain)" ] || guard "working tree is not clean"
-# HEAD must be the tagged release, or a later commit that left the packages exactly as tagged
-# (tooling or docs merged after the tag).
+# HEAD must be the tagged release, or a later commit that left what gets published exactly as tagged
+# (tooling, docs or tests merged after the tag): tests are not packed, so they do not count.
 if git tag --points-at HEAD | grep -qx "v$VERSION"; then
   :
 elif git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null \
     && git merge-base --is-ancestor "v$VERSION" HEAD \
-    && git diff --quiet "v$VERSION" HEAD -- packages package-lock.json; then
-  echo "   v$VERSION is $(git rev-list --count "v$VERSION"..HEAD) commit(s) behind HEAD; packages/ unchanged since the tag"
+    && git diff --quiet "v$VERSION" HEAD -- packages package-lock.json ':!packages/*/test/*'; then
+  echo "   v$VERSION is $(git rev-list --count "v$VERSION"..HEAD) commit(s) behind HEAD; published files unchanged since the tag"
 else
-  guard "HEAD is not tagged v$VERSION and packages/ differ from the tag; finish the release (merge, tag) first"
+  guard "HEAD is not tagged v$VERSION and the published files differ from the tag; finish the release (merge, tag) first"
 fi
 me=$(npm whoami 2>/dev/null) || die "not logged in to npm (npm login)"
 echo "   logged in as $me, tag $TAG$( [ "$DRY" = 1 ] && echo ', dry run')"
