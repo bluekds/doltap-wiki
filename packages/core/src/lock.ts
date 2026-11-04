@@ -1,4 +1,4 @@
-import { closeSync, existsSync, lstatSync, openSync, readFileSync, unlinkSync, writeSync } from "node:fs";
+import { closeSync, existsSync, lstatSync, openSync, readFileSync, renameSync, rmSync, unlinkSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import type { WikiConfig } from "./config.js";
 
@@ -43,29 +43,58 @@ export function writeLockPath(cfg: WikiConfig): string {
  * cost two minutes of refused writes); a live owner keeps it however old (a long push). A file with no pid
  * yet counts as held for staleMs. A symlink in the lock's place (a collaborator can push one) is replaced.
  */
+const lockLine = () => `${process.pid} ${new Date().toISOString()}\n`;
+
+/**
+ * Replace a lock we judged stale (its content was `expected`) with our own, without a moment where the path
+ * is absent: write our line to a sibling temp file and rename it over the lock, then read back. If the lock
+ * changed hands since we judged it, or the read-back shows another pid (two waiters renamed, the later one
+ * owns the file), we did not get it and go on waiting. Unlink-and-recreate let the second waiter's unlink
+ * remove the first waiter's fresh lock, and both believed they held it.
+ */
+export function takeOverStaleLock(path: string, expected: string): boolean {
+  let now: string;
+  try { now = readFileSync(path, "utf8"); } catch { return false; } // gone: the normal O_EXCL create will try next
+  if (now !== expected) return false;
+  const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
+  const mine = lockLine();
+  try {
+    const fd = openSync(tmp, "wx");
+    writeSync(fd, mine);
+    closeSync(fd);
+    renameSync(tmp, path);
+  } catch {
+    rmSync(tmp, { force: true });
+    return false;
+  }
+  try { return readFileSync(path, "utf8") === mine; } catch { return false; }
+}
+
 function tryAcquire(path: string, staleMs: number): boolean {
   for (;;) {
     try {
       const fd = openSync(path, "wx");
-      writeSync(fd, `${process.pid} ${new Date().toISOString()}\n`);
+      writeSync(fd, lockLine());
       closeSync(fd);
       return true;
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+      let content: string;
       try {
         const st = lstatSync(path);
         if (st.isSymbolicLink()) { unlinkSync(path); continue; }
-        const content = readFileSync(path, "utf8");
+        content = readFileSync(path, "utf8");
         if (!content.trim()) {
           if (Date.now() - st.mtimeMs <= staleMs) return false;
-          unlinkSync(path);
-          continue;
+        } else if (ownerAlive(content)) {
+          return false;
         }
-        if (!ownerAlive(content)) { unlinkSync(path); continue; }
       } catch {
         continue; // vanished between open and stat: retry immediately
       }
-      return false;
+      // Stale (empty past its grace, or a dead owner): take it over in place rather than unlink and recreate.
+      if (takeOverStaleLock(path, content)) return true;
+      sleep(5);
     }
   }
 }
