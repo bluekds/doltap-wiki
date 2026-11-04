@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.11.0 (unreleased)
+## 0.11.0 (2026-11-04)
 
 - **Releases publish themselves**: pushing a `v*` tag on `main` runs the Publish workflow (`.github/workflows/publish.yml`), which checks that the tag matches the package versions, runs the whole suite, publishes `@bluekds/doltap-core`, `@bluekds/doltap-mcp` and `doltap-wiki` through npm trusted publishing with provenance, waits for the registry and clean-installs the CLI. No npm token or one-time password; a manual run with `dry_run` rehearses it. `tools/publish.sh` stays as the fallback
 - **CLI reference generated from the code**: docs/CLI.md lists every command, argument, option and default, rendered by `doltap --reference` from the commander definitions; `npm run reference` writes it next to docs/TOOLS.md and `reference:check` (CI, publish) fails when either drifts. Closes the 1.0 "every tool and flag documented" item
