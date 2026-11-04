@@ -229,8 +229,10 @@ Logo and badge sources are in [`static/`](static/) (MIT).
 ```sh
 npm ci && npm run build && npm test
 npm link -w doltap-wiki            # makes this checkout's `doltap` and `doltap-mcp` global
-npm run publish:all                # after tagging: publish core, mcp, cli in order, verify the registry, clean-install (tools/publish.sh --dry-run to rehearse)
+git tag -a v1.2.3 -m 1.2.3 && git push origin v1.2.3   # release: the Publish workflow tests and publishes core, mcp, cli with provenance
 ```
+
+Releases are published by GitHub Actions through npm trusted publishing (`.github/workflows/publish.yml`): a `v*` tag on `main` whose version matches the packages runs the full suite, publishes the three packages with `--provenance`, waits for the registry and clean-installs the CLI. No npm token or one-time password is involved; the packages' trusted publisher on npmjs.com names this repository and workflow. Rehearse with the workflow's manual run (`dry_run`). `npm run publish:all` (tools/publish.sh) remains as the manual fallback.
 
 Packages: `@bluekds/doltap-core` (parser, lint, search, git sync, scaffold), `@bluekds/doltap-mcp` (MCP server), `doltap-wiki` (CLI and both binaries, `doltap` and `doltap-mcp`). CI builds, tests and scaffolds an empty wiki on macOS, Linux and Windows.
 
