@@ -140,7 +140,7 @@ server.registerTool(
   "wiki_get",
   {
     annotations: { readOnlyHint: true }, title: "Read a wiki page",
-    description: "Return a page body (or a single ## section to save tokens) with its frontmatter, rev, section list, and backlinks. Check `confidence When a sync left conflict copies for the page, `conflict_copies` carries each copy's path and body: merge by hand and finish with wiki_resolve_conflict.`: verified = trust; draft = verify yourself and promote via wiki_verify if it holds; deprecated = do not follow, read `replaced_by` instead. `review_due: true` means the page's review_by date has passed: its facts may have drifted, so treat it as a hint, re-check, and wiki_verify it if it still holds.",
+    description: "Return a page body (or a single ## section to save tokens) with its frontmatter, rev, section list, and backlinks. Check `confidence`: verified = trust; draft = verify yourself and promote via wiki_verify if it holds; deprecated = do not follow, read `replaced_by` instead. `review_due: true` means the page's review_by date has passed: its facts may have drifted, so treat it as a hint, re-check, and wiki_verify it if it still holds. When a sync left conflict copies for the page, `conflict_copies` carries each copy's path and body: merge by hand and finish with wiki_resolve_conflict.",
     inputSchema: {
       id: PageId.describe("Page id, e.g. howto/deploy-pypi"),
       section: Short.optional().describe("Heading of one ## section, e.g. Pitfalls"),
