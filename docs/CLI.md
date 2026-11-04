@@ -73,7 +73,7 @@ set up a wiki on this machine: clone an existing wiki repository (--repo) or cre
 | `--repo <url>` | no |  | git URL of an existing wiki repository to clone |
 | `--new` | no |  | create a new wiki (protocol, templates, hubs, Obsidian config) and git init it |
 | `--remote <url>` | no |  | with --new: add this empty repository as origin and push |
-| `--dir <path>` | no | `"/Users/bluekds/.doltap"` | where to clone or create |
+| `--dir <path>` | no |  | where to clone or create (default: ~/.doltap) |
 | `--force` | no |  | with --new: set up inside a directory that already has files (its .gitignore is merged, only the skeleton is committed) |
 
 ### `doltap search <query...>`

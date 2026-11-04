@@ -141,11 +141,11 @@ program
   .option("--repo <url>", "git URL of an existing wiki repository to clone")
   .option("--new", "create a new wiki (protocol, templates, hubs, Obsidian config) and git init it")
   .option("--remote <url>", "with --new: add this empty repository as origin and push")
-  .option("--dir <path>", "where to clone or create", join(homedir(), ".doltap"))
+  .option("--dir <path>", "where to clone or create (default: ~/.doltap)")
   .option("--force", "with --new: set up inside a directory that already has files (its .gitignore is merged, only the skeleton is committed)")
-  .action((o: { repo?: string; new?: boolean; remote?: string; dir: string; force?: boolean }) => {
+  .action((o: { repo?: string; new?: boolean; remote?: string; dir?: string; force?: boolean }) => {
     try {
-      const dir = resolve(o.dir);
+      const dir = resolve(o.dir ?? join(homedir(), ".doltap"));
       if (o.new) {
         const r = scaffoldWiki(dir, { remote: o.remote, force: o.force });
         console.log(`created wiki at ${r.dir} (${r.files} files, 1 commit${r.pushed ? ", pushed" : ""})`);
