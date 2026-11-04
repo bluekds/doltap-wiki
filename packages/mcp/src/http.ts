@@ -1,7 +1,7 @@
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { chmodSync, existsSync, lstatSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { createServer as createHttpServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { join } from "node:path";
 import { appendCall, pushPendingAsync, readSyncState, trackedStateFiles, trackedStateWarning, type SyncReport, type WikiConfig } from "@bluekds/doltap-core";
@@ -25,19 +25,53 @@ export interface HttpOptions {
   flushIntervalMs?: number;
   /** Passed to every MCP server: how long a write waits for the lock (default 30 s). */
   lockTimeoutMs?: number;
+  /** Requests with no valid token are counted and written to the call log as one line per interval (default 60 s), not one per request. */
+  unauthFlushMs?: number;
+  /** Live MCP sessions one client may hold; beyond it the client's own oldest session is closed (default 50). */
+  maxSessionsPerClient?: number;
+}
+
+export { assertClientName } from "@bluekds/doltap-core";
+
+/** A path token is 256 bits as lower-case hex, whatever generated it. */
+export function assertTokenFormat(token: string): void {
+  if (!/^[0-9a-f]{64}$/.test(token)) throw new Error("token must be 64 hex characters (what `doltap serve token` generates); refusing a shorter or differently formed one");
 }
 
 export const DEFAULT_MAX_BODY_BYTES = 2 * 1024 * 1024;
 export const DEFAULT_SESSION_IDLE_MS = 2 * 60 * 60 * 1000;
 export const MAX_SESSIONS = 500;
+export const DEFAULT_MAX_SESSIONS_PER_CLIENT = 50;
 
 export function tokenPath(cfg: WikiConfig): string {
   return join(cfg.stateDir, "http-token");
 }
 
+/** Write through a temp file and rename: a server starting (or re-reading) at that moment sees the old or the new token, never an empty file. */
 function writeToken(p: string, t: string): void {
-  writeFileSync(p, t + "\n", { mode: 0o600 });
-  chmodSync(p, 0o600); // `mode` only applies when the file is created; rotation must tighten an existing file too
+  const tmp = `${p}.${process.pid}.tmp`;
+  writeFileSync(tmp, t + "\n", { mode: 0o600 });
+  chmodSync(tmp, 0o600); // `mode` only applies when the file is created; rotation must tighten an existing file too
+  renameSync(tmp, p);
+}
+
+/** The stored token, re-read when the file changes, so `doltap serve token --rotate` takes effect on a running service and the leaked one stops working at once. */
+function tokenReader(cfg: WikiConfig): () => string {
+  const p = tokenPath(cfg);
+  let token = loadOrCreateToken(cfg);
+  let mtime = -1;
+  try { mtime = statSync(p).mtimeMs; } catch { /* just created */ }
+  return () => {
+    let now = -1;
+    try { now = statSync(p).mtimeMs; } catch { return token; }
+    if (now !== mtime) {
+      try {
+        const t = readFileSync(p, "utf8").trim();
+        if (t.length >= 32) { token = t; mtime = now; }
+      } catch { /* keep the last good token */ }
+    }
+    return token;
+  };
 }
 
 /**
@@ -235,6 +269,8 @@ export interface RunningHttpServer {
   /** Push now if a write left a commit pending (cfg.deferPush); resolves with the last push report when the attempt finished. */
   flush(): Promise<SyncReport | null>;
   close(): Promise<void>;
+  /** Write the pending count of unauthenticated requests to the call log now (tests; otherwise once per interval). */
+  flushUnauth: () => void;
 }
 
 /**
@@ -246,7 +282,7 @@ export interface RunningHttpServer {
  * the background so a write returns as soon as its commit is made.
  */
 export async function startHttpServer(cfg: WikiConfig, o: HttpOptions): Promise<RunningHttpServer> {
-  const token = o.token ?? loadOrCreateToken(cfg);
+  const currentToken = o.token ? () => o.token! : tokenReader(cfg);
   const maxBody = o.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
   const idleMs = o.sessionIdleMs ?? DEFAULT_SESSION_IDLE_MS;
   const clientsFile = clientsPath(cfg);
@@ -283,6 +319,26 @@ export async function startHttpServer(cfg: WikiConfig, o: HttpOptions): Promise<
   };
   const evictTimer = setInterval(evict, Math.min(idleMs, 5 * 60 * 1000));
   evictTimer.unref();
+  // A client may hold only so many sessions; past that its own oldest goes, so churning initializes from one
+  // token holder (read-only included) cannot evict everybody else's sessions (security audit S11).
+  const maxPerClient = o.maxSessionsPerClient ?? DEFAULT_MAX_SESSIONS_PER_CLIENT;
+  const capClient = (agent: string) => {
+    const own = [...sessions.entries()].filter(([, s]) => s.agent === agent).sort((a, b) => a[1].last - b[1].last);
+    for (const [id] of own.slice(0, Math.max(0, own.length - maxPerClient + 1))) dropSession(id);
+  };
+
+  // ---- unauthenticated requests: counted, flushed as one line (security audit S10)
+  // Anyone who can reach the URL can send these; one synchronous log write per request would be a cheap way
+  // to fill the disk and the event loop. Expired named tokens are still logged one by one (rare, and named).
+  let unauth = 0;
+  let unauthFirst = 0;
+  const flushUnauth = () => {
+    if (!unauth) return;
+    try { appendCall(cfg, { ts: new Date(unauthFirst).toISOString(), client: "-", method: "aggregate", tool: `${unauth} requests`, status: "no-token", ms: Date.now() - unauthFirst }); } catch { /* logging never fails a request */ }
+    unauth = 0;
+  };
+  const unauthTimer = setInterval(flushUnauth, o.unauthFlushMs ?? 60_000);
+  unauthTimer.unref();
 
   // ---- background push (cfg.deferPush)
   // One flush at a time. A flush requested while one runs sets `rerun`, so a commit made during a push is
@@ -325,10 +381,11 @@ export async function startHttpServer(cfg: WikiConfig, o: HttpOptions): Promise<
       try { appendCall(cfg, { ts: new Date(started).toISOString(), client, method, tool, status, ms: Date.now() - started }); } catch { /* logging never fails a request */ }
     };
     const m = /^\/([^/]+)\/mcp$/.exec(url.pathname);
-    const client = m ? resolveClient(m[1], token, currentClients()) : null;
+    const client = m ? resolveClient(m[1], currentToken(), currentClients()) : null;
     if (!client || client.expired) {
       res.writeHead(404, { "content-type": "text/plain" }).end("not found\n");
-      log(client?.agent ?? "-", "-", "-", client ? "expired" : "no-token");
+      if (client) log(client.agent, "-", "-", "expired");
+      else { if (!unauth) unauthFirst = started; unauth++; }
       return;
     }
     if (!hostAllowed(req.headers.host, allowed)) {
@@ -387,6 +444,7 @@ export async function startHttpServer(cfg: WikiConfig, o: HttpOptions): Promise<
       const id = randomUUID();
       server = createServer({ ...cfg, agent: client.agent, session: mcpSession(client.agent, id) }, { readOnly: client.readOnly, lockTimeoutMs: o.lockTimeoutMs });
       transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => id });
+      capClient(client.agent);
       sessions.set(id, { transport, server, agent: client.agent, last: Date.now() });
       transport.onclose = () => dropSession(id);
       if (sessions.size > MAX_SESSIONS) evict();
@@ -424,8 +482,11 @@ export async function startHttpServer(cfg: WikiConfig, o: HttpOptions): Promise<
     port,
     sessionCount: () => sessions.size,
     flush,
+    flushUnauth,
     close: async () => {
       clearInterval(evictTimer);
+      clearInterval(unauthTimer);
+      flushUnauth();
       if (flushTimer) clearInterval(flushTimer);
       for (const id of [...sessions.keys()]) dropSession(id);
       await new Promise<void>((resolve, reject) => { httpServer.closeAllConnections(); httpServer.close((e) => (e ? reject(e) : resolve())); });

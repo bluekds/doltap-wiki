@@ -1,10 +1,13 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { join } from "node:path";
 import {
   addTag,
   CATEGORIES,
   CONFIDENCE,
   conflictCopiesOf,
+  parsePage,
+  readSafe,
   deprecatePage,
   get,
   resolveConflict,
@@ -55,12 +58,23 @@ const CLASSIFICATION = `Choose the category by the question the page answers:
 - projects: context for one project (Overview/Environment/Wiki pages used by this project/Project-only notes)
 Do not write session logs, one-off debugging, anything obvious from code or docs, or secret values (record where a secret lives and how to load it instead). Write in English.`;
 
+/** The body of a conflict copy (`<id>.conflict-<host>.md`), so an MCP-only client can merge without filesystem access (core audit M7). */
+function copyBody(cfg: WikiConfig, rel: string): string {
+  try { return parsePage(cfg, rel, readSafe(cfg.root, join(cfg.wikiDir, rel))).body; } catch (e) { return `(unreadable: ${e instanceof Error ? e.message : String(e)})`; }
+}
+
 function text(data: unknown): { content: { type: "text"; text: string }[] } {
   return { content: [{ type: "text", text: typeof data === "string" ? data : JSON.stringify(data, null, 2) }] };
 }
 
-function errorText(e: unknown) {
-  return { isError: true as const, ...text({ error: e instanceof Error ? e.message : String(e) }) };
+/**
+ * Tool errors go back in-band to any token holder: keep the message but not the machine's directory layout
+ * (security audit S13). The wiki root becomes `<wiki>`; what is under it (the lock path, a template name) stays.
+ */
+function errorTextFor(root: string, e: unknown) {
+  let msg = e instanceof Error ? e.message : String(e);
+  for (const r of new Set([root, root.replace(/\\/g, "/")])) if (r) msg = msg.split(r).join("<wiki>");
+  return { isError: true as const, ...text({ error: msg }) };
 }
 
 export interface ServerOptions {
@@ -74,6 +88,7 @@ export interface ServerOptions {
 export function createServer(cfg: WikiConfig, opts: ServerOptions = {}): McpServer {
 /** Write tools wait for the machine's write lock without blocking the event loop, so reads keep flowing meanwhile. */
 const locked = <T>(fn: () => T) => withWriteLockAsync(cfg, fn, { timeoutMs: opts.lockTimeoutMs });
+const errorText = (e: unknown) => errorTextFor(cfg.root, e);
 const readOnly = () => (opts.readOnly ? errorText(`this connection uses a read-only token (${cfg.agent}); writes need a full-access token`) : null);
 const INSTRUCTIONS = `Doltap is a shared wiki for agents (howto, patterns, reference, decisions, projects). Rules in short; the full protocol is the resource wiki://protocol.
 - Search first: call wiki_search before repetitive or cross-project work (deploy, build, release, auth, retry, config, library versions). Then wiki_get the page or one section.
@@ -125,7 +140,7 @@ server.registerTool(
   "wiki_get",
   {
     annotations: { readOnlyHint: true }, title: "Read a wiki page",
-    description: "Return a page body (or a single ## section to save tokens) with its frontmatter, rev, section list, and backlinks. Check `confidence`: verified = trust; draft = verify yourself and promote via wiki_verify if it holds; deprecated = do not follow, read `replaced_by` instead. `review_due: true` means the page's review_by date has passed: its facts may have drifted, so treat it as a hint, re-check, and wiki_verify it if it still holds.",
+    description: "Return a page body (or a single ## section to save tokens) with its frontmatter, rev, section list, and backlinks. Check `confidence`: verified = trust; draft = verify yourself and promote via wiki_verify if it holds; deprecated = do not follow, read `replaced_by` instead. `review_due: true` means the page's review_by date has passed: its facts may have drifted, so treat it as a hint, re-check, and wiki_verify it if it still holds. When a sync left conflict copies for the page, `conflict_copies` carries each copy's path and body: merge by hand and finish with wiki_resolve_conflict.",
     inputSchema: {
       id: PageId.describe("Page id, e.g. howto/deploy-pypi"),
       section: Short.optional().describe("Heading of one ## section, e.g. Pitfalls"),
@@ -136,7 +151,7 @@ server.registerTool(
       const { result } = get(cfg, a.id, a.section);
       if (!result) return errorText(`page not found: ${a.id}`);
       const { page, text: body, backlinks } = result;
-      return text({ id: a.id, rev: page.rev, meta: page.meta, replaced_by: page.meta.replaced_by ?? undefined, review_due: !!page.meta.review_by && page.meta.review_by < today() ? true : undefined, conflict_copies: conflictCopiesOf(cfg, a.id), section: a.section ?? null, sections: page.sections.map((s) => s.heading), text: body, links: page.links, backlinks });
+      return text({ id: a.id, rev: page.rev, meta: page.meta, replaced_by: page.meta.replaced_by ?? undefined, review_due: !!page.meta.review_by && page.meta.review_by < today() ? true : undefined, conflict_copies: conflictCopiesOf(cfg, a.id).map((p) => ({ path: p, body: copyBody(cfg, p) })), section: a.section ?? null, sections: page.sections.map((s) => s.heading), text: body, links: page.links, backlinks });
     } catch (e) { return errorText(e); }
   },
 );

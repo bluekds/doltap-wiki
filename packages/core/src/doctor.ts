@@ -3,7 +3,7 @@ import { platform } from "node:os";
 import { join, relative } from "node:path";
 import type { WikiConfig } from "./config.js";
 import { WikiDb } from "./db.js";
-import { git, hasRemote, isRepo, listConflictFiles, readSyncState, remoteBackoffMinutes, trackedStateFiles } from "./git.js";
+import { git, hasRemote, isRepo, listConflictFiles, obsidianWarnings, readSyncState, remoteBackoffMinutes, trackedStateFiles } from "./git.js";
 import { listSymlinks } from "./safe.js";
 import { DEFAULT_LOG_MAX_BYTES, listLogs } from "./logs.js";
 import { httpServiceStatus, scheduleStatus } from "./schedule.js";
@@ -270,6 +270,9 @@ export async function doctor(cfg: WikiConfig, o: DoctorOptions = {}): Promise<Do
   nodeCheck(checks);
   repoChecks(cfg, checks);
   stateCheck(cfg, checks);
+  const obsidian = obsidianWarnings(cfg);
+  if (obsidian.length) checks.push({ name: "obsidian", status: "warn", detail: obsidian.join("; "), fix: "review wiki/.obsidian (a collaborator with push access can run code on every machine that opens the vault)" });
+  else checks.push({ name: "obsidian", status: "ok", detail: existsSync(join(cfg.wikiDir, ".obsidian")) ? "no plugin binaries tracked, no extra plugins, no DataviewJS" : "no Obsidian config" });
   const svc = o.services === false ? { scheduled: false, interval: undefined } : await serviceChecks(cfg, checks, o);
   if (o.healthzUrl) await remoteHealthCheck(checks, o.healthzUrl, o.timeoutMs ?? 3000);
   const maxAge = o.maxPullAgeMinutes ?? (svc.interval ? svc.interval * 3 : 60);
