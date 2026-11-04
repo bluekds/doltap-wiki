@@ -269,6 +269,8 @@ export interface RunningHttpServer {
   /** Push now if a write left a commit pending (cfg.deferPush); resolves with the last push report when the attempt finished. */
   flush(): Promise<SyncReport | null>;
   close(): Promise<void>;
+  /** Write the pending count of unauthenticated requests to the call log now (tests; otherwise once per interval). */
+  flushUnauth: () => void;
 }
 
 /**
@@ -480,6 +482,7 @@ export async function startHttpServer(cfg: WikiConfig, o: HttpOptions): Promise<
     port,
     sessionCount: () => sessions.size,
     flush,
+    flushUnauth,
     close: async () => {
       clearInterval(evictTimer);
       clearInterval(unauthTimer);

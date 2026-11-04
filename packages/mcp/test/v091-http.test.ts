@@ -23,7 +23,7 @@ beforeAll(async () => {
   cfg = resolveConfig({ root: dir, noSync: true, agent: "test" });
   writeFileSync(join(cfg.stateDir, "http-clients.json"), JSON.stringify({ laptop: { token: RO, readOnly: true, created: "2026-10-27" } }));
   // No `token` option: the server reads (and creates) .doltap/http-token, which is what the service does.
-  srv = await startHttpServer(cfg, { port: 0, host: "127.0.0.1", unauthFlushMs: 150, maxSessionsPerClient: 2 });
+  srv = await startHttpServer(cfg, { port: 0, host: "127.0.0.1", unauthFlushMs: 3_600_000, maxSessionsPerClient: 2 });
   base = `http://127.0.0.1:${srv.port}`;
 });
 afterAll(async () => {
@@ -44,14 +44,13 @@ const ping = async (t: string, sid: string) => {
   await r.text();
   return r.status;
 };
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 describe("S10: unauthenticated requests are aggregated", () => {
   it("writes one summary line per flush instead of one line per 404", async () => {
     for (let i = 0; i < 5; i++) expect((await fetch(`${base}/${"ef".repeat(32)}/mcp`, { method: "POST", headers, body: init })).status).toBe(404);
     const before = (() => { try { return readFileSync(callLogPath(cfg), "utf8"); } catch { return ""; } })();
     expect(before.split("\n").filter((l) => l.includes("no-token"))).toHaveLength(0);
-    await sleep(400);
+    srv.flushUnauth();
     const after = readFileSync(callLogPath(cfg), "utf8").split("\n").filter((l) => l.includes("no-token"));
     expect(after).toHaveLength(1);
     expect(after[0]).toMatch(/5_requests/);

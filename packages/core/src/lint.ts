@@ -95,6 +95,13 @@ export function lintPage(page: Page, ctx: LintContext): LintIssue[] {
     });
   }
 
+  // A project directory needs its overview page: without `projects/<name>/_index` the topic pages are listed
+  // straight in projects/_index and nothing says what the project is. (A legacy flat `projects/<name>` counts.)
+  if (category === "projects" && !isHub && !isProjectOverview(page.id)) {
+    const project = page.id.split("/").slice(0, 2).join("/");
+    if (!ctx.allIds.has(`${project}/_index`) && !ctx.allIds.has(project)) warn("project-no-overview", `${project} has no overview page; create ${project}/_index from the projects template (wiki_template projects) so the project is described and its topic pages are listed under it`);
+  }
+
   // Links
   for (const l of page.links) {
     if (!ctx.allIds.has(l) && l !== "_meta/PROTOCOL") err("link-broken", `link [[${l}]] points to a missing page`);
