@@ -139,6 +139,6 @@ describe("service labels are per wiki", () => {
     expect(l.mcp).toBe(`com.doltap.mcp.${cfg.wikiId}`);
     expect(l.task).toBe(`DoltapSync-${cfg.wikiId}`);
     expect(l.cronMarker).toBe(`# doltap-sync ${cfg.wikiId}`);
-    expect(l.legacy).toEqual({ sync: "com.doltap.sync", mcp: "com.doltap.mcp", task: "DoltapSync", cronMarker: "# doltap-sync" });
+    expect(l.legacy).toEqual([{ sync: "com.doltap.sync", mcp: "com.doltap.mcp", task: "DoltapSync", cronMarker: "# doltap-sync" }]);
   });
 });
