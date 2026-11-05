@@ -73,7 +73,7 @@ export function launchdPlist(spec: LaunchdSpec): string {
   return lines.join("\n");
 }
 
-export interface ServiceLabels {
+export interface ServiceNames {
   /** launchd label of the periodic sync job. */
   sync: string;
   /** launchd label of the HTTP MCP service. */
@@ -82,19 +82,25 @@ export interface ServiceLabels {
   task: string;
   /** Trailing comment that marks this wiki's crontab line. */
   cronMarker: string;
-  /** The global names doltap used before 0.10 (one per user); install removes them, status and uninstall still see them. */
-  legacy: { sync: string; mcp: string; task: string; cronMarker: string };
+}
+
+export interface ServiceLabels extends ServiceNames {
+  /** Names earlier versions used for this wiki (the 0.10/0.11.0 dotted id when the root is `~/.doltap`, the pre-0.10 global names); install removes them, status and uninstall still see them. */
+  legacy: ServiceNames[];
+}
+
+function namesFor(id: string | null): ServiceNames {
+  const sfx = id ? `.${id}` : "";
+  return { sync: `com.doltap.sync${sfx}`, mcp: `com.doltap.mcp${sfx}`, task: id ? `DoltapSync-${id}` : "DoltapSync", cronMarker: id ? `# doltap-sync ${id}` : "# doltap-sync" };
 }
 
 /** Service names carry the wiki id since 0.10, so two wikis on one machine keep separate jobs. */
 export function serviceLabels(cfg: Pick<WikiConfig, "wikiId">): ServiceLabels {
-  return {
-    sync: `com.doltap.sync.${cfg.wikiId}`,
-    mcp: `com.doltap.mcp.${cfg.wikiId}`,
-    task: `DoltapSync-${cfg.wikiId}`,
-    cronMarker: `# doltap-sync ${cfg.wikiId}`,
-    legacy: { sync: "com.doltap.sync", mcp: "com.doltap.mcp", task: "DoltapSync", cronMarker: "# doltap-sync" },
-  };
+  const legacy: ServiceNames[] = [];
+  // Before 0.11.1 a root named `.doltap` produced the id `.doltap-<hash>`.
+  if (/^doltap-[0-9a-f]{8}$/.test(cfg.wikiId)) legacy.push(namesFor(`.${cfg.wikiId}`));
+  legacy.push(namesFor(null));
+  return { ...namesFor(cfg.wikiId), legacy };
 }
 
 const plistFile = (label: string): string => join(homedir(), "Library", "LaunchAgents", `${label}.plist`);
@@ -117,11 +123,25 @@ function readCrontab(): string {
 }
 
 /**
- * On Windows the `wiki` entry is a .cmd shim that schtasks cannot launch reliably, so the task runs
- * `node <main.js>` directly. `wikiBin` is process.argv[1] (the JS entry) from the CLI.
+ * On Windows the task runs a one-line wrapper script in the state dir instead of a `cmd /c "..."` action:
+ * the Task Scheduler read the nested quotes of the long inline command differently from a shell and the
+ * task exited 1 before even opening the log. The `wiki` entry is a .cmd shim that schtasks cannot launch
+ * reliably either, so the script runs `node <cli.js>` directly. `wikiBin` is the JS entry (process.argv[1]).
  */
-function windowsCommand(cfg: WikiConfig, wikiBin: string, logFile: string): string {
-  return `cmd /c ""${process.execPath}" "${wikiBin}" --root "${cfg.root}" --agent scheduler sync >> "${logFile}" 2>&1"`;
+export function windowsSyncScript(cfg: WikiConfig, wikiBin: string, nodeExe = process.execPath): { script: string; taskRun: string; content: string } {
+  const script = join(cfg.stateDir, "sync.cmd");
+  const log = join(cfg.stateDir, "logs", "sync.log");
+  const content = `@echo off\r\n"${nodeExe}" "${wikiBin}" --root "${cfg.root}" --agent scheduler sync >> "${log}" 2>&1\r\n`;
+  return { script, taskRun: `"${script}"`, content };
+}
+
+/** `schtasks /Query /FO CSV /NH` prints TaskName, Next Run Time, Status without the localised labels of the LIST form. */
+export function parseSchtasksCsv(out: string): { next: string; status: string } | null {
+  const line = out.split(/\r?\n/).find((l) => l.startsWith('"'));
+  if (!line) return null;
+  const cells = [...line.matchAll(/"([^"]*)"/g)].map((m) => m[1]);
+  if (cells.length < 3) return null;
+  return { next: cells[1], status: cells[2] };
 }
 
 export interface ScheduleResult {
@@ -169,10 +189,11 @@ export function installSchedule(cfg: WikiConfig, wikiBin: string, intervalMinute
   mkdirSync(logDir, { recursive: true });
   const labels = serviceLabels(cfg);
   if (platform() === "win32") {
-    try { execFileSync("schtasks", ["/Delete", "/F", "/TN", labels.legacy.task], { stdio: "ignore" }); } catch { /* none */ }
-    const tr = windowsCommand(cfg, wikiBin, join(logDir, "sync.log"));
-    execFileSync("schtasks", ["/Create", "/F", "/SC", "MINUTE", "/MO", String(intervalMinutes), "/TN", labels.task, "/TR", tr], { stdio: "ignore" });
-    return { platform: "schtasks", installed: true, detail: `task ${labels.task} every ${intervalMinutes} min; logs in ${logDir}` };
+    for (const l of labels.legacy) { try { execFileSync("schtasks", ["/Delete", "/F", "/TN", l.task], { stdio: "ignore" }); } catch { /* none */ } }
+    const w = windowsSyncScript(cfg, wikiBin);
+    writeFileSync(w.script, w.content);
+    execFileSync("schtasks", ["/Create", "/F", "/SC", "MINUTE", "/MO", String(intervalMinutes), "/TN", labels.task, "/TR", w.taskRun], { stdio: "ignore" });
+    return { platform: "schtasks", installed: true, detail: `task ${labels.task} every ${intervalMinutes} min (runs ${w.script}); logs in ${logDir}` };
   }
   if (platform() === "darwin") {
     const plist = launchdPlist({
@@ -184,7 +205,7 @@ export function installSchedule(cfg: WikiConfig, wikiBin: string, intervalMinute
     });
     const p = plistFile(labels.sync);
     mkdirSync(join(homedir(), "Library", "LaunchAgents"), { recursive: true });
-    dropPlist(plistFile(labels.legacy.sync));
+    for (const l of labels.legacy) dropPlist(plistFile(l.sync));
     dropPlist(p);
     writeFileSync(p, plist);
     execFileSync("launchctl", ["load", p], { stdio: "ignore" });
@@ -193,7 +214,8 @@ export function installSchedule(cfg: WikiConfig, wikiBin: string, intervalMinute
   const q = (v: string) => `'${v.replace(/'/g, "'\\''")}'`;
   const line = `${cronStep(intervalMinutes)} ${q(stableNodePath())} ${q(wikiBin)} --root ${q(cfg.root)} --agent scheduler sync >> ${q(join(logDir, "sync.log"))} 2>&1 ${labels.cronMarker}`;
   const current = readCrontab();
-  const kept = current.split("\n").filter((l) => l && l !== cronLine(current, labels.cronMarker) && l !== cronLine(current, labels.legacy.cronMarker));
+  const mine = [labels, ...labels.legacy].map((n) => cronLine(current, n.cronMarker));
+  const kept = current.split("\n").filter((l) => l && !mine.includes(l));
   execFileSync("crontab", ["-"], { input: [...kept, line].join("\n") + "\n" });
   return { platform: "crontab", installed: true, detail: line };
 }
@@ -202,15 +224,17 @@ export function uninstallSchedule(cfg: WikiConfig): ScheduleResult {
   const labels = serviceLabels(cfg);
   if (platform() === "win32") {
     let removed = false;
-    for (const t of [labels.task, labels.legacy.task]) { try { execFileSync("schtasks", ["/Delete", "/F", "/TN", t], { stdio: "ignore" }); removed = true; } catch { /* not there */ } }
+    for (const t of [labels.task, ...labels.legacy.map((l) => l.task)]) { try { execFileSync("schtasks", ["/Delete", "/F", "/TN", t], { stdio: "ignore" }); removed = true; } catch { /* not there */ } }
+    rmSync(windowsSyncScript(cfg, "").script, { force: true });
     return { platform: "schtasks", installed: false, detail: removed ? `removed task ${labels.task}` : "not installed" };
   }
   if (platform() === "darwin") {
-    const removed = [plistFile(labels.sync), plistFile(labels.legacy.sync)].filter(dropPlist);
+    const removed = [plistFile(labels.sync), ...labels.legacy.map((l) => plistFile(l.sync))].filter(dropPlist);
     return { platform: "launchd", installed: false, detail: removed.length ? `removed ${removed.join(", ")}` : "not installed" };
   }
   const current = readCrontab();
-  const kept = current.split("\n").filter((l) => l && l !== cronLine(current, labels.cronMarker) && l !== cronLine(current, labels.legacy.cronMarker));
+  const mine = [labels, ...labels.legacy].map((n) => cronLine(current, n.cronMarker));
+  const kept = current.split("\n").filter((l) => l && !mine.includes(l));
   execFileSync("crontab", ["-"], { input: kept.join("\n") + (kept.length ? "\n" : "") });
   return { platform: "crontab", installed: false, detail: "removed doltap line" };
 }
@@ -220,31 +244,31 @@ const LEGACY_HINT = "installed under the pre-0.10 global name; re-run the instal
 export function scheduleStatus(cfg: WikiConfig): ScheduleResult {
   const labels = serviceLabels(cfg);
   if (platform() === "win32") {
-    for (const t of [labels.task, labels.legacy.task]) {
+    for (const t of [labels.task, ...labels.legacy.map((l) => l.task)]) {
       try {
-        const out = execFileSync("schtasks", ["/Query", "/TN", t, "/FO", "LIST"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
-        const status = /Status:\s*(.+)/.exec(out)?.[1]?.trim() ?? "unknown";
-        const legacy = t === labels.legacy.task;
-        return { platform: "schtasks", installed: true, legacy, detail: `task ${t} (${status})${legacy ? `; ${LEGACY_HINT}` : ""}` };
+        const out = execFileSync("schtasks", ["/Query", "/TN", t, "/FO", "CSV", "/NH"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+        const parsed = parseSchtasksCsv(out);
+        const legacy = t !== labels.task;
+        return { platform: "schtasks", installed: true, legacy, detail: `task ${t} (${parsed?.status ?? "unknown"}${parsed?.next ? `, next ${parsed.next}` : ""})${legacy ? `; ${LEGACY_HINT}` : ""}` };
       } catch { /* try the next name */ }
     }
     return { platform: "schtasks", installed: false, detail: "not installed" };
   }
   if (platform() === "darwin") {
-    for (const label of [labels.sync, labels.legacy.sync]) {
+    for (const label of [labels.sync, ...labels.legacy.map((l) => l.sync)]) {
       const p = plistFile(label);
       if (!existsSync(p)) continue;
       let loaded = false;
       try { loaded = execFileSync("launchctl", ["list"], { encoding: "utf8" }).includes(label); } catch { /* ignore */ }
       const si = plistArgs(p).startInterval;
-      const legacy = label === labels.legacy.sync;
+      const legacy = label !== labels.sync;
       return { platform: "launchd", installed: true, legacy, detail: `${p} (${loaded ? "loaded" : "NOT loaded"})${legacy ? `; ${LEGACY_HINT}` : ""}`, intervalMinutes: si ? Math.round(si / 60) : undefined };
     }
     return { platform: "launchd", installed: false, detail: "not installed" };
   }
   const current = readCrontab();
   const mine = cronLine(current, labels.cronMarker);
-  const line = mine ?? cronLine(current, labels.legacy.cronMarker);
+  const line = mine ?? labels.legacy.map((n) => cronLine(current, n.cronMarker)).find(Boolean);
   const step = line ? /^\*\/(\d+)\s/.exec(line)?.[1] : undefined;
   return { platform: "crontab", installed: !!line, legacy: !!line && !mine, detail: line ? `${line}${mine ? "" : `; ${LEGACY_HINT}`}` : "not installed", intervalMinutes: step ? Number(step) : undefined };
 }
@@ -269,7 +293,7 @@ export function installHttpService(cfg: WikiConfig, mcpBin: string, port = 8765,
   });
   const p = plistFile(labels.mcp);
   mkdirSync(join(homedir(), "Library", "LaunchAgents"), { recursive: true });
-  dropPlist(plistFile(labels.legacy.mcp));
+  for (const l of labels.legacy) dropPlist(plistFile(l.mcp));
   dropPlist(p);
   writeFileSync(p, plist);
   execFileSync("launchctl", ["load", p], { stdio: "ignore" });
@@ -279,14 +303,14 @@ export function installHttpService(cfg: WikiConfig, mcpBin: string, port = 8765,
 export function uninstallHttpService(cfg: WikiConfig): ScheduleResult {
   if (platform() !== "darwin") return { platform: platform(), installed: false, detail: "no service manager integration on this platform" };
   const labels = serviceLabels(cfg);
-  const removed = [plistFile(labels.mcp), plistFile(labels.legacy.mcp)].filter(dropPlist);
+  const removed = [plistFile(labels.mcp), ...labels.legacy.map((l) => plistFile(l.mcp))].filter(dropPlist);
   return { platform: "launchd", installed: false, detail: removed.length ? `removed ${removed.join(", ")}` : "not installed" };
 }
 
 export function httpServiceStatus(cfg: WikiConfig): ScheduleResult {
   if (platform() !== "darwin") return { platform: platform(), installed: false, detail: "no service manager integration on this platform" };
   const labels = serviceLabels(cfg);
-  for (const label of [labels.mcp, labels.legacy.mcp]) {
+  for (const label of [labels.mcp, ...labels.legacy.map((l) => l.mcp)]) {
     const p = plistFile(label);
     if (!existsSync(p)) continue;
     let line = "";
@@ -296,7 +320,7 @@ export function httpServiceStatus(cfg: WikiConfig): ScheduleResult {
     const port = Number(argValue(args, "--port") ?? 8765);
     const host = argValue(args, "--host") ?? "127.0.0.1";
     const running = !!pid && pid !== "-";
-    const legacy = label === labels.legacy.mcp;
+    const legacy = label !== labels.mcp;
     const detail = running ? `running (pid ${pid}) on ${host}:${port}` : `loaded but not running (${line ? "" : "not loaded; "}${host}:${port})`;
     return { platform: "launchd", installed: true, legacy, detail: legacy ? `${detail}; ${LEGACY_HINT}` : detail, host, port, pid: running ? Number(pid) : undefined };
   }

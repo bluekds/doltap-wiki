@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.11.1 (2026-11-05)
+
+From the first real Windows run (Task Scheduler on a Korean Windows 11, Node via nvm-windows):
+
+- **The scheduled sync on Windows ran but exited 1 before writing a log**: the Task Scheduler read the nested quotes of the inline `cmd /c "..."` action differently from a shell. `doltap schedule install` now writes a one-line `sync.cmd` in the state dir and registers the task as that single quoted path; the log is guaranteed and the action survives any path
+- `doltap schedule status` showed `(unknown)` on a localised Windows ("상태:" instead of "Status:"); it now reads the CSV form of `schtasks /Query`, which has no labels, and shows the next run time
+- The wiki id no longer starts with a dot when the root is `~/.doltap` (`doltap-<hash>` instead of `.doltap-<hash>`), so the state dir is not a hidden folder and the task name reads normally. A state dir created under the dotted id is renamed on first use; the dotted task and service names are removed by the install commands like the pre-0.10 global ones. Mac and Linux roots whose real path is not dotted are unaffected
+
 ## 0.11.0 (2026-11-04)
 
 - **Releases publish themselves**: pushing a `v*` tag on `main` runs the Publish workflow (`.github/workflows/publish.yml`), which checks that the tag matches the package versions, runs the whole suite, publishes `@bluekds/doltap-core`, `@bluekds/doltap-mcp` and `doltap-wiki` through npm trusted publishing with provenance, waits for the registry and clean-installs the CLI. No npm token or one-time password; a manual run with `dry_run` rehearses it. `tools/publish.sh` stays as the fallback

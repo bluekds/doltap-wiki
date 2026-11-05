@@ -128,7 +128,9 @@ export function stateHome(): string {
 export function wikiId(root: string): string {
   let real = resolve(root);
   try { real = realpathSync.native(real); } catch { /* not created yet */ }
-  return `${basename(real).replace(/[^A-Za-z0-9._-]/g, "_")}-${createHash("sha256").update(real).digest("hex").slice(0, 8)}`;
+  // No leading dot: the default root is `~/.doltap`, and a dotted id made a hidden state dir and an odd task name.
+  const name = basename(real).replace(/[^A-Za-z0-9._-]/g, "_").replace(/^\.+/, "") || "wiki";
+  return `${name}-${createHash("sha256").update(real).digest("hex").slice(0, 8)}`;
 }
 
 /** The state directory for `root`: $DOLTAP_STATE_DIR when set (this wiki only), else `stateHome()/wikiId(root)`. */
@@ -147,6 +149,11 @@ const LEGACY_SKIP = new Set(["write.lock", "upgrade-tmp"]);
  */
 export function migrateLegacyState(root: string, legacy: string, stateDir: string): string[] {
   if (existsSync(stateDir)) return [];
+  // 0.10 and 0.11.0 named the dir with the root's dotted basename (`.doltap-<hash>`); adopt it as is.
+  const dotted = join(dirname(stateDir), `.${basename(stateDir)}`);
+  if (!process.env.DOLTAP_STATE_DIR && existsSync(dotted)) {
+    try { renameSync(dotted, stateDir); return ["(renamed from " + basename(dotted) + ")"]; } catch { /* fall through to the in-tree migration */ }
+  }
   let st;
   try { st = lstatSync(legacy); } catch { return []; }
   if (!st.isDirectory()) return [];
