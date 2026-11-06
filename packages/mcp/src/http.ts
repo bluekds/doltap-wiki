@@ -374,6 +374,8 @@ export async function startHttpServer(cfg: WikiConfig, o: HttpOptions): Promise<
     const started = Date.now();
     const url = new URL(req.url ?? "/", "http://localhost");
     if (url.pathname === "/healthz") {
+      // No token, no data, but still not for a rebinding page: the Host check applies here too.
+      if (!hostAllowed(req.headers.host, allowed)) { res.writeHead(421, { "content-type": "text/plain" }).end("misdirected request\n"); return; }
       res.writeHead(200, { "content-type": "text/plain" }).end("ok\n");
       return;
     }

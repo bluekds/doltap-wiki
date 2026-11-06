@@ -22,7 +22,7 @@ import {
   patchMeta,
   patchSection,
   protocolText,
-  readIndexMd,
+  renderIndexMd,
   refreshHubs,
   related,
   search,
@@ -101,15 +101,15 @@ const INSTRUCTIONS = `Doltap is a shared wiki for agents (howto, patterns, refer
 - Never write secret values (tokens, keys, passwords, connector URLs); record where the secret lives and how to load it. Internal hosts are fine.
 - English only. Tags only from wiki://tags (add one with wiki_add_tag). Hub lists are generated; do not edit them. Deprecate with wiki_deprecate, finish a conflict with wiki_resolve_conflict.`;
 
-const server = new McpServer({ name: "doltap", version: "0.11.1" }, { instructions: INSTRUCTIONS });
+const server = new McpServer({ name: "doltap", version: "0.11.2" }, { instructions: INSTRUCTIONS });
 
 // ------------------------------------------------------------------ resources
 server.registerResource("protocol", "wiki://protocol", { title: "Doltap protocol", description: "Rules for reading, writing, and classifying wiki pages. Read before writing.", mimeType: "text/markdown" }, async (uri) => ({
   contents: [{ uri: uri.href, mimeType: "text/markdown", text: protocolText(cfg) }],
 }));
 server.registerResource("index", "wiki://index", { title: "Doltap index", description: "One line per page: id, confidence, summary.", mimeType: "text/markdown" }, async (uri) => {
-  writeIndexMd(cfg);
-  return { contents: [{ uri: uri.href, mimeType: "text/markdown", text: readIndexMd(cfg) }] };
+  // A read renders the index in memory: a read-only client must not write files (independent audit, 0.11.2).
+  return { contents: [{ uri: uri.href, mimeType: "text/markdown", text: renderIndexMd(cfg) }] };
 });
 server.registerResource("tags", "wiki://tags", { title: "Doltap tags", description: "Allowed tag vocabulary.", mimeType: "application/json" }, async (uri) => ({
   contents: [{ uri: uri.href, mimeType: "application/json", text: JSON.stringify(loadTags(cfg), null, 2) }],
@@ -392,11 +392,13 @@ server.registerTool(
   },
   async (a) => {
     try {
-      const r = audit(cfg, { unreferencedDays: a.unreferenced_days, reviewDays: a.review_days ?? null, draftDays: a.draft_days });
+      const full = audit(cfg, { unreferencedDays: a.unreferenced_days, reviewDays: a.review_days ?? null, draftDays: a.draft_days });
+      // Query text stays on the host that typed it (it can carry a pasted secret); clients get the page opened, its rank and the count.
+      const r = { ...full, searchMisses: full.searchMisses.map(({ query: _q, ...m }) => m) };
       if (!a.report) return text(r);
       const ro = readOnly();
       if (ro) return ro;
-      const w = await locked(() => writeAuditReport(cfg, r));
+      const w = await locked(() => writeAuditReport(cfg, full));
       return text({ ...r, reportFile: w.file, removed: w.removed, sync: w.sync });
     } catch (e) { return errorText(e); }
   },

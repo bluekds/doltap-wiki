@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.11.2 (2026-11-06)
+
+First independent audit of a release (v0.11.1), run by an agent from another vendor (Gemini 3.8 Flash through the Antigravity CLI) on a fresh clone with only docs/SECURITY-AUDIT-SCOPE.md as its brief. Seven findings, all confirmed against the code, all fixed here with regression tests (`packages/core/test/v0112-audit.test.ts`, `packages/mcp/test/v0112*.test.ts`):
+
+- **Critical: a pushed symlink at `.obsidian/community-plugins.json` (or `plugins/dataview/data.json`) made the Obsidian check read any JSON file on the host and echo its array into the sync warning.** The check now refuses symlinks and reports them instead
+- **High: the write tools accepted `_meta/...` ids.** `wiki_patch_section`, `wiki_set_meta`, `wiki_verify`, `wiki_deprecate` and `wiki_resolve_conflict` could rewrite `_meta/PROTOCOL.md` or a category template, because the id syntax allowed a leading underscore and the lint gate saw no new errors on a file that never had frontmatter. Write tools now take content pages only (`<category>/...` and `Home`)
+- **High: reading the `wiki://index` resource wrote `wiki/_meta/index.md`**, read-only tokens included, outside the write lock. The resource is rendered in memory; only `doltap sync` / `reindex` and `wiki_sync` write the file
+- **Medium: `wiki_audit` returned search query text to every client**, read-only ones included, although the committed report deliberately omits it (a query can carry a pasted secret). Clients now get the page opened, its rank and the count
+- **Medium: `/healthz` answered before the Host check**, so a DNS-rebinding page could probe it; it is behind the same check now. The `*.ts.net` allowance stays (that zone is Tailscale's, not an attacker's) and `DOLTAP_HTTP_ALLOWED_HOSTS` can narrow it
+- Low: `golden.json` read through a symlink; Windows reserved device names (`con`, `nul`, `com1`…) accepted as page ids. Both refused
+
 ## 0.11.1 (2026-11-05)
 
 From the first real Windows run (Task Scheduler on a Korean Windows 11, Node via nvm-windows):

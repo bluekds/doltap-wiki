@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { WikiConfig } from "./config.js";
 import { WikiDb } from "./db.js";
@@ -30,7 +30,9 @@ export function goldenPath(cfg: WikiConfig): string {
   return join(cfg.wikiDir, "_meta", "golden.json");
 }
 
+/** Read the golden set. The in-wiki file is pushed by collaborators, so a symlink in its place is refused rather than followed (independent audit, 0.11.2). */
 export function loadGolden(file: string): GoldenQuery[] {
+  if (lstatSync(file).isSymbolicLink()) throw new Error(`${file} is a symbolic link; doltap does not follow links (remove it and check who pushed it)`);
   const raw = JSON.parse(readFileSync(file, "utf8")) as unknown;
   if (!Array.isArray(raw)) throw new Error(`${file}: expected a JSON array of {query, expect}`);
   return raw.map((e, i) => {

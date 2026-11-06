@@ -141,6 +141,7 @@ classes, so an external auditor can go past them or try to break the fixes:
 | Unauthenticated requests logged one by one; session eviction across clients; token rotation needed a restart; absolute paths in errors | aggregated logging, per-client caps, hot reload, masked paths (0.9.1) |
 | Hostile Obsidian config can run code when the vault is opened | detected and reported by sync and doctor; cannot be prevented by doltap (0.9.1) |
 | Windows Task Scheduler action parsed differently from a shell | wrapper script (0.11.1) |
+| First independent audit (Gemini 3.8 Flash via Antigravity CLI, 2026-11-06, on v0.11.1, this document as its brief): symlinked Obsidian config read by the sync check; `_meta/...` ids accepted by write tools; index resource writing a file for read-only tokens; query text in `wiki_audit`; `/healthz` outside the Host check; golden symlink; Windows reserved names | all seven fixed with tests (0.11.2). Its "areas examined" section described mechanisms the code does not have (directory locks, bearer headers), so only its findings were used |
 
 Known, accepted residual risks: a collaborator with push access can still make Obsidian run code on a
 machine that opens the vault (reported, not prevented); the stale-lock takeover narrows but cannot close

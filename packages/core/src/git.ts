@@ -1,5 +1,5 @@
 import { execFile, execFileSync, type ExecFileSyncOptions } from "node:child_process";
-import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { WikiConfig } from "./config.js";
@@ -441,7 +441,13 @@ export function obsidianWarnings(cfg: WikiConfig): string[] {
     const js = tracked.filter((f) => f.endsWith(".js"));
     if (js.length) out.push(`${js.join(", ")} tracked in git: a plugin binary pushed by a collaborator runs on every machine that opens the vault (git rm --cached it; the skeleton .gitignore excludes it)`);
   }
-  const readJson = (p: string): unknown => { try { return JSON.parse(readFileSync(p, "utf8")); } catch { return null; } };
+  // A pushed symlink here would make this read (and echo into the warning) any JSON file on the host.
+  const readJson = (p: string): unknown => {
+    try {
+      if (lstatSync(p).isSymbolicLink()) { out.push(`${relative(cfg.wikiDir, p).split(sep).join("/")} is a symbolic link; doltap does not read it (remove it and check who pushed it)`); return null; }
+      return JSON.parse(readFileSync(p, "utf8"));
+    } catch { return null; }
+  };
   const have = readJson(join(dir, "community-plugins.json"));
   const skel = readJson(join(SKELETON_OBSIDIAN, "community-plugins.json"));
   if (Array.isArray(have) && Array.isArray(skel)) {
