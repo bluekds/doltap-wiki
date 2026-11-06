@@ -73,7 +73,7 @@ Validity follows what a page depends on, not the calendar (the design review fou
 - Interface freeze. Migration tooling complete.
 - npm publishing through GitHub Actions trusted publishing with provenance, replacing manual publish. Shipped in 0.11.0: a `v*` tag on main runs the suite and publishes the three packages; the manual script stays as a fallback.
 - Every release gets two independent audits (security and core logic) before tagging, and each confirmed finding lands as a reproduction test in the regression suite. 0.3.1 set this precedent with 14 findings, all covered by tests. 0.9.0 ran both again on everything since 0.5 (48 findings: symlink boundary, planted state files, ReDoS, binary conflict copies, secret scans beyond pages, …); the critical and high items shipped in 0.9.0 with tests, the medium and low ones in 0.9.1 (write rollback, every git call under the lock, FTS-backed search fallback, Obsidian config checks, HTTP session and token hardening; reports kept in the private wiki under `_meta/audits/`). Still open from the audits after 0.10: rename-based lock takeover.
-- schtasks verified on a real Windows machine. Long-running operation on two or more machines. External security audit.
+- schtasks verified on a real Windows machine: done 2026-11-06 (0.11.1 on Windows 11, Node 22 via nvm-windows; the first run found the inline `cmd /c` action failing under the Task Scheduler and the localised status output, both fixed in 0.11.1). Long-running operation on two or more machines: counting from 0.11.1 (Mac mini service + Windows scheduled sync + the claude.ai connector). External security audit: open.
 
 ## 0.10 State outside the tree (shipped in 0.10.0)
 
