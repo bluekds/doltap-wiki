@@ -6,7 +6,7 @@ import { WikiDb, type SearchHit } from "./db.js";
 import { assertOnBranch, commitAndPush, commitMessage, emptyReport, git, pull, rollbackWrite, type SyncReport } from "./git.js";
 import { buildLintContext, lintAssets, lintPage, type LintIssue } from "./lint.js";
 import { withWriteLock } from "./lock.js";
-import { dropSections, parsePage, readPage, relPathFromId, replaceSection, serializePage, type Page, type PageMeta } from "./page.js";
+import { assertContentPageId, dropSections, parsePage, readPage, relPathFromId, replaceSection, serializePage, type Page, type PageMeta } from "./page.js";
 import { getTemplate } from "./template.js";
 
 export interface WriteResult {
@@ -298,7 +298,7 @@ export interface PatchInput {
 
 /** Replace or append one `## section` of an existing page. */
 export function patchSection(cfg: WikiConfig, input: PatchInput): WriteResult {
-  relPathFromId(input.id);
+  assertContentPageId(input.id);
   return withWriteLock(cfg, () => {
   assertOnBranch(cfg);
   const sync = emptyReport();
@@ -338,7 +338,7 @@ export interface MetaPatch {
 
 /** Update frontmatter only (promotion, deprecation, retagging). */
 export function patchMeta(cfg: WikiConfig, input: MetaPatch): WriteResult {
-  relPathFromId(input.id);
+  assertContentPageId(input.id);
   return withWriteLock(cfg, () => {
   assertOnBranch(cfg);
   const sync = emptyReport();
@@ -385,8 +385,8 @@ export interface DeprecateInput {
  * `replaced_by`.
  */
 export function deprecatePage(cfg: WikiConfig, input: DeprecateInput): WriteResult {
-  relPathFromId(input.id);
-  relPathFromId(input.replacedBy);
+  assertContentPageId(input.id);
+  assertContentPageId(input.replacedBy);
   if (input.replacedBy === input.id) throw new Error("a page cannot replace itself");
   return withWriteLock(cfg, () => {
     assertOnBranch(cfg);
@@ -452,7 +452,7 @@ function authoringSessions(cfg: WikiConfig, relPath: string): Set<string> {
  * body alone, so a re-check is recorded distinctly from an edit. Any session may re-verify.
  */
 export function verifyPage(cfg: WikiConfig, input: VerifyInput): WriteResult {
-  relPathFromId(input.id);
+  assertContentPageId(input.id);
   const evidence = input.evidence.replace(/\s+/g, " ").trim();
   if (!evidence) throw new Error("evidence is required: say where the page was followed and what confirmed it");
   return withWriteLock(cfg, () => {
@@ -530,7 +530,7 @@ function readdirSyncSafe(dir: string): string[] {
  * `<id>.conflict-<host>.md` copy, commit and push. MCP-only agents could not do this before.
  */
 export function resolveConflict(cfg: WikiConfig, input: ResolveInput): WriteResult {
-  relPathFromId(input.id);
+  assertContentPageId(input.id);
   return withWriteLock(cfg, () => {
     assertOnBranch(cfg);
     const sync = emptyReport();
@@ -595,7 +595,8 @@ export function lintAll(cfg: WikiConfig, ids?: string[]): LintIssue[] {
 }
 
 /** Regenerate wiki/_meta/index.md (gitignored): one line per page, grouped by category. */
-export function writeIndexMd(cfg: WikiConfig): string {
+/** The one-line-per-page index as text, from the (incrementally refreshed) search index; writes nothing but the SQLite index. */
+export function renderIndexMd(cfg: WikiConfig): string {
   const db = new WikiDb(cfg);
   try {
     db.reindex();
@@ -608,13 +609,17 @@ export function writeIndexMd(cfg: WikiConfig): string {
       for (const r of inCat) lines.push(`- \`${r.id}\` [${r.confidence}] ${r.summary}`);
       lines.push("");
     }
-    const out = lines.join("\n");
-    // index.md is generated and gitignored, so a symlink pushed in its place is simply replaced.
-    const p = writeSafe(cfg.root, join(cfg.wikiDir, "_meta", "index.md"), out, { replaceSymlink: true });
-    return relative(cfg.root, p);
+    return lines.join("\n");
   } finally {
     db.close();
   }
+}
+
+/** Write wiki/_meta/index.md (generated, gitignored). Called by sync and reindex, never by a read. */
+export function writeIndexMd(cfg: WikiConfig): string {
+  // index.md is generated and gitignored, so a symlink pushed in its place is simply replaced.
+  const p = writeSafe(cfg.root, join(cfg.wikiDir, "_meta", "index.md"), renderIndexMd(cfg), { replaceSymlink: true });
+  return relative(cfg.root, p);
 }
 
 export function readIndexMd(cfg: WikiConfig): string {

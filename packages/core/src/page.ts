@@ -1,3 +1,4 @@
+import { CATEGORIES } from "./config.js";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { createHash } from "node:crypto";
 import { readFileSync, existsSync } from "node:fs";
@@ -95,10 +96,27 @@ export const PAGE_ID_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]*(\/[A-Za-z0-9_][A-Za-z0-9_
 const PAGE_ID_MAX = 200;
 
 /** Throw unless `id` is a safe page id. Every file access by id goes through this. */
+/** `CON`, `NUL`, `COM1`… are device names on Windows whatever the extension: a page named so cannot be checked out there. */
+const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
+
 export function assertPageId(id: string): string {
   if (typeof id !== "string" || id.length > PAGE_ID_MAX || !PAGE_ID_RE.test(id)) {
     throw new Error(`invalid page id: ${JSON.stringify(String(id).slice(0, 80))} (expected <category>/<kebab-slug>, letters, digits, - and _ only)`);
   }
+  const reserved = id.split("/").find((seg) => WINDOWS_RESERVED.test(seg));
+  if (reserved) throw new Error(`invalid page id: ${JSON.stringify(id)} ("${reserved}" is a reserved device name on Windows; pick another slug)`);
+  return id;
+}
+
+/**
+ * Ids the write tools may touch: a page under a category (hubs included; their intro is content, their
+ * lists are regenerated) or `Home`. `_meta/...` (protocol, templates, tags, reports, stats) and `_assets/...`
+ * pass the id syntax but are not pages; letting a write tool at them rewrote PROTOCOL.md (independent audit, 0.11.2).
+ */
+export function assertContentPageId(id: string): string {
+  assertPageId(id);
+  const top = id.split("/")[0];
+  if (id !== "Home" && !(CATEGORIES as readonly string[]).includes(top)) throw new Error(`${id} is not a content page (write tools take <category>/<slug> ids; ${top}/ is reserved)`);
   return id;
 }
 
