@@ -161,7 +161,7 @@ test against the fixtures; a failing test under `packages/*/test/` is the best f
 suggested fix. Separate what was reproduced from what is plausible from reading. State what was examined
 and found sound, so coverage is visible. Deliver the report as a Markdown file; do not open a public
 issue for Critical or High findings before the maintainer has shipped a fix (GitHub private vulnerability
-reporting on the repository, or the maintainer's contact in `package.json`).
+reporting is enabled on the repository: Security → Report a vulnerability).
 
 ## 8. Brief for a model-driven audit
 
