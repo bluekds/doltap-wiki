@@ -55,7 +55,7 @@ export interface SearchOptions {
 export const CONFIDENCE_BOOST: Record<string, number> = { verified: 1.1, draft: 1.0, deprecated: 0.5 };
 
 /** Query terms found in the title lift a page by up to this share (all terms in the title: ×1.15). */
-export const TITLE_BOOST = 0.15;
+export const TITLE_BOOST = 0.3;
 
 /** Pages created or verified within this many days get the recency lift. */
 export const RECENT_DAYS = 30;
@@ -151,6 +151,17 @@ export interface SearchLogEntry {
 const STOPWORDS = new Set(
   "the a an and or of to in on for with without from by at as is are was be this that it its into via when how what why use using used one two new set get".split(" "),
 );
+
+/**
+ * Words dropped from a search query. Unlike STOPWORDS (duplicate detection over titles), `set` and `new` stay:
+ * "set up the wiki on a new machine" means setup and a new machine. Question and auxiliary words go: an agent
+ * types "where does the wiki run launchd services", and requiring `where` and `does` made the AND query favour
+ * whichever long page happened to contain them.
+ */
+const QUERY_STOPWORDS = new Set([
+  ...[...STOPWORDS].filter((w) => w !== "set" && w !== "new"),
+  ..."where which who whom whose does do did done can could should would will shall may might must has have had about after before then than there here not no my your our me we you i so if all any some other another up out over also just only".split(" "),
+]);
 
 const WORD_SPLIT = /[^\p{L}\p{N}_]+/u;
 export const QUERY_MAX_CHARS = 500;
@@ -350,7 +361,7 @@ export class WikiDb {
   static queryTokens(q: string): string[] {
     // Cap the terms: every token costs an FTS prefix term plus a regex per candidate hit (audit S6).
     const all = q.slice(0, QUERY_MAX_CHARS).toLowerCase().split(WORD_SPLIT).filter((t) => t.length > 1).slice(0, QUERY_MAX_TOKENS);
-    const kept = all.filter((t) => !STOPWORDS.has(t));
+    const kept = all.filter((t) => !QUERY_STOPWORDS.has(t));
     return [...new Set(kept.length ? kept : all)];
   }
 
@@ -383,7 +394,9 @@ export class WikiDb {
     return (this.db.prepare(sql).all(...args) as Record<string, unknown>[]).map((r) => {
       const row = this.rowToPage(r);
       const bm25 = Number(r.score);
-      const title = row.title.toLowerCase();
+      // The slug counts as title: `howto/setup-wiki-on-new-machine` answers "set up wiki on a new machine" even
+      // when the title words differ. With common query words bm25 is near zero and this is the main signal.
+      const title = `${row.title} ${row.id.split("/").pop()!.replace(/-/g, " ")}`.toLowerCase();
       const inTitle = tokens.filter((t) => containsToken(title, t)).length / tokens.length;
       const boost = (CONFIDENCE_BOOST[row.confidence] ?? 1.0) * recencyBoost(row, now) * (1 + TITLE_BOOST * inTitle);
       return { ...row, score: bm25 * boost, bm25, boost, snippet: String(r.snippet), matched: [], text: `${row.title} ${row.summary} ${row.tags.join(" ")} ${String(r.body)}`.toLowerCase() };
@@ -401,38 +414,52 @@ export class WikiDb {
     const tokens = WikiDb.queryTokens(query);
     if (!tokens.length) return [];
     const limit = o.limit ?? 10;
-    const hits = new Map<string, SearchHit & { text: string; exact: boolean }>();
-    // Fetch more candidates than asked for: the boosts (confidence, recency, title) re-rank them, and the
-    // first hit must not depend on how many were requested (audit L1).
-    const exact = this.searchOnce(WikiDb.toFtsQuery(query, "AND"), tokens, o, limit * 3);
-    for (const h of exact) hits.set(h.id, { ...h, exact: true });
-    // Fallback hits must still contain at least half of the terms (and at least two), so a single common word never drags in noise.
-    const minMatched = Math.max(2, Math.ceil(tokens.length / 2));
-    if (exact.length < limit && tokens.length > 2) {
-      for (const h of this.searchOnce(WikiDb.toFtsQuery(query, "OR"), tokens, o, limit * 3)) if (!hits.has(h.id)) hits.set(h.id, { ...h, exact: false });
-    }
-    // Which terms a fallback hit contains is decided by FTS itself (stems, folded diacritics), not by a literal
-    // scan: "deploying" matches a page that says "deployed" (audit M3). The literal scan only adds to it.
-    const fallbackIds = [...hits.values()].filter((h) => !h.exact).map((h) => h.id);
+    // One candidate pool from the OR query, ranked by bm25, which already weighs each matched term by its rarity
+    // and normalises for field length. Until 0.12 pages containing every term were put first whatever their score,
+    // so a long handbook that mentions everything beat the page whose title answers the question but lacks one
+    // generic word ("call the gb10 server from another machine"). Fetch more candidates than asked for: the boosts
+    // re-rank them, and the first hit must not depend on how many were requested (audit L1).
+    const pool = this.searchOnce(WikiDb.toFtsQuery(query, tokens.length > 1 ? "OR" : "AND"), tokens, o, limit * 5);
+    // Which terms a hit contains is decided by FTS itself (stems, folded diacritics), not by a literal scan:
+    // "deploying" matches a page that says "deployed" (audit M3). The literal scan only adds to it.
+    const ids = pool.map((h) => h.id);
     const byFts = new Map<string, Set<string>>();
-    if (fallbackIds.length) {
-      const sql = `SELECT id FROM pages_fts WHERE pages_fts MATCH ? AND id IN (${fallbackIds.map(() => "?").join(",")})`;
+    if (ids.length && tokens.length > 1) {
+      const sql = `SELECT id FROM pages_fts WHERE pages_fts MATCH ? AND id IN (${ids.map(() => "?").join(",")})`;
       for (const t of tokens) {
-        for (const r of this.db.prepare(sql).all(`"${t.replace(/"/g, "")}"*`, ...fallbackIds) as { id: string }[]) {
+        for (const r of this.db.prepare(sql).all(`"${t.replace(/"/g, "")}"*`, ...ids) as { id: string }[]) {
           if (!byFts.has(r.id)) byFts.set(r.id, new Set());
           byFts.get(r.id)!.add(t);
         }
       }
     }
-    const matchedIn = (h: { id: string; text: string }) => tokens.filter((t) => byFts.get(h.id)?.has(t) || containsToken(h.text, t));
+    const matchedIn = (h: { id: string; text: string }) => (tokens.length === 1 ? tokens : tokens.filter((t) => byFts.get(h.id)?.has(t) || containsToken(h.text, t)));
+    // Each term weighs by its rarity across the wiki: missing a distinctive term ("rotate") costs more than
+    // missing a generic one ("machine"), which a page answering the question may simply not use.
+    const total = (this.db.prepare("SELECT count(*) AS n FROM pages").get() as { n: number }).n || 1;
+    const weight = new Map<string, number>();
+    for (const t of tokens) {
+      const df = (this.db.prepare("SELECT count(*) AS n FROM pages_fts WHERE pages_fts MATCH ?").get(`"${t.replace(/"/g, "")}"*`) as { n: number }).n;
+      weight.set(t, Math.log(1 + total / Math.max(1, df)));
+    }
+    const allWeight = tokens.reduce((a, t) => a + weight.get(t)!, 0);
+    // A hit must contain at least half of the terms (and at least two when there are two or more), so a single
+    // common word never drags in noise.
+    const minMatched = Math.min(tokens.length, Math.max(2, Math.ceil(tokens.length / 2)));
     const dep = (h: { confidence: string }) => Number(h.confidence === "deprecated");
-    return [...hits.values()]
-      .map((h) => ({ ...h, matched: h.exact ? tokens : matchedIn(h) }))
-      .filter((h) => h.exact || h.matched.length >= minMatched)
-      // Deprecated pages come after every live page, however well they match (audit L2).
-      .sort((a, b) => dep(a) - dep(b) || Number(b.exact) - Number(a.exact) || b.matched.length - a.matched.length || a.score - b.score)
+    return pool
+      .map((h) => {
+        const matched = matchedIn(h);
+        // Coverage, weighted by rarity and squared: every term keeps the full score; missing the rarest of four
+        // terms roughly halves it, missing a common one costs a few percent.
+        const coverage = matched.reduce((a, t) => a + weight.get(t)!, 0) / allWeight;
+        return { ...h, matched, score: h.score * coverage * coverage };
+      })
+      .filter((h) => h.matched.length >= minMatched)
+      // Deprecated pages come after every live page, however well they match (audit L2). bm25 is negative: lower is better.
+      .sort((a, b) => dep(a) - dep(b) || a.score - b.score)
       .slice(0, limit)
-      .map(({ text: _t, exact: _e, ...hit }) => hit);
+      .map(({ text: _t, ...hit }) => hit);
   }
 
   /**

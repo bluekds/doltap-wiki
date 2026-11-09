@@ -3,7 +3,7 @@ import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { WikiDb } from "../src/index.js";
+import { TITLE_BOOST, WikiDb } from "../src/index.js";
 import { cfgFor } from "./helpers.js";
 
 /**
@@ -48,9 +48,9 @@ describe("golden queries", () => {
     db.reindex();
     const hits = db.search("rotate zorblat key", { now: NOW });
     expect(hits.slice(0, 3).map((h) => h.id)).toEqual(["howto/zorblat-verified", "howto/zorblat-stale", "howto/zorblat-draft"]);
-    expect(hits[0].boost).toBeCloseTo(1.1 * 1.05 * 1.15, 5);
-    expect(hits[0].score).toBeCloseTo(hits[0].bm25 * hits[0].boost, 5);
-    expect(hits[1].boost).toBeCloseTo(1.1 * 1.15, 5);
+    expect(hits[0].boost).toBeCloseTo(1.1 * 1.05 * (1 + TITLE_BOOST), 5);
+    expect(hits[0].score).toBeCloseTo(hits[0].bm25 * hits[0].boost, 5); // every term matched: coverage factor 1
+    expect(hits[1].boost).toBeCloseTo(1.1 * (1 + TITLE_BOOST), 5);
   });
   it("deprecated pages come last when included and are hidden by default", () => {
     const ids = db.search("openrouter key check", { includeDeprecated: true, now: NOW }).map((h) => h.id);
