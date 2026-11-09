@@ -183,7 +183,7 @@ program
       out(json, { hits, sync }, () => {
         if (!hits.length) console.log("no results");
         for (const h of hits) {
-          console.log(`${h.id}  [${h.confidence}]  ${h.tags.join(",")}${h.matched.length < WikiDb.queryTokens(q.join(" ")).length ? `  (matched: ${h.matched.join(", ")})` : ""}`);
+          console.log(`${h.id}  [${h.confidence}]  ${h.tags.join(",")}${h.unmatched.length ? `  (coverage ${Math.round(h.coverage * 100)}%, missing: ${h.unmatched.join(", ")})` : ""}`);
           console.log(`    ${h.summary}`);
           if (h.snippet && !h.summary.includes(h.snippet.replace(/[\[\]]/g, ""))) console.log(`    … ${h.snippet.replace(/\n/g, " ")}`);
         }
@@ -278,6 +278,7 @@ program
   .requiredOption("--title <text>")
   .requiredOption("--summary <text>", "1-2 sentences, max 200 chars")
   .option("--tags <list>", "comma-separated, must exist in _meta/tags.yaml")
+  .option("--aliases <list>", "comma-separated other names for the subject; searched like the title")
   .option("--sources <list>", "comma-separated URLs/ids")
   .option("-f, --file <path>", "markdown body file")
   .option("--stdin", "read body from stdin")
@@ -285,13 +286,14 @@ program
   .option("--replace", "overwrite an existing page (otherwise an existing id is refused; use patch/meta to edit)")
   .option("--review-by <days|date>", "when to re-check the page against its sources (howto/reference pages that depend on versions or external services)")
   .option("--base-rev <rev>", "rev shown by `doltap get`; refused if the page changed since")
-  .action((id: string, o: { title: string; summary: string; tags?: string; sources?: string; file?: string; stdin?: boolean; force?: boolean; replace?: boolean; reviewBy?: string; baseRev?: string }) => {
+  .action((id: string, o: { title: string; summary: string; tags?: string; aliases?: string; sources?: string; file?: string; stdin?: boolean; force?: boolean; replace?: boolean; reviewBy?: string; baseRev?: string }) => {
     try {
       const { cfg, json } = cfgFrom();
       const body = o.file || o.stdin ? readContent(o) : undefined;
       const r = upsertPage(cfg, {
         id, title: o.title, summary: o.summary, body, force: o.force, replace: o.replace, reviewBy: o.reviewBy, baseRev: o.baseRev,
         tags: o.tags ? o.tags.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
+        aliases: o.aliases !== undefined ? o.aliases.split(",") : undefined,
         sources: o.sources ? o.sources.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
       });
       out(json, r, () => {
@@ -342,14 +344,15 @@ program
   .option("--confidence <level>", "draft (demote); verified needs `doltap verify`, deprecated needs `doltap deprecate`")
   .option("--add-source <s>", "repeatable", (v: string, acc: string[]) => [...acc, v], [] as string[])
   .option("--add-tag <t>", "repeatable", (v: string, acc: string[]) => [...acc, v], [] as string[])
+  .option("--aliases <list>", "replace the aliases (comma-separated); \"\" removes them")
   .option("--title <text>")
   .option("--summary <text>")
   .option("--review-by <days|date|none>", "when to re-check the page against its sources (howto/reference); none clears it")
   .option("--base-rev <rev>", "rev shown by `doltap get`; refused if the page changed since")
-  .action((id: string, o: { confidence?: string; addSource: string[]; addTag: string[]; title?: string; summary?: string; reviewBy?: string; baseRev?: string }) => {
+  .action((id: string, o: { confidence?: string; addSource: string[]; addTag: string[]; aliases?: string; title?: string; summary?: string; reviewBy?: string; baseRev?: string }) => {
     try {
       const { cfg, json } = cfgFrom();
-      const r = patchMeta(cfg, { id, confidence: o.confidence, addSources: o.addSource, addTags: o.addTag, title: o.title, summary: o.summary, reviewBy: o.reviewBy, baseRev: o.baseRev });
+      const r = patchMeta(cfg, { id, confidence: o.confidence, addSources: o.addSource, addTags: o.addTag, aliases: o.aliases !== undefined ? o.aliases.split(",") : undefined, title: o.title, summary: o.summary, reviewBy: o.reviewBy, baseRev: o.baseRev });
       out(json, r, () => {
         if (r.refused) { console.log(`refused: ${r.refused}`); printIssues(r.issues); return; }
         console.log(`updated ${r.id} frontmatter`);

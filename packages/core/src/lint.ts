@@ -58,6 +58,13 @@ export function lintPage(page: Page, ctx: LintContext): LintIssue[] {
     else if (m.confidence !== "deprecated" && m.review_by < today()) warn("review-due", `review_by ${m.review_by} has passed; re-check the page against its sources, then wiki_verify (doltap verify) to move it forward`);
   }
 
+  if (m.aliases !== undefined) {
+    const a = m.aliases;
+    if (!Array.isArray(a) || a.length > 20 || a.some((x) => typeof x !== "string" || !x.trim() || x.length > 80)) {
+      err("aliases-invalid", "aliases must be a list of up to 20 non-empty names of at most 80 characters each");
+    }
+  }
+
   // Category / path
   if (page.id !== "Home") {
     if (!(CATEGORIES as readonly string[]).includes(category)) err("category-dir", `page is outside a known category directory (${CATEGORIES.join(", ")})`);

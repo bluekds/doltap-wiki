@@ -11,6 +11,8 @@ Before starting a task, run `wiki_search` (or `doltap search`) for related pages
 - When you need version-specific behavior or limits of an external library or API
 - When you wonder "why is it done this way?" (check `decisions/`)
 
+Each result carries `coverage`, the share of your query the page contains (rare terms weigh more), and `unmatched_terms`, what it lacks. A high-coverage hit is the page to read. When every hit has low coverage, the wiki has nothing on this yet: solve the task, then write the page (section 2). When the right page exists but was missed because you used another name for its subject, add that name to its `aliases`.
+
 Check `confidence` on every result:
 
 | confidence | Meaning | Action |
@@ -98,6 +100,7 @@ sources:
 - `title`: human-readable title
 - `category`: must match the directory (checked by lint)
 - `summary`: 1–2 sentences, max 200 characters. It is shown verbatim in search results and the index, so write it so that **a reader can decide whether to open the page from the summary alone**
+- `aliases` (optional): other names for the subject that a reader might search for: a codename, a host nickname, a product's old name (`[DGX Spark, ai-server]`). Search weighs them like the title. Up to 20 names of at most 80 characters; leave it out when the title already carries every name
 - `tags`: only values listed in `_meta/tags.yaml`. Add a new tag first with `wiki_add_tag` (`doltap tags add`); lint suggests the closest existing tag on a typo
 - `confidence`: `draft` | `verified` | `deprecated`
 - `created`, `updated`: ISO dates

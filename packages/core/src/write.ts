@@ -27,6 +27,8 @@ export interface UpsertInput {
   title?: string;
   summary?: string;
   tags?: string[];
+  /** Other names for the subject; searched like the title. */
+  aliases?: string[];
   confidence?: string;
   sources?: string[];
   /** Full body (markdown below the frontmatter). If omitted on create, the category template body is used. */
@@ -39,6 +41,12 @@ export interface UpsertInput {
   baseRev?: string;
   /** When the page should be re-checked: a number of days from today, a YYYY-MM-DD date, or "none". */
   reviewBy?: string;
+}
+
+/** Trimmed, deduplicated, empty entries dropped; an empty result removes the field. */
+function cleanAliases(list: string[]): string[] | undefined {
+  const out = [...new Set(list.map((s) => s.trim()).filter(Boolean))];
+  return out.length ? out : undefined;
 }
 
 function staleRefusal(current: string, base: string | undefined): string | null {
@@ -258,6 +266,7 @@ export function upsertPage(cfg: WikiConfig, input: UpsertInput): WriteResult {
     if (input.title !== undefined) meta.title = input.title;
     if (input.summary !== undefined) meta.summary = input.summary;
     if (input.tags !== undefined) meta.tags = input.tags;
+    if (input.aliases !== undefined) meta.aliases = cleanAliases(input.aliases);
     if (input.confidence !== undefined) meta.confidence = input.confidence;
     if (input.sources !== undefined) meta.sources = input.sources;
     meta.updated = today();
@@ -334,6 +343,8 @@ export interface MetaPatch {
   baseRev?: string;
   /** Days from today, a YYYY-MM-DD date, or "none" to clear. */
   reviewBy?: string;
+  /** Replace the aliases list; an empty list removes it. */
+  aliases?: string[];
 }
 
 /** Update frontmatter only (promotion, deprecation, retagging). */
@@ -358,6 +369,7 @@ export function patchMeta(cfg: WikiConfig, input: MetaPatch): WriteResult {
     if (input.summary) meta.summary = input.summary;
     if (input.addSources?.length) meta.sources = [...new Set([...meta.sources, ...input.addSources])];
     if (input.addTags?.length) meta.tags = [...new Set([...meta.tags, ...input.addTags])];
+    if (input.aliases !== undefined) meta.aliases = cleanAliases(input.aliases);
     if (input.reviewBy !== undefined) meta.review_by = reviewByFrom(input.reviewBy, meta.updated) ?? undefined;
     const raw = serializePage(meta, page.body);
     const next = parsePage(cfg, page.relPath, raw);

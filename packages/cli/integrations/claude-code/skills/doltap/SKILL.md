@@ -9,7 +9,7 @@ A knowledge base shared by every agent on every machine. Pages are Markdown unde
 
 ## Read before you work
 
-1. At the start of a task that is repetitive (deploy, build, release, environment setup) or cross-project (auth, retry, caching, logging, CLI scaffolding), call `wiki_search` with 2–4 keywords. Also search when you need a library's version-specific behavior or limits, or when you wonder "why is it done this way".
+1. At the start of a task that is repetitive (deploy, build, release, environment setup) or cross-project (auth, retry, caching, logging, CLI scaffolding), call `wiki_search` with 2–4 keywords. Also search when you need a library's version-specific behavior or limits, or when you wonder "why is it done this way". Read `coverage` on the hits: high means this is the page; low on every hit means the wiki has nothing yet (write it once solved); a page you found only by another name for its subject should get that name added with `wiki_set_meta` `aliases`.
 2. Read the `summary` and `confidence` of each hit. Open a page with `wiki_get`; pass `section` (e.g. `Pitfalls`, `Steps`, `Solution`) when you only need part of it.
 3. Treat `confidence` as instructions: `verified` = follow it; `draft` = use as a hint and verify; `deprecated` = do not follow, open the page in `replaced_by` instead. `review_due: true` on `wiki_get` means the page's `review_by` date passed: its facts may have drifted, so re-check what you rely on.
 4. Use `wiki_related` to move from one hit to adjacent pages when the first page is close but not exact.

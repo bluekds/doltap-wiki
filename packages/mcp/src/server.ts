@@ -94,14 +94,14 @@ const locked = <T>(fn: () => T) => withWriteLockAsync(cfg, fn, { timeoutMs: opts
 const errorText = (e: unknown) => errorTextFor(cfg, e);
 const readOnly = () => (opts.readOnly ? errorText(`this connection uses a read-only token (${cfg.agent}); writes need a full-access token`) : null);
 const INSTRUCTIONS = `Doltap is a shared wiki for agents (howto, patterns, reference, decisions, projects). Rules in short; the full protocol is the resource wiki://protocol.
-- Search first: call wiki_search before repetitive or cross-project work (deploy, build, release, auth, retry, config, library versions). Then wiki_get the page or one section.
+- Search first: call wiki_search before repetitive or cross-project work (deploy, build, release, auth, retry, config, library versions). Then wiki_get the page or one section. Low coverage on every hit means no page exists yet; a page found only under another name should get that name in its aliases.
 - confidence: verified = follow it; draft = use as a hint and verify, then promote with wiki_verify and evidence (the session that created a page cannot verify it); deprecated = do not follow, use replaced_by.
 - Edit by section (wiki_patch_section) rather than replacing pages. wiki_upsert refuses an existing id unless replace=true with the base_rev you read; a stale base_rev is refused so nobody's edit is lost silently.
 - Write when you solved something a second time, hit an undocumented pitfall, or made a choice whose rationale is not in the code. Not session logs, not things obvious from code or docs.
 - Never write secret values (tokens, keys, passwords, connector URLs); record where the secret lives and how to load it. Internal hosts are fine.
 - English only. Tags only from wiki://tags (add one with wiki_add_tag). Hub lists are generated; do not edit them. Deprecate with wiki_deprecate, finish a conflict with wiki_resolve_conflict.`;
 
-const server = new McpServer({ name: "doltap", version: "0.12.0" }, { instructions: INSTRUCTIONS });
+const server = new McpServer({ name: "doltap", version: "0.13.0" }, { instructions: INSTRUCTIONS });
 
 // ------------------------------------------------------------------ resources
 server.registerResource("protocol", "wiki://protocol", { title: "Doltap protocol", description: "Rules for reading, writing, and classifying wiki pages. Read before writing.", mimeType: "text/markdown" }, async (uri) => ({
@@ -120,7 +120,7 @@ server.registerTool(
   "wiki_search",
   {
     annotations: { readOnlyHint: true }, title: "Search the wiki",
-    description: "Full-text search over shared knowledge pages (procedures, code patterns, reference facts, decisions). Call this before starting any repetitive task (deploy, build, auth, retry, config) or when you need version-specific facts. Ranked by text match, then verified over draft and a small lift for pages created or verified in the last 30 days; age is never a penalty. Returns id, confidence, tags, summary. Then call wiki_get for the page or a section.",
+    description: "Full-text search over shared knowledge pages (procedures, code patterns, reference facts, decisions). Call this before starting any repetitive task (deploy, build, auth, retry, config) or when you need version-specific facts. Ranked by text match, then verified over draft and a small lift for pages created or verified in the last 30 days; age is never a penalty. Returns id, confidence, tags, summary, and coverage: the share of your query the page contains (rare terms weigh more) with unmatched_terms listing what it lacks. If every hit has low coverage, the wiki has no page for this yet: solve it, then write one. Then call wiki_get for the page or a section.",
     inputSchema: {
       query: z.string().max(LIMITS.query).describe("Free text; terms are stemmed and prefix-matched"),
       category: CategoryEnum.optional(),
@@ -134,7 +134,10 @@ server.registerTool(
   async (a) => {
     try {
       const { hits, sync } = search(cfg, a.query, { category: a.category, tag: a.tag, confidence: a.confidence, limit: a.limit, includeDeprecated: a.include_deprecated, includeHubs: a.include_hubs });
-      return text({ hits: hits.map((h) => ({ id: h.id, title: h.title, confidence: h.confidence, replaced_by: h.replaced_by ?? undefined, tags: h.tags, summary: h.summary, updated: h.updated, matched: h.matched })), notes: sync.messages });
+      return text({
+        hits: hits.map((h) => ({ id: h.id, title: h.title, confidence: h.confidence, replaced_by: h.replaced_by ?? undefined, tags: h.tags, aliases: h.aliases.length ? h.aliases : undefined, summary: h.summary, updated: h.updated, coverage: h.coverage, unmatched_terms: h.unmatched.length ? h.unmatched : undefined })),
+        notes: sync.messages,
+      });
     } catch (e) { return errorText(e); }
   },
 );
@@ -216,6 +219,7 @@ Rules: body must follow the category template sections (get it with wiki_templat
       title: Short,
       summary: z.string().max(200),
       tags: z.array(Short).min(1).max(50),
+      aliases: z.array(z.string().max(80)).max(20).optional().describe("Other names for the subject (a codename, a host nickname, an old product name); searched like the title"),
       body: Body.describe("Markdown below the frontmatter, following the category template sections"),
       sources: z.array(Text).max(100).default([]).describe("Evidence: URLs, SPEC ids, session ids"),
       force: z.boolean().default(false).describe("Create even if similar pages exist"),
@@ -227,7 +231,7 @@ Rules: body must follow the category template sections (get it with wiki_templat
   async (a) => {
     try {
       const ro = readOnly(); if (ro) return ro;
-      const r = await locked(() => upsertPage(cfg, { id: a.id, title: a.title, summary: a.summary, tags: a.tags, body: a.body, confidence: a.replace ? undefined : "draft", sources: a.sources, force: a.force, replace: a.replace, reviewBy: a.review_by, baseRev: a.base_rev }));
+      const r = await locked(() => upsertPage(cfg, { id: a.id, title: a.title, summary: a.summary, tags: a.tags, aliases: a.aliases, body: a.body, confidence: a.replace ? undefined : "draft", sources: a.sources, force: a.force, replace: a.replace, reviewBy: a.review_by, baseRev: a.base_rev }));
       if (r.refused) return { isError: true as const, ...text({ refused: r.refused, issues: r.issues, similar: r.similar?.map((s) => ({ id: s.id, summary: s.summary, overlap: s.snippet })) }) };
       return text({ id: r.id, created: r.created, rev: r.rev, warnings: r.issues, pushed: r.sync.pushed, notes: r.sync.messages, conflicts: r.sync.conflicts });
     } catch (e) { return errorText(e); }
@@ -269,6 +273,7 @@ server.registerTool(
       confidence: z.enum(["draft"]).optional().describe("Only draft; verified and deprecated have dedicated tools"),
       add_sources: z.array(Text).max(100).default([]),
       add_tags: z.array(Short).max(50).default([]),
+      aliases: z.array(z.string().max(80)).max(20).optional().describe("Replace the page's aliases (other names searched like the title); [] removes them"),
       title: Short.optional(),
       summary: z.string().max(200).optional(),
       review_by: z.string().optional().describe("When to re-check the page against its sources: days from today (\"60\"), a YYYY-MM-DD date, or \"none\". Set it on howto/reference pages that depend on a tool version or an external service; decisions and projects never expire"),
@@ -278,7 +283,7 @@ server.registerTool(
   async (a) => {
     try {
       const ro = readOnly(); if (ro) return ro;
-      const r = await locked(() => patchMeta(cfg, { id: a.id, confidence: a.confidence, addSources: a.add_sources, addTags: a.add_tags, title: a.title, summary: a.summary, reviewBy: a.review_by, baseRev: a.base_rev }));
+      const r = await locked(() => patchMeta(cfg, { id: a.id, confidence: a.confidence, addSources: a.add_sources, addTags: a.add_tags, aliases: a.aliases, title: a.title, summary: a.summary, reviewBy: a.review_by, baseRev: a.base_rev }));
       if (r.refused) return { isError: true as const, ...text({ refused: r.refused, issues: r.issues }) };
       return text({ id: r.id, rev: r.rev, warnings: r.issues, pushed: r.sync.pushed, notes: r.sync.messages });
     } catch (e) { return errorText(e); }

@@ -1,6 +1,6 @@
 # CLI reference
 
-Generated from the command definitions by `npm run reference` (`doltap --reference`); do not edit by hand. `doltap` 0.12.0: 48 commands.
+Generated from the command definitions by `npm run reference` (`doltap --reference`); do not edit by hand. `doltap` 0.13.0: 48 commands.
 
 Doltap: shared knowledge base for AI agents. Global options apply to every command:
 
@@ -177,6 +177,7 @@ create a page (id = &lt;category&gt;/&lt;slug&gt;). Body from --file/--stdin or 
 | `--title <text>` | yes |  |  |
 | `--summary <text>` | yes |  | 1-2 sentences, max 200 chars |
 | `--tags <list>` | no |  | comma-separated, must exist in _meta/tags.yaml |
+| `--aliases <list>` | no |  | comma-separated other names for the subject; searched like the title |
 | `--sources <list>` | no |  | comma-separated URLs/ids |
 | `-f, --file <path>` | no |  | markdown body file |
 | `--stdin` | no |  | read body from stdin |
@@ -217,6 +218,7 @@ update frontmatter: --add-source, --add-tag, --title, --summary (promote with `d
 | `--confidence <level>` | no |  | draft (demote); verified needs `doltap verify`, deprecated needs `doltap deprecate` |
 | `--add-source <s>` | no | `[]` | repeatable |
 | `--add-tag <t>` | no | `[]` | repeatable |
+| `--aliases <list>` | no |  | replace the aliases (comma-separated); "" removes them |
 | `--title <text>` | no |  |  |
 | `--summary <text>` | no |  |  |
 | `--review-by <days|date|none>` | no |  | when to re-check the page against its sources (howto/reference); none clears it |

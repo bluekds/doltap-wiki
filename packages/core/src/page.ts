@@ -11,6 +11,8 @@ export interface PageMeta {
   category: string;
   summary: string;
   tags: string[];
+  /** Other names for the page's subject (a product's codename, a host's nickname). Searched like the title. Absent when empty. */
+  aliases?: string[];
   confidence: Confidence | string;
   created: string;
   updated: string;
@@ -235,7 +237,7 @@ function toDate(v: unknown): string {
 const isNullish = (v: unknown): boolean => v == null || v === "" || v === "null" || v === "~";
 
 export function normalizeMeta(data: Record<string, unknown>): PageMeta {
-  const { review_by: _rb, verified_on: _vo, ...rest } = data;
+  const { review_by: _rb, verified_on: _vo, aliases: _al, ...rest } = data;
   for (const key of ["replaced_by", "verified_by"]) if (key in rest && isNullish(rest[key])) delete rest[key];
   return {
     ...rest,
@@ -249,7 +251,15 @@ export function normalizeMeta(data: Record<string, unknown>): PageMeta {
     sources: toStringArray(data.sources),
     ...optionalDate("review_by", data.review_by),
     ...optionalDate("verified_on", data.verified_on),
+    ...optionalList("aliases", data.aliases),
   };
+}
+
+/** An optional list field: a YAML list or a single string; empty means absent so it never lands in frontmatter as `[]`. */
+function optionalList(key: string, v: unknown): Record<string, string[]> {
+  if (isNullish(v)) return {};
+  const list = toStringArray(v).map((s) => s.trim());
+  return list.length ? { [key]: list } : {};
 }
 
 /** Lifecycle dates are optional: an empty placeholder (`review_by:` from a template) is the same as absent. */
@@ -316,11 +326,12 @@ export function readPage(cfg: WikiConfig, id: string): Page | null {
 
 export function serializePage(meta: PageMeta, body: string): string {
   // Fixed key order keeps diffs stable across machines.
-  const order = ["title", "category", "summary", "tags", "confidence", "created", "updated", "sources"];
+  const order = ["title", "category", "summary", "tags", "aliases", "confidence", "created", "updated", "sources"];
   const ordered: Record<string, unknown> = {};
   for (const k of order) ordered[k] = meta[k];
   for (const k of Object.keys(meta)) if (!(k in ordered)) ordered[k] = meta[k];
   for (const k of Object.keys(ordered)) if (ordered[k] === undefined || ordered[k] === null) delete ordered[k];
+  if (Array.isArray(ordered.aliases) && !ordered.aliases.length) delete ordered.aliases;
   const yaml = stringifyYaml(ordered, { lineWidth: 0 }).replace(/\s+$/, "");
   return `---\n${yaml}\n---\n\n${body.replace(/\s+$/, "")}\n`;
 }
