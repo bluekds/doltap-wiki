@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.13.0 (2026-11-09)
+
+Two ideas from reviewing NVIDIA's auto-ontology (its `check_answerable` tool and per-term synonyms), implemented inside doltap with no new dependency:
+
+- **Search tells how well each hit covers the query.** Every hit carries `coverage` (0 to 1, the share of the query's term weight it contains, rare terms weighing more) and `unmatched_terms` (what it lacks); `doltap search` prints "coverage 60%, missing: …" when a hit lacks terms. Low coverage on every hit means the wiki has nothing on the question yet: the agent solves it and writes the page. PROTOCOL section 1, the server instructions and the Claude Code skill say so
+- **`aliases` in frontmatter.** Other names for a page's subject (a codename, a host nickname, an old product name: `aliases: [DGX Spark, ai-server]`) are indexed with the title and count toward the title boost, so a page is found under any of its names. `wiki_upsert` and `doltap add --aliases` set them, `wiki_set_meta` and `doltap meta --aliases` replace them (empty removes). Lint `aliases-invalid` checks the shape (up to 20 names, each non-empty and at most 80 characters). The index gains a column; it is rebuilt once on first use
+
 ## 0.12.0 (2026-11-09)
 
 Search ranking, from the weekly review of the live wiki: a long maintenance page that mentions every operational word kept winning natural-language queries whose answer was a dedicated page (17 of 19 golden queries first, and "call the gb10 ai server from another machine" returned the maintenance page).

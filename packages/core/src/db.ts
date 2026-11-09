@@ -19,6 +19,8 @@ export interface PageRow {
   /** Lifecycle dates (0.7): when the page should be re-checked, and when it was last verified. */
   review_by: string | null;
   verified_on: string | null;
+  /** Other names for the subject (frontmatter `aliases`, 0.13). */
+  aliases: string[];
 }
 
 export interface SearchHit extends PageRow {
@@ -29,8 +31,15 @@ export interface SearchHit extends PageRow {
   /** Multiplier applied to bm25: verified pages and recent updates rank higher, deprecated pages lower. */
   boost: number;
   snippet: string;
-  /** Query terms found in the page (title, summary, tags or body). All of them for an exact match; fewer for a fallback hit. */
+  /** Query terms found in the page (title, aliases, summary, tags or body). */
   matched: string[];
+  /** Query terms the page does not contain. */
+  unmatched: string[];
+  /**
+   * Share of the query this page covers, each term weighted by its rarity in the wiki (0..1, two decimals). Low
+   * coverage on every hit means the wiki has no page for the question; the missing terms say what is absent.
+   */
+  coverage: number;
 }
 
 export interface SearchOptions {
@@ -96,7 +105,7 @@ export interface BrokenPage {
 }
 
 /** Bump when the table layout changes: an older index file is dropped and rebuilt on open. */
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS pages (
@@ -113,7 +122,8 @@ CREATE TABLE IF NOT EXISTS pages (
   size INTEGER NOT NULL,
   replaced_by TEXT,
   review_by TEXT,
-  verified_on TEXT
+  verified_on TEXT,
+  aliases TEXT NOT NULL DEFAULT '[]'
 );
 CREATE VIRTUAL TABLE IF NOT EXISTS pages_fts USING fts5(
   id UNINDEXED, title, summary, tags, body, tokenize='porter unicode61'
@@ -232,13 +242,14 @@ export class WikiDb {
     this.dropFts(page.id);
     this.db
       .prepare(
-        `INSERT OR REPLACE INTO pages (id, rel_path, title, category, summary, tags, confidence, created, updated, mtime, size, replaced_by, review_by, verified_on)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT OR REPLACE INTO pages (id, rel_path, title, category, summary, tags, confidence, created, updated, mtime, size, replaced_by, review_by, verified_on, aliases)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       )
-      .run(page.id, page.relPath, meta.title, meta.category, meta.summary, JSON.stringify(meta.tags), meta.confidence, meta.created, meta.updated, mtime, size, meta.replaced_by ? String(meta.replaced_by) : null, meta.review_by ?? null, meta.verified_on ?? null);
+      .run(page.id, page.relPath, meta.title, meta.category, meta.summary, JSON.stringify(meta.tags), meta.confidence, meta.created, meta.updated, mtime, size, meta.replaced_by ? String(meta.replaced_by) : null, meta.review_by ?? null, meta.verified_on ?? null, JSON.stringify(meta.aliases ?? []));
     this.db
       .prepare("INSERT INTO pages_fts (rowid, id, title, summary, tags, body) VALUES ((SELECT rowid FROM pages WHERE id = ?),?,?,?,?,?)")
-      .run(page.id, page.id, meta.title, meta.summary, meta.tags.join(" "), page.body);
+      // Aliases go into the title column: other names for the subject weigh like its title.
+      .run(page.id, page.id, [meta.title, ...(meta.aliases ?? [])].join(" · "), meta.summary, meta.tags.join(" "), page.body);
     this.db.prepare("DELETE FROM links WHERE src = ?").run(page.id);
     const ins = this.db.prepare("INSERT OR IGNORE INTO links (src, dst) VALUES (?,?)");
     for (const dst of page.links) ins.run(page.id, dst);
@@ -331,6 +342,7 @@ export class WikiDb {
       replaced_by: r.replaced_by == null ? null : String(r.replaced_by),
       review_by: r.review_by == null ? null : String(r.review_by),
       verified_on: r.verified_on == null ? null : String(r.verified_on),
+      aliases: r.aliases == null ? [] : (JSON.parse(String(r.aliases)) as string[]),
     };
   }
 
@@ -396,10 +408,10 @@ export class WikiDb {
       const bm25 = Number(r.score);
       // The slug counts as title: `howto/setup-wiki-on-new-machine` answers "set up wiki on a new machine" even
       // when the title words differ. With common query words bm25 is near zero and this is the main signal.
-      const title = `${row.title} ${row.id.split("/").pop()!.replace(/-/g, " ")}`.toLowerCase();
+      const title = `${row.title} ${row.aliases.join(" ")} ${row.id.split("/").pop()!.replace(/-/g, " ")}`.toLowerCase();
       const inTitle = tokens.filter((t) => containsToken(title, t)).length / tokens.length;
       const boost = (CONFIDENCE_BOOST[row.confidence] ?? 1.0) * recencyBoost(row, now) * (1 + TITLE_BOOST * inTitle);
-      return { ...row, score: bm25 * boost, bm25, boost, snippet: String(r.snippet), matched: [], text: `${row.title} ${row.summary} ${row.tags.join(" ")} ${String(r.body)}`.toLowerCase() };
+      return { ...row, score: bm25 * boost, bm25, boost, snippet: String(r.snippet), matched: [], unmatched: [], coverage: 0, text: `${row.title} ${row.aliases.join(" ")} ${row.summary} ${row.tags.join(" ")} ${String(r.body)}`.toLowerCase() };
     });
   }
 
@@ -453,7 +465,7 @@ export class WikiDb {
         // Coverage, weighted by rarity and squared: every term keeps the full score; missing the rarest of four
         // terms roughly halves it, missing a common one costs a few percent.
         const coverage = matched.reduce((a, t) => a + weight.get(t)!, 0) / allWeight;
-        return { ...h, matched, score: h.score * coverage * coverage };
+        return { ...h, matched, unmatched: tokens.filter((t) => !matched.includes(t)), coverage: Math.round(coverage * 100) / 100, score: h.score * coverage * coverage };
       })
       .filter((h) => h.matched.length >= minMatched)
       // Deprecated pages come after every live page, however well they match (audit L2). bm25 is negative: lower is better.
@@ -490,7 +502,7 @@ export class WikiDb {
       })
       .filter((x) => x.shared >= minShared && x.overlap >= minOverlap)
       .sort((a, b) => b.overlap - a.overlap);
-    return scored.slice(0, limit).map((x) => ({ ...x.hit, score: -x.overlap, bm25: x.hit.score, boost: 1, snippet: `${x.shared}/${probe.size} tokens shared`, matched: x.matched }));
+    return scored.slice(0, limit).map((x) => ({ ...x.hit, score: -x.overlap, bm25: x.hit.score, boost: 1, snippet: `${x.shared}/${probe.size} tokens shared`, matched: x.matched, unmatched: [...probe].filter((t) => !x.matched.includes(t)), coverage: Math.round(x.overlap * 100) / 100 }));
   }
 
   outlinks(id: string): string[] {

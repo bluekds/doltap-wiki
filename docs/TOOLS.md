@@ -1,13 +1,13 @@
 # MCP tool reference
 
-Generated from the server's zod schemas by `npm run reference` (`doltap-mcp --reference`); do not edit by hand. Server `doltap` 0.12.0: 16 tools, 3 resources.
+Generated from the server's zod schemas by `npm run reference` (`doltap-mcp --reference`); do not edit by hand. Server `doltap` 0.13.0: 16 tools, 3 resources.
 
 ## Server instructions
 
 What every client receives at connect time:
 
 > Doltap is a shared wiki for agents (howto, patterns, reference, decisions, projects). Rules in short; the full protocol is the resource wiki://protocol.
-> - Search first: call wiki_search before repetitive or cross-project work (deploy, build, release, auth, retry, config, library versions). Then wiki_get the page or one section.
+> - Search first: call wiki_search before repetitive or cross-project work (deploy, build, release, auth, retry, config, library versions). Then wiki_get the page or one section. Low coverage on every hit means no page exists yet; a page found only under another name should get that name in its aliases.
 > - confidence: verified = follow it; draft = use as a hint and verify, then promote with wiki_verify and evidence (the session that created a page cannot verify it); deprecated = do not follow, use replaced_by.
 > - Edit by section (wiki_patch_section) rather than replacing pages. wiki_upsert refuses an existing id unless replace=true with the base_rev you read; a stale base_rev is refused so nobody's edit is lost silently.
 > - Write when you solved something a second time, hit an undocumented pitfall, or made a choice whose rationale is not in the code. Not session logs, not things obvious from code or docs.
@@ -49,7 +49,7 @@ Writes: the tool changes the wiki (commits and pushes) and is refused on a read-
 
 **Search the wiki** (read-only)
 
-Full-text search over shared knowledge pages (procedures, code patterns, reference facts, decisions). Call this before starting any repetitive task (deploy, build, auth, retry, config) or when you need version-specific facts. Ranked by text match, then verified over draft and a small lift for pages created or verified in the last 30 days; age is never a penalty. Returns id, confidence, tags, summary. Then call wiki_get for the page or a section.
+Full-text search over shared knowledge pages (procedures, code patterns, reference facts, decisions). Call this before starting any repetitive task (deploy, build, auth, retry, config) or when you need version-specific facts. Ranked by text match, then verified over draft and a small lift for pages created or verified in the last 30 days; age is never a penalty. Returns id, confidence, tags, summary, and coverage: the share of your query the page contains (rare terms weigh more) with unmatched_terms listing what it lacks. If every hit has low coverage, the wiki has no page for this yet: solve it, then write one. Then call wiki_get for the page or a section.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -141,6 +141,7 @@ Rules: body must follow the category template sections (get it with wiki_templat
 | `title` | string | yes |  | (at most 200 chars) |
 | `summary` | string | yes |  | (at most 200 chars) |
 | `tags` | string[] | yes |  | (at least 1 item) |
+| `aliases` | string[] | no |  | Other names for the subject (a codename, a host nickname, an old product name); searched like the title |
 | `body` | string | yes |  | Markdown below the frontmatter, following the category template sections (at most 256000 chars) |
 | `sources` | string[] | no | `[]` | Evidence: URLs, SPEC ids, session ids |
 | `force` | boolean | no | `false` | Create even if similar pages exist |
@@ -176,6 +177,7 @@ Add sources or tags, fix title/summary, or set review_by (the date a howto/refer
 | `confidence` | enum | no |  | Only draft; verified and deprecated have dedicated tools (one of `draft`) |
 | `add_sources` | string[] | no | `[]` |  |
 | `add_tags` | string[] | no | `[]` |  |
+| `aliases` | string[] | no |  | Replace the page's aliases (other names searched like the title); [] removes them |
 | `title` | string | no |  | (at most 200 chars) |
 | `summary` | string | no |  | (at most 200 chars) |
 | `review_by` | string | no |  | When to re-check the page against its sources: days from today ("60"), a YYYY-MM-DD date, or "none". Set it on howto/reference pages that depend on a tool version or an external service; decisions and projects never expire |
