@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.12.0 (2026-11-09)
+
+Search ranking, from the weekly review of the live wiki: a long maintenance page that mentions every operational word kept winning natural-language queries whose answer was a dedicated page (17 of 19 golden queries first, and "call the gb10 ai server from another machine" returned the maintenance page).
+
+- **One candidate pool ranked by bm25.** Pages containing every query term used to come first whatever their score, so a page whose title answers the question but lacks one generic word ("machine") lost to any long page containing them all. Candidates now come from one OR query ranked by bm25 (which already weighs terms by rarity and normalises for length) times the confidence, recency and title boosts
+- **Coverage weighted by rarity.** A hit's score is scaled by the squared share of the query's term weight it contains, each term weighted by how rare it is in the wiki: missing a distinctive term ("rotate") costs about half the score, missing a common one a few percent. A hit must still contain at least half of the terms
+- **Question words are not search terms.** `where`, `does`, `which`, `can`, `should`, `another` and similar words are dropped from queries; `set` and `new` are kept ("set up the wiki on a new machine")
+- **Title matches count more, and the slug counts as title** (`TITLE_BOOST` 0.15 → 0.3): with common query words bm25 is near zero and the title is the real signal
+- The golden fixture vault gains a long maintainer handbook and four natural-language queries that failed before; the live wiki's golden set goes from 17/19 to 18/19 with the three spot-check queries of the review now first. Search latency is unchanged (docs/BENCH.md)
+
 ## 0.11.2 (2026-11-06)
 
 First independent audit of a release (v0.11.1), run by an agent from another vendor (Gemini 3.8 Flash through the Antigravity CLI) on a fresh clone with only docs/SECURITY-AUDIT-SCOPE.md as its brief. Seven findings, all confirmed against the code, all fixed here with regression tests (`packages/core/test/v0112-audit.test.ts`, `packages/mcp/test/v0112*.test.ts`):

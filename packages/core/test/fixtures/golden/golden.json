@@ -102,5 +102,25 @@
     "query": "set up doltap on a laptop",
     "expect": "howto/setup-new-machine",
     "note": "summary wording; the old source-build page never mentions a laptop"
+  },
+  {
+    "query": "call the model server from another machine",
+    "expect": "howto/call-model-server",
+    "note": "the dedicated page lacks one generic word (machine) that a long handbook page has; the handbook must not win"
+  },
+  {
+    "query": "where does the wiki run launchd services",
+    "expect": "projects/demo/_index",
+    "note": "question words (where, does) are not search terms; the handbook mentions every word"
+  },
+  {
+    "query": "set up the wiki on a new machine",
+    "expect": "howto/setup-new-machine",
+    "note": "set and new carry meaning here (setup, new machine)"
+  },
+  {
+    "query": "rotate the http token after a leak",
+    "expect": "howto/rotate-http-token",
+    "note": "the handbook repeats rotate, token and leak; the dedicated page has them in title and summary"
   }
 ]

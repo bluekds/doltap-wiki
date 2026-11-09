@@ -36,6 +36,19 @@ Same machine, under heavier load than the 0.8.0 run (full reindex, whose code di
 | search p50 / p95 | 4.2 / 12.9 ms (223 hits over 40 queries) |
 | lintAll | 1024 ms (6667 issues) |
 
+## 2026-11-09, doltap 0.12.0: one bm25-ranked pool, rarity-weighted coverage
+
+Same machine. Search now counts each query term's document frequency (one FTS count per term) and checks which terms every candidate contains; the cost does not show at this size. Full reindex is much faster than in the 0.9.0 run since 0.9.1 deletes FTS rows by rowid instead of scanning.
+
+| Step | Result (5000 pages) |
+|---|---|
+| generate pages | 507 ms |
+| full reindex | 527 ms (5011 pages) |
+| no-op reindex (per request) | (per request)          31 ms (0 re-parsed) |
+| incremental reindex (10 changed) | (10 changed)     33 ms (10 re-parsed) |
+| search p50 / p95 | 6.9 / 12.8 ms (220 hits over 40 queries) |
+| lintAll | 425 ms (6667 issues) |
+
 ## Reading the numbers
 
 - **Full reindex** parses every page once. It happens on `doltap reindex`, on a schema change, or on a fresh clone; a few seconds for five thousand pages is fine.
