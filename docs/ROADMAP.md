@@ -10,7 +10,7 @@ Versions below are ordering, not dates. Items move between versions when real us
 
 **Frozen at 1.0**
 - Interface contract: MCP tool names and arguments, CLI commands and flags, page frontmatter fields and PROTOCOL structure, state directory layout and file formats (`http-clients.json`, sync state), index schema version.
-- Compatibility policy: semver. An interface slated for removal is warned about for at least one minor release first. Index and config files migrate automatically.
+- Compatibility policy: semver. An interface slated for removal is warned about for at least one minor release first. Index and config files migrate automatically. Written down in [COMPATIBILITY.md](COMPATIBILITY.md) (what is and is not frozen, exit codes, deprecation and migration rules, supported platforms).
 - Quality bar: zero HIGH findings in an external security audit, one release cycle of incident-free operation on two or more machines, every tool and flag documented (docs/TOOLS.md and docs/CLI.md are generated from the code and checked in CI since 0.9.0 / 0.11.0).
 
 **Non-goals, kept on purpose**
