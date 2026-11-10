@@ -120,7 +120,7 @@ flowchart LR
 ## Several machines, remote access
 
 - Each machine with `doltap init --repo …` shares the same git remote. `doltap schedule install` pulls every 10 minutes so reads never block on a slow network.
-- Machines without a clone (a laptop, claude.ai on the web) use **remote access**: on an always-on machine run `doltap serve install` and publish it over HTTPS (Tailscale Funnel, for example); other machines connect with `doltap integrations install claude --remote <URL>` (Codex CLI, Cursor and Gemini CLI with `codex|cursor|gemini`; any other MCP client gets a JSON snippet from `generic`), and claude.ai registers it as a custom connector. See "Security" below for the model.
+- Machines without a clone (a laptop, claude.ai on the web) use **remote access**: on an always-on machine run `doltap serve install` and publish it over HTTPS (Tailscale Funnel, for example); other machines connect with `doltap integrations install claude --remote <URL>` (Codex CLI, Cursor and Antigravity CLI, formerly Gemini CLI, with `codex|cursor|antigravity`; any other MCP client gets a JSON snippet from `generic`), and claude.ai registers it as a custom connector. See "Security" below for the model.
 - **Two wikis on one machine** (a personal and a team wiki): keep each in its own root and register the second under another server name: `doltap --root ~/team-wiki integrations install claude --name doltap-team`. Both appear in Claude Code; the skill and instruction section are shared. The CLI picks a wiki with `--root` or `DOLTAP_ROOT`; without either it walks up from the current directory, then falls back to `~/.doltap`.
 - Conflicts are never auto-merged. `doltap sync` and `doltap audit` list conflict files; merge the two versions and finish with `doltap resolve <id> --file merged.md` (`wiki_resolve_conflict` over MCP), which deletes the copy and commits. Only the tag vocabulary `_meta/tags.yaml` merges automatically through `merge=union` in `.gitattributes`; wikis created before 0.3.0 need the line `wiki/_meta/tags.yaml merge=union` added there.
 
@@ -162,7 +162,7 @@ doltap schedule install [--every <min>] [--force]|status|uninstall  # periodic s
 doltap serve install [--show-url]|status|uninstall|token [--rotate] [--quiet]   # always-on HTTP MCP service
 doltap serve client add <name> [--read-only] [--expires <days|date>] | list | extend <name> --expires … | remove <name>   # named tokens: commits carry the name
 doltap serve calls [--since 7] [-n 20]      # which client called which tool (<state dir>/logs/http-calls.log)
-doltap integrations install|uninstall|status claude|codex|cursor|gemini|generic [--remote [<url>]] [--dry-run]   # --remote without a value reads $DOLTAP_REMOTE_URL
+doltap integrations install|uninstall|status claude|codex|cursor|antigravity|gemini|generic [--remote [<url>]] [--dry-run]   # --remote without a value reads $DOLTAP_REMOTE_URL
 ```
 
 Global flags `--root`, `--agent`, `--session`, `--no-sync`, `--json`. Environment: `DOLTAP_ROOT`, `DOLTAP_AGENT`, `DOLTAP_SESSION`, `DOLTAP_NO_SYNC=1`, `DOLTAP_AUTO_PULL_MINUTES` (default 10; also how long writes skip the push after the remote was unreachable), `DOLTAP_REMOTE_TIMEOUT_MS` (cap for one pull or push, default 15000), `DOLTAP_REMOTE_URL`, `DOLTAP_HTTP_ALLOWED_HOSTS`, `DOLTAP_DEFER_PUSH=0` (synchronous pushes in the HTTP server).

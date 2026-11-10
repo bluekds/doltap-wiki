@@ -800,7 +800,7 @@ const integrations = program.command("integrations").description("install the sk
 const stdioSpecFor = (root: string, agent: string) => { const [command, ...args] = stdioMcpCommand(); return { command, args, env: { DOLTAP_ROOT: root, DOLTAP_AGENT: agent } }; };
 integrations
   .command("install <client>")
-  .description(`supported clients: ${ALL_CLIENTS.join(", ")} (claude = Claude Code via its CLI; codex, cursor, gemini = their user-level config file; generic = print JSON for any other MCP client)`)
+  .description(`supported clients: ${ALL_CLIENTS.join(", ")} (claude = Claude Code via its CLI; codex, cursor, antigravity, gemini = their user-level config file, where antigravity is the Antigravity CLI (agy, formerly Gemini CLI) and gemini the legacy Gemini CLI; generic = print JSON for any other MCP client)`)
   .option("--remote [url]", "register the always-on HTTPS endpoint instead of the local stdio server; omit the value to read it from $DOLTAP_REMOTE_URL (keeps the token out of shell history)")
   .option("--dry-run", "print what would change without writing anything")
   .option("--show-url", "with generic: print the remote URL unmasked")

@@ -31,12 +31,15 @@ probe() { for f in "$@"; do echo "== $f"; $FP -v error -show_entries stream=code
 build_demo() {
   for L in ko en; do
     local sfx=""; [ "$L" = en ] && sfx="-en"
-    rm -rf "out/frames-demo-$L"; python3 render.py --html demo.html --start 0 --end 720 --out "out/frames-demo-$L" --query "render=1&lang=$L" --workers 6
+    rm -rf "out/frames-demo-$L"; python3 render.py --html demo.html --start 0 --end 960 --out "out/frames-demo-$L" --query "render=1&lang=$L" --workers 6
     $FF -y -loglevel error -framerate 30 -i "out/frames-demo-$L/%04d.png" -c:v libx264 -preset slow -pix_fmt yuv420p -crf 18 -movflags +faststart "out/doltap-demo$sfx.mp4"
     $FF -y -loglevel error -framerate 30 -i "out/frames-demo-$L/%04d.png" \
         -vf "fps=12,scale=960:540:flags=lanczos,split[a][b];[a]palettegen=max_colors=64:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle" "out/demo$sfx.gif"
+    # 4:5 for feeds (Threads, Instagram)
+    rm -rf "out/frames-demo-$L-p"; python3 render.py --html demo.html --start 0 --end 960 --out "out/frames-demo-$L-p" --query "render=1&lang=$L&fmt=portrait" --workers 6
+    $FF -y -loglevel error -framerate 30 -i "out/frames-demo-$L-p/%04d.png" -c:v libx264 -preset slow -pix_fmt yuv420p -crf 18 -movflags +faststart "out/doltap-demo$sfx-portrait.mp4"
   done
-  probe out/doltap-demo.mp4 out/doltap-demo-en.mp4
+  probe out/doltap-demo.mp4 out/doltap-demo-en.mp4 out/doltap-demo-portrait.mp4 out/doltap-demo-en-portrait.mp4
 }
 
 build_v1() {

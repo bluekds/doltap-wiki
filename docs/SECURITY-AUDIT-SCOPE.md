@@ -31,7 +31,7 @@ Audit the tag named in the request (for example `v0.11.1`), not `main`.
  machine A (always on): doltap-mcp --http on 127.0.0.1:8765 ◀──┤  state dir: ~/.local/state/doltap/<wiki-id>/
       ▲ Tailscale Funnel (TLS, public hostname)                 │     index.sqlite, write.lock, sync.json,
       │                                                         │     http-token, http-clients.json, logs/
- remote clients: claude.ai connector, Claude Code, Codex, Cursor, Gemini CLI
+ remote clients: claude.ai connector, Claude Code, Codex, Cursor, Antigravity CLI (formerly Gemini CLI)
       (URL = https://host/<64-hex token>/mcp; named tokens may be read-only or expiring)
 
  machine B, C: doltap CLI and stdio MCP on a local clone, scheduled `doltap sync` (launchd / cron / schtasks)

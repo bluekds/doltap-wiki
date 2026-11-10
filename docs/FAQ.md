@@ -28,7 +28,7 @@ Notes the agent keeps for itself. Both are machine-local and tied to one vendor:
 shared across machines or cloud environments", Codex's live under `$CODEX_HOME` and are off by default
 ([Claude Code](https://code.claude.com/docs/en/memory),
 [Codex](https://learn.chatgpt.com/docs/customization/memories?surface=app)). Doltap is one store for
-Claude Code, Codex, Cursor and Gemini CLI on every machine you use.
+Claude Code, Codex, Cursor and Antigravity CLI (formerly Gemini CLI) on every machine you use.
 
 ### claude-mem, agentmemory, ai-memory
 
@@ -37,12 +37,27 @@ Automatic capture: hooks record what the agent does and the tool distils it
 [ai-memory](https://github.com/akitaonrails/ai-memory)). If you want memory with zero writing effort,
 they are the better choice.
 
-ai-memory is the closest in shape: a git-backed Markdown wiki, readable in Obsidian, for many agents. The
-differences are in how it is shared and written. ai-memory shares by pointing every machine at one
-server you run, with git for versioning and backup; Doltap needs no server, every machine has a full clone
-and syncs through the git remote. ai-memory captures automatically; Doltap pages are written deliberately,
-must follow their category's template, and start as `draft` until another session verifies them with
-evidence.
+ai-memory is the closest in shape: a git-backed Markdown wiki with a derived SQLite index, readable in
+Obsidian, for many agents. It is built around something else, though:
+
+- **Scope.** ai-memory remembers a repository ("this repo, not a general vault"): each project has its own
+  wiki, and its strength is continuity inside that project. A session that stops in Claude Code resumes in
+  Codex with a claim-once handoff of what failed and what is still open. Across projects it carries a small
+  profile of your usual choices, and searching every project is an explicit `--global` query. Doltap is one
+  wiki for everything you work on: how you release, how to reach a machine, the pitfall you hit in another
+  repository. A page belongs to a subject, not to a repository.
+- **Time.** ai-memory turns sessions into pages and can age them (decay, compaction, dedup; the parts that
+  rewrite content are off by default). Doltap pages are reference material that stays until someone marks
+  it `deprecated` and names its replacement.
+- **Writing.** ai-memory captures automatically through hooks, and agents can also write pages. Doltap
+  pages are written deliberately, follow their category's template, and start as `draft` until another
+  session verifies them with evidence.
+- **Sharing.** ai-memory runs one server that every machine and teammate points at, live. Doltap needs no
+  server: every machine has a full clone, works offline and syncs through the git remote, so another
+  machine sees a write after its next sync.
+
+They answer different questions and can run side by side: ai-memory for "where did this repository's work
+stop", Doltap for "how do we do this", across all of them.
 
 ### Basic Memory
 

@@ -7,8 +7,8 @@ import { join } from "node:path";
  * under the home directory; we add or replace one entry named `doltap` and leave the rest untouched.
  * Claude Code is handled in cli.ts through the `claude mcp` CLI.
  */
-export type FileClient = "codex" | "cursor" | "gemini";
-export const FILE_CLIENTS: FileClient[] = ["codex", "cursor", "gemini"];
+export type FileClient = "codex" | "cursor" | "antigravity" | "gemini";
+export const FILE_CLIENTS: FileClient[] = ["codex", "cursor", "antigravity", "gemini"];
 export const ALL_CLIENTS = ["claude", ...FILE_CLIENTS, "generic"] as const;
 
 export interface StdioSpec {
@@ -39,13 +39,15 @@ export function configPath(client: FileClient, home = homedir()): string {
   switch (client) {
     case "codex": return join(home, ".codex", "config.toml");
     case "cursor": return join(home, ".cursor", "mcp.json");
-    case "gemini": return join(home, ".gemini", "settings.json");
+    case "antigravity": return join(home, ".gemini", "config", "mcp_config.json"); // Antigravity CLI (agy), formerly Gemini CLI
+    case "gemini": return join(home, ".gemini", "settings.json"); // legacy Gemini CLI
   }
 }
 
 export function instructionsPath(client: FileClient, home = homedir()): string | null {
   switch (client) {
     case "codex": return join(home, ".codex", "AGENTS.md");
+    case "antigravity":
     case "gemini": return join(home, ".gemini", "GEMINI.md");
     case "cursor": return null; // User Rules live in Cursor's settings UI, not in a file we can edit safely
   }
@@ -76,9 +78,9 @@ export function hasCodexBlock(toml: string): boolean {
   return /^\s*\[mcp_servers\.doltap\]/m.test(toml);
 }
 
-/** JSON entry for Cursor (`url`) or Gemini (`httpUrl`) config files. */
-export function jsonEntry(client: "cursor" | "gemini", i: RegisterInput): Record<string, unknown> {
-  if (i.remoteUrl) return client === "gemini" ? { httpUrl: i.remoteUrl } : { url: i.remoteUrl };
+/** JSON entry for Cursor (`url`), Antigravity (`serverUrl`) or Gemini (`httpUrl`) config files. */
+export function jsonEntry(client: Exclude<FileClient, "codex">, i: RegisterInput): Record<string, unknown> {
+  if (i.remoteUrl) return client === "gemini" ? { httpUrl: i.remoteUrl } : client === "antigravity" ? { serverUrl: i.remoteUrl } : { url: i.remoteUrl };
   const s = i.stdio!;
   return { command: s.command, args: s.args, env: s.env };
 }
@@ -144,7 +146,8 @@ export function register(client: FileClient, i: RegisterInput, dryRun = false): 
   const ip = instructionsPath(client, home);
   const r: RegisterResult = { file, summary };
   if (ip) { r.instructionsFile = ip; r.summary += `; ${appendInstructions(ip, dryRun)}`; }
-  else r.manual = `Cursor has no global instruction file; paste this into Cursor Settings → Rules → User Rules:\n\n${instructionSection()}`;
+  if (client === "gemini") r.summary += `; note: Gemini CLI is now Antigravity CLI (agy), which reads ${configPath("antigravity", home)}: run \`doltap integrations install antigravity\` for it`;
+  if (!ip) r.manual = `Cursor has no global instruction file; paste this into Cursor Settings → Rules → User Rules:\n\n${instructionSection()}`;
   return r;
 }
 
@@ -185,7 +188,7 @@ export function registrations(home = homedir()): Registration[] {
           if (hasCodexBlock(text)) transport = /^\s*url\s*=/m.test(stripOthers(text)) ? "http" : "stdio";
         } else {
           const entry = (readJson(file).mcpServers as Record<string, Record<string, unknown>> | undefined)?.doltap;
-          if (entry) transport = "url" in entry || "httpUrl" in entry ? "http" : "stdio";
+          if (entry) transport = "url" in entry || "httpUrl" in entry || "serverUrl" in entry ? "http" : "stdio";
         }
       }
     } catch { /* unreadable config: report as not registered */ }

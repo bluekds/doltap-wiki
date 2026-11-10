@@ -2,205 +2,265 @@
 <html><head><meta charset="utf-8"><title>doltap demo</title>
 <style>html,body{margin:0;background:#0F1D2B}canvas{display:block;width:100vw;height:auto}</style>
 <script src="logo.js"></script>
-</head><body><canvas id="c" width="1920" height="1080"></canvas>
+</head><body><canvas id="c"></canvas>
 <script>
-/* Terminal demo (24 s, 720 frames @ 30 fps): one agent records a fix, an agent on another machine finds it.
-   Every command and output line below was captured from a real run of doltap (0.13.3) on a public sample wiki
-   built by tools/showreel/demo-wiki.sh. One edit to the captured text: the machine name in the commit trailer
-   is shown as "laptop" (the run had both clones on one machine).
-   window.renderFrame(i) draws frame i. ?lang=en switches the captions. */
-const LANG = new URLSearchParams(location.search).get('lang') === 'en' ? 'en' : 'ko';
+/* Agent demo (32 s, 960 frames @ 30 fps): Claude Code on one machine finds the wiki has nothing, records the
+   fix once the user reports it; Antigravity CLI on another machine finds that fix.
+   Every prompt, tool call, tool result and agent sentence below is copied from real sessions recorded by
+   tools/showreel/agent-demo.sh on the public sample wiki (out/agent-run-<lang>/*.jsonl). The window is drawn
+   in the style of a terminal agent, not screenshotted. Edits to the recorded text: long answers and JSON
+   results are shown as excerpts (marked …), Markdown links in answers as their text, JSON string values decoded, and the machine name in the commit trailer is shown as "laptop"
+   (both clones ran on one machine).
+   ?lang=en switches language (the sessions were recorded in each language); ?fmt=portrait renders 1080x1350.
+   window.renderFrame(i) draws frame i. */
+const Q = new URLSearchParams(location.search);
+const LANG = Q.get('lang') === 'en' ? 'en' : 'ko';
+const PORTRAIT = Q.get('fmt') === 'portrait';
 const C = { bgIn: '#16263A', bgOut: '#0F1D2B', text: '#F2F2F0', mono: '#C9D6E3', dim: '#6F8499', ink: '#0B1622',
-  bar: '#132233', tan: '#C9AE90', green: '#69B039', orange: '#E08020', hi: '#FFFFFF' };
+  bar: '#132233', tan: '#C9AE90', green: '#69B039', lgreen: '#9BE06A', orange: '#E08020', amber: '#F0A040', hi: '#FFFFFF',
+  userBg: '#1C2E42', code: '#E3C8A8', blue: '#7AA7E0' };
 const KO = '"Apple SD Gothic Neo", system-ui';
-const MONO = '"SF Mono", Menlo, monospace';
-const FRAMES = 720;
+const MONO = '"SF Mono", Menlo, "Apple SD Gothic Neo", monospace';
+const FRAMES = 960, END = 862;
+const W = PORTRAIT ? 1080 : 1920, H = PORTRAIT ? 1350 : 1080;
+const L = PORTRAIT
+  ? { capY: 104, capPx: 44, subY: 164, subPx: 28, win: [36, 210, 1008, 1060], FS: 23, LH: 35, pad: 28, footY: 1316, footPx: 19, cap0: 40 }
+  : { capY: 112, capPx: 52, subY: 178, subPx: 32, win: [80, 222, 1760, 760], FS: 27, LH: 41, pad: 40, footY: 1040, footPx: 22, cap0: 110 };
 
 const T = {
   ko: {
     title: '돌탑 위키', sub: '에이전트가 배운 것을, 다음 에이전트가 이어받습니다',
-    s1: '① 막히면 위키부터 찾습니다', s1b: '관련 페이지는 있지만, 이 문제(403, OIDC)는 아직 없습니다',
-    s2: '② 해결하고 나면, 그 페이지의 한 섹션에 남깁니다', s2b: '커밋과 push는 자동, 누가 남겼는지도 함께 기록됩니다',
-    s3: '③ 다른 머신, 다른 에이전트가 같은 문제를 만나면', s3b: 'coverage 100%: 방금 남긴 해결책이 바로 나옵니다',
-    foot: '에이전트는 같은 기능을 MCP 도구로 씁니다 — wiki_search · wiki_patch_section · wiki_get',
+    s1: '① 막히면 에이전트가 먼저 위키를 찾습니다', s1b: '관련 페이지는 있지만 이 문제(403, OIDC)는 없다는 것까지 압니다',
+    s2: '② 해결되면, 그 페이지의 한 섹션에 스스로 남깁니다', s2b: '커밋과 push는 자동, 누가 남겼는지도 함께 기록됩니다',
+    s3: '③ 다른 머신의 다른 에이전트가 같은 문제를 만나면', s3b: '방금 남긴 해결책을 찾아 바로 답합니다',
+    foot: '실제 세션 기록에서 발췌 · 공개 샘플 위키 · MCP 도구 wiki_search · wiki_patch_section · wiki_get',
   },
   en: {
     title: 'Doltap Wiki', sub: 'What one agent learns, the next one already knows',
-    s1: '1  Stuck? Search the wiki first', s1b: 'A related page exists, but nothing on 403 / OIDC yet',
-    s2: '2  Solved it: record it in that page’s section', s2b: 'Committed and pushed automatically, with who wrote it',
-    s3: '3  Another machine, another agent, same problem', s3b: 'Coverage 100%: the fix recorded a minute ago comes first',
-    foot: 'Agents use the same operations as MCP tools — wiki_search · wiki_patch_section · wiki_get',
+    s1: '1  Stuck? The agent searches the wiki first', s1b: 'It also learns that the page has nothing on 403 / OIDC yet',
+    s2: '2  Once it is solved, the agent records it', s2b: 'Committed and pushed automatically, with who wrote it',
+    s3: '3  Another machine, another agent, same problem', s3b: 'It finds the fix recorded a minute ago and answers',
+    foot: 'Excerpts from real sessions on a public sample wiki · MCP tools wiki_search · wiki_patch_section · wiki_get',
   },
 }[LANG];
 
-// Events on the story timeline (frame numbers). Output text uses [[amber:...]], [[green:...]] spans and **bold**.
+// Recorded sessions (see the header). Markup: [[amber:..]] [[green:..]] [[dim:..]] spans, **bold**, `code`.
+const S = {
+  ko: {
+    q1: '첫 릴리스가 Publish 잡에서 실패했어. npm publish가 403 "OIDC permission denied"를 냈는데, 뭐가 문제야?',
+    search: 'query: "npm publish OIDC 403 permission denied trusted publishing"',
+    say1: '… 공유 위키의 `howto/release-npm-packages` 페이지(초안)에는 이 함정이 없습니다. …',
+    q2: '찾았어. npmjs.com에서 패키지의 trusted publisher 설정에 "Allow npm publish"를 체크하고 잡을 다시 돌리니 배포됐어.',
+    patch: 'id: "howto/release-npm-packages", section: "Pitfalls", mode: "append", base_rev: "a0bf28159bb1", content: "- `npm publish` fails with 403 \\"OIDC permission denied\\" even though the workflow has `id-token: write` …"',
+    rev: '1faeed16ec0e',
+    say2: '이 함정을 공유 위키 `howto/release-npm-packages`의 Pitfalls 섹션에 기록했습니다. …',
+    q3: 'acme-cli 릴리스가 실패해. Publish 워크플로에서 npm publish가 403 "OIDC permission denied"를 내. 어떻게 고쳐?',
+    search3: 'query: "npm publish OIDC permission denied"',
+    res3: ['"id": "howto/release-npm-packages",', '[[green:"coverage": 1]]'],
+    rev3: '1faeed16ec0e',
+    pit3: '[[green:- `npm publish` fails with 403 "OIDC permission denied" even though the workflow has `id-token: write` and a trusted publisher is configured: on npmjs.com, open the package\'s trusted publisher settings and check "Allow npm publish", then re-run the job. …]]',
+    say3: 'Doltap Wiki(`howto/release-npm-packages`)에 기록된 알려진 이슈이며, 원인과 해결 방법은 다음과 같습니다. …',
+    say3b: '3. 등록된 GitHub Actions Trusted Publisher 항목에서 **"Allow npm publish"** 옵션을 체크하여 권한을 활성화합니다.',
+  },
+  en: {
+    q1: 'Our first release just failed in the Publish job: npm publish returned 403 "OIDC permission denied". What is wrong?',
+    search: 'query: "npm publish OIDC trusted publishing 403 permission denied"',
+    say1: '… The shared wiki page `howto/release-npm-packages` is a draft and doesn\'t mention either the first-publish problem or the `repository` requirement. …',
+    q2: 'Found it: on npmjs.com I ticked "Allow npm publish" on the package\'s trusted publisher and re-ran the job. It is published now.',
+    patch: 'id: "howto/release-npm-packages", section: "Pitfalls", mode: "append", base_rev: "a0bf28159bb1", content: "- `npm publish` fails with 403 \\"OIDC permission denied\\" even though the workflow has `id-token: write` …"',
+    rev: 'a784f7bc6d1f',
+    say2: 'I added this to the Pitfalls section of the shared wiki page `howto/release-npm-packages` …',
+    q3: 'Release of acme-cli failed: npm publish in the Publish workflow gets 403 "OIDC permission denied". How do I fix it?',
+    search3: 'query: "npm publish OIDC permission denied acme-cli"',
+    res3: ['"id": "howto/release-npm-packages",', '[[green:"coverage": 0.74,]]', '"unmatched_terms": ["acme", "cli"]'],
+    rev3: 'a784f7bc6d1f',
+    pit3: '[[green:- `npm publish` fails with 403 "OIDC permission denied" even though the workflow has `id-token: write` and a trusted publisher is configured: on npmjs.com, open the package\'s Settings → Trusted Publisher and tick "Allow npm publish". …]]',
+    say3: 'According to the knowledge base (`howto/release-npm-packages`), your workflow file (publish.yml) already has the required `id-token: write` permission configured correctly. **No code or workflow changes are needed.** …',
+    say3b: '3. Enable / tick **"Allow npm publish"**.',
+  },
+}[LANG];
+
 const EV = [
   { t: 75, k: 'term', who: 'laptop', agent: 'Claude Code', color: C.tan },
   { t: 75, k: 'cap', text: T.s1 },
-  { t: 92, k: 'cmd', text: 'doltap search "npm publish 403 OIDC"' },
-  { t: 142, k: 'out', lines: [
-    'howto/release-npm-packages  [draft]  release,ci,github  [[amber:(coverage 40%, missing: 403, oidc)]]',
-    '    Tag v<version> on main; the Publish workflow tests and publishes every workspace package with provenance, no npm token.',
-    '    ## Prerequisites  - **npm** account with **publish** rights on every package in the workspace …',
-  ] },
-  { t: 172, k: 'sub', text: T.s1b },
-  { t: 232, k: 'cap', text: T.s2 },
-  { t: 232, k: 'sub', text: '' },
-  { t: 244, k: 'cmd', text: 'doltap patch howto/release-npm-packages -s Pitfalls -f fix.md' },
-  { t: 312, k: 'out', lines: ['updated howto/release-npm-packages ## Pitfalls'] },
-  { t: 322, k: 'note', text: 'git commit + push   [host:laptop] [agent:claude-code]' },
-  { t: 330, k: 'sub', text: T.s2b },
-  { t: 392, k: 'term', who: 'server', agent: 'Codex', color: C.green },
-  { t: 392, k: 'cap', text: T.s3 },
-  { t: 392, k: 'sub', text: '' },
-  { t: 404, k: 'cmd', text: 'doltap sync' },
-  { t: 420, k: 'out', lines: ['pulled: true pushed: false offline: false | pages: 13 (reindexed 0, removed 0)'] },
-  { t: 432, k: 'cmd', text: 'doltap search "npm publish 403 OIDC"' },
-  { t: 480, k: 'out', lines: [
-    'howto/release-npm-packages  [draft]  release,ci,github',
-    '    Tag v<version> on main; the Publish workflow tests and publishes every workspace package with provenance, no npm token.',
-    '    … trusted **publish** fails with **403** "**OIDC** permission denied": on **npmjs**.com, open …',
-  ] },
-  { t: 498, k: 'sub', text: T.s3b },
-  { t: 520, k: 'cmd', text: 'doltap get howto/release-npm-packages -s Pitfalls' },
-  { t: 574, k: 'out', lines: [
-    '- Publish dependencies first (core, then the packages that pin it), or a clean install fails for a minute.',
-    '[[green:- First trusted publish fails with 403 "OIDC permission denied": on npmjs.com, open the package’s trusted publisher and tick "Allow npm publish", then re-run the failed job.]]',
-  ] },
+  { t: 90, k: 'user', text: S.q1 },
+  { t: 150, k: 'tool', name: 'doltap - wiki_search (MCP)', args: S.search },
+  { t: 172, k: 'res', lines: ['"id": "howto/release-npm-packages",', '"confidence": "draft",', '[[amber:"coverage": 0.43,]]', '[[amber:"unmatched_terms": ["oidc", "403", "permission", "denied"]]]', '[[dim:… +15 lines]]'] },
+  { t: 200, k: 'sub', text: T.s1b },
+  { t: 214, k: 'tool', name: 'Read', args: '.github/workflows/publish.yml' },
+  { t: 222, k: 'res', lines: ['Read 17 lines'] },
+  { t: 240, k: 'say', text: S.say1 },
+  { t: 330, k: 'cap', text: T.s2 },
+  { t: 330, k: 'sub', text: '' },
+  { t: 340, k: 'user', text: S.q2 },
+  { t: 404, k: 'tool', name: 'doltap - wiki_patch_section (MCP)', args: S.patch },
+  { t: 432, k: 'res', lines: [`"rev": "${S.rev}",`, '[[green:"pushed": true,]]', '"conflicts": []'] },
+  { t: 452, k: 'say', text: S.say2 },
+  { t: 468, k: 'note', text: 'git: wiki: update howto/release-npm-packages | [host:laptop] [agent:claude-code]' },
+  { t: 478, k: 'sub', text: T.s2b },
+  // server half: filled from out/agent-run-<lang>/server.jsonl
+  { t: 560, k: 'term', who: 'server', agent: 'Antigravity CLI', color: C.green },
+  { t: 560, k: 'cap', text: T.s3 },
+  { t: 560, k: 'sub', text: '' },
+  { t: 572, k: 'note', text: 'doltap sync (scheduled): pulled: true | pages: 13' },
+  { t: 586, k: 'user', text: S.q3 },
+  { t: 640, k: 'tool', mark: '◆', name: 'doltap · wiki_search', args: S.search3 },
+  { t: 660, k: 'res', lines: S.res3 },
+  { t: 684, k: 'tool', mark: '◆', name: 'doltap · wiki_get', args: 'id: "howto/release-npm-packages"' },
+  { t: 704, k: 'res', lines: [`"rev": "${S.rev3}",`, '## Pitfalls', '- Publish dependencies first (core, then the packages that pin it), …', S.pit3] },
+  { t: 722, k: 'sub', text: T.s3b },
+  { t: 744, k: 'say', mark: '◆', text: S.say3 },
+  { t: 772, k: 'say', mark: '', text: S.say3b },
 ];
-const END = 648;
 
-const cv = document.getElementById('c'); const ctx = cv.getContext('2d');
-const W = 1920, H = 1080;
+const cv = document.getElementById('c'); cv.width = W; cv.height = H; const ctx = cv.getContext('2d');
 const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
 const seg = (i, a, b) => clamp((i - a) / (b - a));
 const ease = (t) => 1 - Math.pow(1 - t, 3);
-const monoF = (px, wt = 400) => `${wt} ${px}px ${MONO}`;
+const monoF = (px, wt = 400, it = false) => `${it ? 'italic ' : ''}${wt} ${px}px ${MONO}`;
 const koF = (px, wt = 700) => `${wt} ${px}px ${KO}`;
 function rr(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
 function txt(s, x, y, font, color, align = 'left') { ctx.font = font; ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = 'alphabetic'; ctx.fillText(s, x, y); }
+function fitFont(s, px, maxW, mk) { ctx.font = mk(px); while (px > 12 && ctx.measureText(s).width > maxW) { px -= 1; ctx.font = mk(px); } return px; }
 
 let logo = null;
 if (window.LOGO_SRC) { logo = new Image(); logo.src = window.LOGO_SRC; }
 
 function background() {
-  const g = ctx.createRadialGradient(W / 2, H * .45, 100, W / 2, H / 2, W * .75);
+  const g = ctx.createRadialGradient(W / 2, H * .45, 100, W / 2, H / 2, Math.max(W, H) * .75);
   g.addColorStop(0, C.bgIn); g.addColorStop(1, C.bgOut); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
 }
 
-// Parse a line into styled runs: [[amber:..]] / [[green:..]] spans, **bold** inside.
-function runs(line) {
-  const out = []; const re = /\[\[(amber|green):(.*?)\]\]/g; let last = 0, m;
-  const plain = (s, hl) => s.split(/(\*\*[^*]+\*\*)/).forEach((p) => { if (!p) return; const b = p.startsWith('**'); out.push({ s: b ? p.slice(2, -2) : p, bold: b, hl }); });
+// Markup -> styled runs. Tool arguments are raw (their backticks are literal); agent text renders `code`.
+function runs(line, base) {
+  const out = []; const re = /\[\[(amber|green|dim):(.*?)\]\]/g; let last = 0, m;
+  const plain = (s, hl) => s.split(base.raw ? /(\*\*[^*]+\*\*)/ : /(\*\*[^*]+\*\*|`[^`]+`)/).forEach((p) => {
+    if (!p) return;
+    if (p.startsWith('**')) out.push({ s: p.slice(2, -2), color: C.hi, bold: true });
+    else if (p.startsWith('`')) out.push({ s: p.slice(1, -1), color: hl ? hlColor(hl) : C.code, bold: !!hl });
+    else out.push({ s: p, color: hl ? hlColor(hl) : base.color, bold: hl ? hl !== 'dim' : !!base.bold, italic: base.italic });
+  });
   while ((m = re.exec(line))) { plain(line.slice(last, m.index), null); plain(m[2], m[1]); last = re.lastIndex; }
   plain(line.slice(last), null); return out;
 }
+const hlColor = (h) => (h === 'amber' ? C.amber : h === 'green' ? C.lgreen : C.dim);
 
-// Wrap styled runs to a pixel width, keeping the line's leading indent on continuation rows.
-const FS = 30, LH = 46;
-function wrap(line, maxW) {
-  ctx.font = monoF(FS); const cw = ctx.measureText('m').width; const maxC = Math.floor(maxW / cw);
-  const indent = (line.match(/^\s*(\[\[\w+:)?(- )?/) || [''])[0].replace(/\[\[\w+:/, '').length;
-  const chars = []; for (const r of runs(line)) for (const ch of r.s) chars.push({ ch, bold: r.bold, hl: r.hl });
-  const rows = []; let start = 0;
-  while (start < chars.length) {
-    const room = rows.length ? maxC - indent : maxC; let end = Math.min(chars.length, start + room);
-    if (end < chars.length) { let sp = end; while (sp > start && chars[sp].ch !== ' ') sp--; if (sp > start) end = sp + 1; }
-    rows.push({ pad: rows.length ? indent : 0, chars: chars.slice(start, end) }); start = end;
+// Wrap runs into rows of pieces that fit maxW (break at spaces, or between CJK characters).
+function wrap(rs, maxW) {
+  const toks = [];
+  for (const r of rs) {
+    const parts = r.s.replace(/ …/g, '\u00a0…').match(/[\u1100-\u11ff\u3000-\u9fff\uac00-\ud7af\uff00-\uffef][^ \t\u1100-\u11ff\u3000-\u9fff\uac00-\ud7af\uff00-\uffef]*|[ \t]+|[^ \t\u1100-\u11ff\u3000-\u9fff\uac00-\ud7af\uff00-\uffef]+/g) || []; // CJK breaks per character, punctuation and a trailing … stay with the character before them
+    for (const p of parts) { ctx.font = monoF(L.FS, r.bold ? 700 : 400, r.italic); toks.push({ ...r, s: p, w: ctx.measureText(p).width, sp: /^[ \t]+$/.test(p) }); }
   }
-  return { rows, cw };
+  const rows = [[]]; let x = 0;
+  for (const tk of toks) {
+    if (tk.sp && x === 0) continue;
+    if (x + tk.w > maxW && x > 0) {
+      if (tk.sp) { rows.push([]); x = 0; continue; }
+      // a long token: hard-split; otherwise move it to the next row
+      if (tk.w > maxW) { let s = ''; for (const ch of tk.s) { ctx.font = monoF(L.FS, tk.bold ? 700 : 400, tk.italic); const w = ctx.measureText(s + ch).width; if (x + w > maxW) { rows[rows.length - 1].push({ ...tk, s, x }); rows.push([]); x = 0; s = ''; } s += ch; } ctx.font = monoF(L.FS, tk.bold ? 700 : 400, tk.italic); const w = ctx.measureText(s).width; rows[rows.length - 1].push({ ...tk, s, x }); x += w; continue; }
+      rows.push([]); x = 0;
+    }
+    rows[rows.length - 1].push({ ...tk, x }); x += tk.w;
+  }
+  return rows;
 }
 
-function drawRow(row, x, y, cw, alpha) {
-  let xx = x + row.pad * cw;
-  // highlight boxes behind contiguous hl spans
-  let k = 0;
-  while (k < row.chars.length) {
-    const hl = row.chars[k].hl; let e = k; while (e < row.chars.length && row.chars[e].hl === hl) e++;
-    if (hl) { const col = hl === 'amber' ? C.orange : C.green; ctx.save(); ctx.globalAlpha = alpha * .22; ctx.fillStyle = col; rr(xx + k * cw - 6, y - FS + 2, (e - k) * cw + 10, FS + 12, 6); ctx.fill(); ctx.restore(); }
-    k = e;
-  }
-  for (const c of row.chars) {
-    const col = c.hl === 'amber' ? C.orange : c.hl === 'green' ? '#9BE06A' : c.bold ? C.hi : C.mono;
-    ctx.save(); ctx.globalAlpha = alpha; txt(c.ch, xx, y, monoF(FS, c.bold || c.hl ? 700 : 400), col); ctx.restore(); xx += cw;
-  }
-}
-
+// Timeline state at frame i: the window, captions and the blocks shown so far.
 function state(i) {
-  let term = null, cap = null, capT = 0, sub = '', subT = 0; const lines = [];
+  let term = null, cap = null, capT = 0, sub = '', subT = 0; const blocks = [];
   for (const e of EV) {
     if (e.t > i) break;
-    if (e.k === 'term') { term = e; lines.length = 0; }
+    if (e.k === 'term') { term = e; blocks.length = 0; }
     else if (e.k === 'cap') { cap = e.text; capT = e.t; }
     else if (e.k === 'sub') { sub = e.text; subT = e.t; }
-    else if (e.k === 'cmd') { const n = Math.min(e.text.length, Math.floor((i - e.t) / 1.0)); lines.push({ kind: 'cmd', text: e.text.slice(0, n), typing: n < e.text.length, t: e.t }); }
-    else if (e.k === 'out') e.lines.forEach((l, j) => { if (i >= e.t + j * 3) lines.push({ kind: 'out', text: l, t: e.t + j * 3 }); });
-    else if (e.k === 'note') lines.push({ kind: 'note', text: e.text, t: e.t });
+    else if (e.k === 'user') { const chars = [...e.text]; const n = Math.min(chars.length, Math.floor((i - e.t) * 1.6)); blocks.push({ e, text: chars.slice(0, n).join(''), typing: n < chars.length }); }
+    else if (e.k === 'res') blocks.push({ e, lines: e.lines.filter((_, j) => i >= e.t + j * 3) });
+    else blocks.push({ e });
   }
-  return { term, cap, capT, sub, subT, lines };
+  return { term, cap, capT, sub, subT, blocks };
 }
 
-function drawTerminal(i, s) {
-  const x = 80, y = 250, w = W - 160, h = 690;
-  const sw = seg(i, s.term.t, s.term.t + 12);
-  ctx.save(); ctx.globalAlpha = ease(sw);
+// Lay out one block as rows: { prefix, prefixColor, pieces, bg }.
+function layout(b, maxW) {
+  const ind = L.FS * 1.6; const rows = [];
+  const add = (prefix, pc, rs, opt = {}) => wrap(rs, maxW - ind).forEach((pieces, k) => rows.push({ prefix: k ? '' : prefix, pc, pieces, ...opt }));
+  const e = b.e;
+  if (e.k === 'user') add('>', C.dim, runs(b.text, { color: C.text }), { bg: true, cursor: b.typing });
+  else if (e.k === 'tool') add(e.mark ?? '⏺', e.mark ? C.blue : C.green, [{ s: e.name, color: C.hi, bold: true }, { s: '(', color: C.mono }, ...runs(e.args, { color: C.mono, raw: true }), { s: ')', color: C.mono }]);
+  else if (e.k === 'res') b.lines.forEach((l, j) => add(j ? '' : '⎿', C.dim, runs(l, { color: C.mono }), { sub: true }));
+  else if (e.k === 'say') add(e.mark ?? '⏺', C.text, runs(e.text, { color: C.text }));
+  else if (e.k === 'note') add('↳', C.dim, runs(e.text, { color: C.dim, italic: true }));
+  return rows;
+}
+
+function drawWindow(i, s) {
+  const [x, y, w, h] = L.win; const barH = 58;
+  const a = ease(seg(i, s.term.t, s.term.t + 12));
+  ctx.save(); ctx.globalAlpha = a;
   ctx.shadowColor = 'rgba(0,0,0,.45)'; ctx.shadowBlur = 40; ctx.shadowOffsetY = 14;
   ctx.fillStyle = C.ink; rr(x, y, w, h, 18); ctx.fill(); ctx.shadowColor = 'transparent';
-  ctx.fillStyle = C.bar; rr(x, y, w, 58, 18); ctx.fill(); ctx.fillRect(x, y + 40, w, 18);
-  ['#E5484D', '#E0A020', '#69B039'].forEach((c, k) => { ctx.fillStyle = c; ctx.beginPath(); ctx.arc(x + 34 + k * 30, y + 29, 9, 0, 7); ctx.fill(); });
-  // machine / agent badge
-  ctx.font = monoF(24, 700); const label = `${s.term.who}`; const lw = ctx.measureText(label).width;
-  ctx.fillStyle = s.term.color; rr(x + w / 2 - (lw + 260) / 2, y + 12, lw + 36, 34, 17); ctx.fill();
-  txt(label, x + w / 2 - (lw + 260) / 2 + 18, y + 37, monoF(24, 700), C.ink);
-  txt(s.term.agent, x + w / 2 - (lw + 260) / 2 + lw + 52, y + 38, koF(26, 600), s.term.color);
-  // body
-  let yy = y + 58 + 52; const maxW = w - 70;
-  const rendered = [];
-  for (const l of s.lines) {
-    if (l.kind === 'cmd') rendered.push({ l, rows: null });
-    else { const { rows, cw } = wrap(l.text, l.kind === 'note' ? maxW - 40 : maxW); rendered.push({ l, rows, cw }); }
-  }
-  // scroll so the last line stays inside the window
-  let total = 0; for (const r of rendered) total += r.rows ? r.rows.length * LH : LH + 8;
-  const room = h - 58 - 70; if (total > room) yy -= total - room;
-  ctx.save(); ctx.beginPath(); ctx.rect(x, y + 60, w, h - 64); ctx.clip();
-  for (const r of rendered) {
-    const a = ease(seg(i, r.l.t, r.l.t + 5));
-    if (r.l.kind === 'cmd') {
-      yy += 8; txt('$', x + 40, yy, monoF(FS, 700), s.term.color); txt(r.l.text, x + 40 + 34, yy, monoF(FS, 600), C.text);
-      if (r.l.typing || (Math.floor(i / 15) % 2 === 0 && r === rendered[rendered.length - 1])) { ctx.font = monoF(FS, 600); const cx = x + 74 + ctx.measureText(r.l.text).width + 4; ctx.fillStyle = C.text; ctx.fillRect(cx, yy - FS + 4, 14, FS + 2); }
-      yy += LH;
-    } else if (r.l.kind === 'note') {
-      for (const row of r.rows) { ctx.save(); ctx.globalAlpha = a; txt('↳ ' + row.chars.map((c) => c.ch).join(''), x + 40, yy, `italic 500 ${FS - 3}px ${MONO}`, C.dim); ctx.restore(); yy += LH; }
-    } else { for (const row of r.rows) { drawRow(row, x + 40, yy, r.cw, a); yy += LH; } }
+  ctx.fillStyle = C.bar; rr(x, y, w, barH, 18); ctx.fill(); ctx.fillRect(x, y + barH - 18, w, 18);
+  ['#E5484D', '#E0A020', '#69B039'].forEach((c, k) => { ctx.fillStyle = c; ctx.beginPath(); ctx.arc(x + 32 + k * 28, y + 29, 8, 0, 7); ctx.fill(); });
+  ctx.font = monoF(22, 700); const lw = ctx.measureText(s.term.who).width; ctx.font = koF(24, 600); const aw = ctx.measureText(s.term.agent).width;
+  const bx = x + w / 2 - (lw + 36 + 14 + aw) / 2;
+  ctx.fillStyle = s.term.color; rr(bx, y + 13, lw + 36, 32, 16); ctx.fill();
+  txt(s.term.who, bx + 18, y + 36, monoF(22, 700), C.ink);
+  txt(s.term.agent, bx + lw + 50, y + 37, koF(24, 600), s.term.color);
+  // body: lay out every block, then scroll so the newest row stays visible
+  const maxW = w - 2 * L.pad; const gap = L.LH * .45; const all = [];
+  for (const b of s.blocks) { const rows = layout(b, maxW); if (!rows.length) continue; all.push({ gapBefore: b.e.k === 'res' || b.e.mark === '' ? 0 : gap, rows, t: b.e.t }); }
+  let total = 0; for (const blk of all) total += blk.gapBefore + blk.rows.length * L.LH;
+  const top = y + barH + 18, room = h - barH - 36; let yy = top + L.FS + Math.min(0, room - total);
+  ctx.save(); ctx.beginPath(); ctx.rect(x, y + barH, w, h - barH - 4); ctx.clip();
+  const ind = L.FS * 1.6;
+  for (const blk of all) {
+    yy += blk.gapBefore; const ba = ease(seg(i, blk.t, blk.t + 5));
+    if (blk.rows[0].bg) { ctx.save(); ctx.globalAlpha = ba; ctx.fillStyle = C.userBg; rr(x + L.pad - 14, yy - L.FS - 6, maxW + 28, blk.rows.length * L.LH + 10, 8); ctx.fill(); ctx.restore(); }
+    for (const r of blk.rows) {
+      if (yy - L.FS < top - 4) { yy += L.LH; continue; } // no half rows under the title bar
+      ctx.save(); ctx.globalAlpha = ba;
+      const px = x + L.pad + (r.sub ? ind * .55 : 0);
+      if (r.prefix) txt(r.prefix, px, yy, monoF(L.FS, 700), r.pc);
+      let ex = px + ind;
+      for (const p of r.pieces) { txt(p.s, px + ind + p.x, yy, monoF(L.FS, p.bold ? 700 : 400, p.italic), p.color); ctx.font = monoF(L.FS, p.bold ? 700 : 400, p.italic); ex = px + ind + p.x + ctx.measureText(p.s).width; }
+      if (r.cursor && r === blk.rows[blk.rows.length - 1]) { ctx.fillStyle = C.text; ctx.fillRect(ex + 3, yy - L.FS + 3, L.FS * .5, L.FS + 2); }
+      ctx.restore(); yy += L.LH;
+    }
   }
   ctx.restore(); ctx.restore();
 }
 
 function drawCaption(i, s) {
   if (!s.cap) return;
+  const maxW = W - 2 * L.cap0;
   const a = ease(seg(i, s.capT, s.capT + 10));
-  ctx.save(); ctx.globalAlpha = a; txt(s.cap, 110, 128 + 10 * (1 - a), koF(54, 800), C.text); ctx.restore();
-  if (s.sub) { const b = ease(seg(i, s.subT, s.subT + 10)); ctx.save(); ctx.globalAlpha = b; txt(s.sub, 112, 198, koF(34, 500), s.term ? s.term.color : C.tan); ctx.restore(); }
-  txt(T.foot, W / 2, 1022, koF(24, 500), C.dim, 'center');
+  const px = fitFont(s.cap, L.capPx, maxW, (p) => koF(p, 800));
+  ctx.save(); ctx.globalAlpha = a; txt(s.cap, L.cap0, L.capY + 10 * (1 - a), koF(px, 800), C.text); ctx.restore();
+  if (s.sub) { const b = ease(seg(i, s.subT, s.subT + 10)); const sp = fitFont(s.sub, L.subPx, maxW, (p) => koF(p, 500)); ctx.save(); ctx.globalAlpha = b; txt(s.sub, L.cap0 + 2, L.subY, koF(sp, 500), s.term ? s.term.color : C.tan); ctx.restore(); }
+  const fp = fitFont(T.foot, L.footPx, W - 60, (p) => koF(p, 500));
+  txt(T.foot, W / 2, L.footY, koF(fp, 500), C.dim, 'center');
 }
 
 function drawCard(i, kind) {
   background();
   const a = kind === 'title' ? ease(seg(i, 0, 14)) * (1 - seg(i, 64, 75)) : ease(seg(i, END, END + 16));
+  const k = PORTRAIT ? .8 : 1; const cy = PORTRAIT ? 300 : 0;
   ctx.save(); ctx.globalAlpha = a;
-  const ly = kind === 'title' ? 300 : 210;
-  if (logo && logo.complete) ctx.drawImage(logo, W / 2 - 100, ly, 200, 200);
+  const ly = (kind === 'title' ? 300 : 210) + cy;
+  if (logo && logo.complete) ctx.drawImage(logo, W / 2 - 100 * k, ly, 200 * k, 200 * k);
   if (kind === 'title') {
-    txt(T.title, W / 2, ly + 330, koF(96, 900), C.text, 'center');
-    txt(T.sub, W / 2, ly + 410, koF(42, 500), C.tan, 'center');
+    txt(T.title, W / 2, ly + 330 * k, koF(96 * k, 900), C.text, 'center');
+    const sp = fitFont(T.sub, 42 * k, W - 80, (p) => koF(p, 500));
+    txt(T.sub, W / 2, ly + 410 * k, koF(sp, 500), C.tan, 'center');
   } else {
-    ctx.font = monoF(48, 700); const cmd = '$ npm install -g doltap-wiki'; const cw = ctx.measureText(cmd).width;
-    ctx.fillStyle = C.ink; rr(W / 2 - cw / 2 - 40, ly + 250, cw + 80, 96, 18); ctx.fill();
-    txt(cmd, W / 2, ly + 314, monoF(48, 700), C.text, 'center');
-    txt('github.com/bluekds/doltap-wiki', W / 2, ly + 430, monoF(40, 600), C.tan, 'center');
-    txt('Claude Code · Codex · Cursor · Gemini CLI', W / 2, ly + 520, koF(34, 600), C.text, 'center');
-    txt('MCP · git · Markdown · Obsidian', W / 2, ly + 575, koF(30, 500), C.dim, 'center');
+    ctx.font = monoF(48 * k, 700); const cmd = '$ npm install -g doltap-wiki'; const cw = ctx.measureText(cmd).width;
+    ctx.fillStyle = C.ink; rr(W / 2 - cw / 2 - 40 * k, ly + 250 * k, cw + 80 * k, 96 * k, 18); ctx.fill();
+    txt(cmd, W / 2, ly + 314 * k, monoF(48 * k, 700), C.text, 'center');
+    txt('github.com/bluekds/doltap-wiki', W / 2, ly + 430 * k, monoF(40 * k, 600), C.tan, 'center');
+    const ag = 'Claude Code · Codex · Cursor · Antigravity CLI'; const ap = fitFont(ag, 34 * k, W - 80, (p) => koF(p, 600));
+    txt(ag, W / 2, ly + 520 * k, koF(ap, 600), C.text, 'center');
+    txt('MCP · git · Markdown · Obsidian', W / 2, ly + 575 * k, koF(30 * k, 500), C.dim, 'center');
   }
   ctx.restore();
 }
@@ -210,7 +270,7 @@ window.renderFrame = function (i) {
   background();
   const s = state(i);
   const fade = 1 - seg(i, END - 4, END + 10);
-  ctx.save(); ctx.globalAlpha = fade; if (s.term) drawTerminal(i, s); drawCaption(i, s); ctx.restore();
+  ctx.save(); ctx.globalAlpha = fade; if (s.term) drawWindow(i, s); drawCaption(i, s); ctx.restore();
   if (i >= END) drawCard(i, 'end');
 };
 window.FRAMES = FRAMES;

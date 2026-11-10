@@ -118,7 +118,7 @@ flowchart LR
 ## 여러 머신, 원격 접속
 
 - 머신마다 `doltap init --repo …`로 clone을 두면 같은 git 원격을 공유합니다. `doltap schedule install`이 10분마다 pull해서 읽기가 느린 네트워크에 막히지 않습니다.
-- clone을 두기 싫은 머신(노트북, claude.ai 웹)은 **원격 접속**을 씁니다. 항상 켜 둔 머신에서 `doltap serve install` 후 Tailscale Funnel 같은 방법으로 HTTPS로 내면, 다른 머신은 `doltap integrations install claude --remote <URL>` 한 줄로 연결되고(Codex CLI, Cursor, Gemini CLI는 `codex|cursor|gemini`, 그 밖의 클라이언트는 `generic`으로 JSON 스니펫) claude.ai에는 커스텀 커넥터로 등록합니다. 보안 모델은 아래 "보안"을 보세요.
+- clone을 두기 싫은 머신(노트북, claude.ai 웹)은 **원격 접속**을 씁니다. 항상 켜 둔 머신에서 `doltap serve install` 후 Tailscale Funnel 같은 방법으로 HTTPS로 내면, 다른 머신은 `doltap integrations install claude --remote <URL>` 한 줄로 연결되고(Codex CLI, Cursor, Antigravity CLI(옛 Gemini CLI)는 `codex|cursor|antigravity`, 그 밖의 클라이언트는 `generic`으로 JSON 스니펫) claude.ai에는 커스텀 커넥터로 등록합니다. 보안 모델은 아래 "보안"을 보세요.
 - **한 머신에 위키 둘**(개인용과 팀용): 각자 다른 루트에 두고 두 번째는 다른 서버 이름으로 등록합니다. `doltap --root ~/team-wiki integrations install claude --name doltap-team`. Claude Code에 둘 다 보이고 skill과 지침 절은 공유합니다. CLI는 `--root`나 `DOLTAP_ROOT`로 위키를 고르고, 없으면 현재 디렉터리에서 위로 찾다가 `~/.doltap`으로 갑니다.
 - 충돌은 자동 병합하지 않습니다. `doltap sync`와 `doltap audit`가 충돌 파일을 알려 주면 두 버전을 합쳐 `doltap resolve <id> --file merged.md`(MCP는 `wiki_resolve_conflict`)로 마무리하면 복사본 삭제와 commit까지 됩니다. 태그 목록 `_meta/tags.yaml`만은 `.gitattributes`의 `merge=union`으로 자동 병합됩니다. 0.3.0 이전에 만든 위키는 `.gitattributes`에 `wiki/_meta/tags.yaml merge=union` 한 줄을 추가하세요.
 
@@ -160,7 +160,7 @@ doltap schedule install [--every <분>] [--force]|status|uninstall  # 주기적 
 doltap serve install [--show-url]|status|uninstall|token [--rotate] [--quiet]   # 상시 HTTP MCP 서비스
 doltap serve client add <name> [--read-only] [--expires <days|date>] | list | extend <name> --expires … | remove <name>   # 이름 붙은 토큰: commit에 이름이 남음
 doltap serve calls [--since 7] [-n 20]      # 어느 클라이언트가 어떤 도구를 불렀는지 (<상태 디렉토리>/logs/http-calls.log)
-doltap integrations install|uninstall|status claude|codex|cursor|gemini|generic [--remote [<url>]] [--dry-run]   # --remote에 값을 빼면 $DOLTAP_REMOTE_URL을 읽음
+doltap integrations install|uninstall|status claude|codex|cursor|antigravity|gemini|generic [--remote [<url>]] [--dry-run]   # --remote에 값을 빼면 $DOLTAP_REMOTE_URL을 읽음
 ```
 
 전역 옵션 `--root`, `--agent`, `--session`, `--no-sync`, `--json`. 환경변수 `DOLTAP_ROOT`, `DOLTAP_AGENT`, `DOLTAP_SESSION`, `DOLTAP_NO_SYNC=1`, `DOLTAP_AUTO_PULL_MINUTES`(기본 10; 원격이 안 닿을 때 push를 건너뛰는 시간이기도 함), `DOLTAP_REMOTE_TIMEOUT_MS`(pull/push 한 번의 상한, 기본 15000), `DOLTAP_REMOTE_URL`, `DOLTAP_HTTP_ALLOWED_HOSTS`, `DOLTAP_DEFER_PUSH=0`(HTTP 서버의 백그라운드 push 끄기).
