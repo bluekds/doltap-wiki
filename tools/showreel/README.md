@@ -32,6 +32,17 @@ ffmpeg -y -framerate 30 -i out/frames-v3/%04d.png \
   ../../static/showreel.gif        # use frames-v3-en and showreel-en.gif for the English cut
 ```
 
+## Terminal demo
+
+`demo.html` is a 24-second terminal demo (one agent records a fix, an agent on another machine finds it).
+Its commands and output are captured from a real run on a public sample wiki built by `demo-wiki.sh`
+(nothing comes from a real wiki); the only edit is the machine name in the commit trailer.
+
+```bash
+./demo-wiki.sh                 # rebuild the sample wiki and print each command's output; paste changes into demo.html EV
+./build.sh demo                # out/doltap-demo{,-en}.mp4 and out/demo{,-en}.gif (960x540, 12 fps)
+```
+
 ## Files
 
 | File | Role |

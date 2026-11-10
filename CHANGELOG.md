@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- `doltap search` printed the snippet line with a doubled ellipsis (`…  … text`) for a mid-page match and a stray one for a match at the start; it now prints the index's own cut marks only
+- docs/FAQ.md: how Doltap differs from CLAUDE.md / AGENTS.md, vendor memories, auto-capture memory tools, Basic Memory, mem0 and an Obsidian vault with an MCP server, with links to each project's documentation
+- A 24-second terminal demo (`tools/showreel/demo.html`, `./build.sh demo`) whose commands and output are captured from a real run on a public sample wiki (`demo-wiki.sh`)
+
 ## 0.13.2 (2026-11-10)
 
 Second independent audit (Gemini 3.8 Flash through the Antigravity CLI, on v0.13.1, briefed with docs/SECURITY-AUDIT-SCOPE.md and the list of surfaces changed since the first one). Four findings, all confirmed against the code and fixed with regression tests (`packages/core/test/v0132-audit.test.ts`, `packages/mcp/test/v0112-http.test.ts`):
