@@ -44,23 +44,27 @@ function holdLock(): () => void {
 describe("writes wait for the lock without blocking readers (0.8)", () => {
   it("a search answers while an upsert is queued behind another writer; the upsert completes once the lock is released", async () => {
     const release = holdLock();
-    const upsert = call("wiki_upsert", { id: "howto/queued", title: "Queued", summary: "Written while another writer held the lock.", tags: ["wiki"], body, force: true }, 1);
-    await wait(150);
-    const t0 = Date.now();
-    const search = await call("wiki_search", { query: "wiki" }, 2);
-    const searchMs = Date.now() - t0;
-    expect(search).not.toContain("isError");
-    expect(searchMs).toBeLessThan(1000);
-    // Two queued writes in one process take turns; neither runs inside the other.
-    const second = call("wiki_upsert", { id: "howto/queued-two", title: "Queued two", summary: "Second write queued behind the same lock.", tags: ["wiki"], body, force: true }, 3);
-    await wait(100);
-    release();
-    const [u1, u2] = await Promise.all([upsert, second]);
-    expect(u1).not.toContain("isError");
-    expect(u2).not.toContain("isError");
-    expect(sh(m.a, "git", ["log", "--format=%s", "-3"])).toMatch(/howto\/queued-two/);
-    expect(sh(m.a, "git", ["log", "--format=%s", "-3"])).toMatch(/howto\/queued\b/);
-    expect(existsSync(writeLockPath(cfg))).toBe(false);
+    try {
+      let upsertDone = false;
+      const upsert = call("wiki_upsert", { id: "howto/queued", title: "Queued", summary: "Written while another writer held the lock.", tags: ["wiki"], body, force: true }, 1).finally(() => { upsertDone = true; });
+      await wait(150);
+      // Order, not a wall-clock bound (slow CI runners took over a second): the search must answer while the
+      // upsert is still waiting. A blocking wait would hold the event loop until the lock timeout, so the
+      // upsert would finish (with an error) before the search got an answer.
+      const search = await call("wiki_search", { query: "wiki" }, 2);
+      expect(search).not.toContain("isError");
+      expect(upsertDone).toBe(false);
+      // Two queued writes in one process take turns; neither runs inside the other.
+      const second = call("wiki_upsert", { id: "howto/queued-two", title: "Queued two", summary: "Second write queued behind the same lock.", tags: ["wiki"], body, force: true }, 3);
+      await wait(100);
+      release();
+      const [u1, u2] = await Promise.all([upsert, second]);
+      expect(u1).not.toContain("isError");
+      expect(u2).not.toContain("isError");
+      expect(sh(m.a, "git", ["log", "--format=%s", "-3"])).toMatch(/howto\/queued-two/);
+      expect(sh(m.a, "git", ["log", "--format=%s", "-3"])).toMatch(/howto\/queued\b/);
+      expect(existsSync(writeLockPath(cfg))).toBe(false);
+    } finally { release(); } // a failed assertion must not leave the lock for the next test
   }, 60_000);
 
   it("the wait still gives up with a clear error after the configured timeout", async () => {
