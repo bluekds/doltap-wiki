@@ -94,8 +94,9 @@ jobs:
         run: |
           set -euo pipefail
           for name in @bluekds/doltap-core @bluekds/doltap-mcp doltap-wiki; do
-            for _ in $(seq 1 24); do npm view "$name@$VERSION" version >/dev/null 2>&1 && break; sleep 5; done
-            npm view "$name@$VERSION" version >/dev/null 2>&1 || { echo "::error::$name@$VERSION not visible after 2 min"; exit 1; }
+            # npm now says a new version "may take a few minutes to become available" (0.14.0 took over 2 min)
+            for _ in $(seq 1 60); do npm view "$name@$VERSION" version >/dev/null 2>&1 && break; sleep 10; done
+            npm view "$name@$VERSION" version >/dev/null 2>&1 || { echo "::error::$name@$VERSION not visible after 10 min"; exit 1; }
             echo "   $name@$VERSION (latest: $(npm view "$name" dist-tags.latest))"
           done
           tmp=$(mktemp -d)
