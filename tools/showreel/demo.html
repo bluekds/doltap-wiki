@@ -1,0 +1,220 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>doltap demo</title>
+<style>html,body{margin:0;background:#0F1D2B}canvas{display:block;width:100vw;height:auto}</style>
+<script src="logo.js"></script>
+</head><body><canvas id="c" width="1920" height="1080"></canvas>
+<script>
+/* Terminal demo (24 s, 720 frames @ 30 fps): one agent records a fix, an agent on another machine finds it.
+   Every command and output line below was captured from a real run of doltap (0.13.3) on a public sample wiki
+   built by tools/showreel/demo-wiki.sh. One edit to the captured text: the machine name in the commit trailer
+   is shown as "laptop" (the run had both clones on one machine).
+   window.renderFrame(i) draws frame i. ?lang=en switches the captions. */
+const LANG = new URLSearchParams(location.search).get('lang') === 'en' ? 'en' : 'ko';
+const C = { bgIn: '#16263A', bgOut: '#0F1D2B', text: '#F2F2F0', mono: '#C9D6E3', dim: '#6F8499', ink: '#0B1622',
+  bar: '#132233', tan: '#C9AE90', green: '#69B039', orange: '#E08020', hi: '#FFFFFF' };
+const KO = '"Apple SD Gothic Neo", system-ui';
+const MONO = '"SF Mono", Menlo, monospace';
+const FRAMES = 720;
+
+const T = {
+  ko: {
+    title: '돌탑 위키', sub: '에이전트가 배운 것을, 다음 에이전트가 이어받습니다',
+    s1: '① 막히면 위키부터 찾습니다', s1b: '관련 페이지는 있지만, 이 문제(403, OIDC)는 아직 없습니다',
+    s2: '② 해결하고 나면, 그 페이지의 한 섹션에 남깁니다', s2b: '커밋과 push는 자동, 누가 남겼는지도 함께 기록됩니다',
+    s3: '③ 다른 머신, 다른 에이전트가 같은 문제를 만나면', s3b: 'coverage 100%: 방금 남긴 해결책이 바로 나옵니다',
+    foot: '에이전트는 같은 기능을 MCP 도구로 씁니다 — wiki_search · wiki_patch_section · wiki_get',
+  },
+  en: {
+    title: 'Doltap Wiki', sub: 'What one agent learns, the next one already knows',
+    s1: '1  Stuck? Search the wiki first', s1b: 'A related page exists, but nothing on 403 / OIDC yet',
+    s2: '2  Solved it: record it in that page’s section', s2b: 'Committed and pushed automatically, with who wrote it',
+    s3: '3  Another machine, another agent, same problem', s3b: 'Coverage 100%: the fix recorded a minute ago comes first',
+    foot: 'Agents use the same operations as MCP tools — wiki_search · wiki_patch_section · wiki_get',
+  },
+}[LANG];
+
+// Events on the story timeline (frame numbers). Output text uses [[amber:...]], [[green:...]] spans and **bold**.
+const EV = [
+  { t: 75, k: 'term', who: 'laptop', agent: 'Claude Code', color: C.tan },
+  { t: 75, k: 'cap', text: T.s1 },
+  { t: 92, k: 'cmd', text: 'doltap search "npm publish 403 OIDC"' },
+  { t: 142, k: 'out', lines: [
+    'howto/release-npm-packages  [draft]  release,ci,github  [[amber:(coverage 40%, missing: 403, oidc)]]',
+    '    Tag v<version> on main; the Publish workflow tests and publishes every workspace package with provenance, no npm token.',
+    '    ## Prerequisites  - **npm** account with **publish** rights on every package in the workspace …',
+  ] },
+  { t: 172, k: 'sub', text: T.s1b },
+  { t: 232, k: 'cap', text: T.s2 },
+  { t: 232, k: 'sub', text: '' },
+  { t: 244, k: 'cmd', text: 'doltap patch howto/release-npm-packages -s Pitfalls -f fix.md' },
+  { t: 312, k: 'out', lines: ['updated howto/release-npm-packages ## Pitfalls'] },
+  { t: 322, k: 'note', text: 'git commit + push   [host:laptop] [agent:claude-code]' },
+  { t: 330, k: 'sub', text: T.s2b },
+  { t: 392, k: 'term', who: 'server', agent: 'Codex', color: C.green },
+  { t: 392, k: 'cap', text: T.s3 },
+  { t: 392, k: 'sub', text: '' },
+  { t: 404, k: 'cmd', text: 'doltap sync' },
+  { t: 420, k: 'out', lines: ['pulled: true pushed: false offline: false | pages: 13 (reindexed 0, removed 0)'] },
+  { t: 432, k: 'cmd', text: 'doltap search "npm publish 403 OIDC"' },
+  { t: 480, k: 'out', lines: [
+    'howto/release-npm-packages  [draft]  release,ci,github',
+    '    Tag v<version> on main; the Publish workflow tests and publishes every workspace package with provenance, no npm token.',
+    '    … trusted **publish** fails with **403** "**OIDC** permission denied": on **npmjs**.com, open …',
+  ] },
+  { t: 498, k: 'sub', text: T.s3b },
+  { t: 520, k: 'cmd', text: 'doltap get howto/release-npm-packages -s Pitfalls' },
+  { t: 574, k: 'out', lines: [
+    '- Publish dependencies first (core, then the packages that pin it), or a clean install fails for a minute.',
+    '[[green:- First trusted publish fails with 403 "OIDC permission denied": on npmjs.com, open the package’s trusted publisher and tick "Allow npm publish", then re-run the failed job.]]',
+  ] },
+];
+const END = 648;
+
+const cv = document.getElementById('c'); const ctx = cv.getContext('2d');
+const W = 1920, H = 1080;
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const seg = (i, a, b) => clamp((i - a) / (b - a));
+const ease = (t) => 1 - Math.pow(1 - t, 3);
+const monoF = (px, wt = 400) => `${wt} ${px}px ${MONO}`;
+const koF = (px, wt = 700) => `${wt} ${px}px ${KO}`;
+function rr(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+function txt(s, x, y, font, color, align = 'left') { ctx.font = font; ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = 'alphabetic'; ctx.fillText(s, x, y); }
+
+let logo = null;
+if (window.LOGO_SRC) { logo = new Image(); logo.src = window.LOGO_SRC; }
+
+function background() {
+  const g = ctx.createRadialGradient(W / 2, H * .45, 100, W / 2, H / 2, W * .75);
+  g.addColorStop(0, C.bgIn); g.addColorStop(1, C.bgOut); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+}
+
+// Parse a line into styled runs: [[amber:..]] / [[green:..]] spans, **bold** inside.
+function runs(line) {
+  const out = []; const re = /\[\[(amber|green):(.*?)\]\]/g; let last = 0, m;
+  const plain = (s, hl) => s.split(/(\*\*[^*]+\*\*)/).forEach((p) => { if (!p) return; const b = p.startsWith('**'); out.push({ s: b ? p.slice(2, -2) : p, bold: b, hl }); });
+  while ((m = re.exec(line))) { plain(line.slice(last, m.index), null); plain(m[2], m[1]); last = re.lastIndex; }
+  plain(line.slice(last), null); return out;
+}
+
+// Wrap styled runs to a pixel width, keeping the line's leading indent on continuation rows.
+const FS = 30, LH = 46;
+function wrap(line, maxW) {
+  ctx.font = monoF(FS); const cw = ctx.measureText('m').width; const maxC = Math.floor(maxW / cw);
+  const indent = (line.match(/^\s*(\[\[\w+:)?(- )?/) || [''])[0].replace(/\[\[\w+:/, '').length;
+  const chars = []; for (const r of runs(line)) for (const ch of r.s) chars.push({ ch, bold: r.bold, hl: r.hl });
+  const rows = []; let start = 0;
+  while (start < chars.length) {
+    const room = rows.length ? maxC - indent : maxC; let end = Math.min(chars.length, start + room);
+    if (end < chars.length) { let sp = end; while (sp > start && chars[sp].ch !== ' ') sp--; if (sp > start) end = sp + 1; }
+    rows.push({ pad: rows.length ? indent : 0, chars: chars.slice(start, end) }); start = end;
+  }
+  return { rows, cw };
+}
+
+function drawRow(row, x, y, cw, alpha) {
+  let xx = x + row.pad * cw;
+  // highlight boxes behind contiguous hl spans
+  let k = 0;
+  while (k < row.chars.length) {
+    const hl = row.chars[k].hl; let e = k; while (e < row.chars.length && row.chars[e].hl === hl) e++;
+    if (hl) { const col = hl === 'amber' ? C.orange : C.green; ctx.save(); ctx.globalAlpha = alpha * .22; ctx.fillStyle = col; rr(xx + k * cw - 6, y - FS + 2, (e - k) * cw + 10, FS + 12, 6); ctx.fill(); ctx.restore(); }
+    k = e;
+  }
+  for (const c of row.chars) {
+    const col = c.hl === 'amber' ? C.orange : c.hl === 'green' ? '#9BE06A' : c.bold ? C.hi : C.mono;
+    ctx.save(); ctx.globalAlpha = alpha; txt(c.ch, xx, y, monoF(FS, c.bold || c.hl ? 700 : 400), col); ctx.restore(); xx += cw;
+  }
+}
+
+function state(i) {
+  let term = null, cap = null, capT = 0, sub = '', subT = 0; const lines = [];
+  for (const e of EV) {
+    if (e.t > i) break;
+    if (e.k === 'term') { term = e; lines.length = 0; }
+    else if (e.k === 'cap') { cap = e.text; capT = e.t; }
+    else if (e.k === 'sub') { sub = e.text; subT = e.t; }
+    else if (e.k === 'cmd') { const n = Math.min(e.text.length, Math.floor((i - e.t) / 1.0)); lines.push({ kind: 'cmd', text: e.text.slice(0, n), typing: n < e.text.length, t: e.t }); }
+    else if (e.k === 'out') e.lines.forEach((l, j) => { if (i >= e.t + j * 3) lines.push({ kind: 'out', text: l, t: e.t + j * 3 }); });
+    else if (e.k === 'note') lines.push({ kind: 'note', text: e.text, t: e.t });
+  }
+  return { term, cap, capT, sub, subT, lines };
+}
+
+function drawTerminal(i, s) {
+  const x = 80, y = 250, w = W - 160, h = 690;
+  const sw = seg(i, s.term.t, s.term.t + 12);
+  ctx.save(); ctx.globalAlpha = ease(sw);
+  ctx.shadowColor = 'rgba(0,0,0,.45)'; ctx.shadowBlur = 40; ctx.shadowOffsetY = 14;
+  ctx.fillStyle = C.ink; rr(x, y, w, h, 18); ctx.fill(); ctx.shadowColor = 'transparent';
+  ctx.fillStyle = C.bar; rr(x, y, w, 58, 18); ctx.fill(); ctx.fillRect(x, y + 40, w, 18);
+  ['#E5484D', '#E0A020', '#69B039'].forEach((c, k) => { ctx.fillStyle = c; ctx.beginPath(); ctx.arc(x + 34 + k * 30, y + 29, 9, 0, 7); ctx.fill(); });
+  // machine / agent badge
+  ctx.font = monoF(24, 700); const label = `${s.term.who}`; const lw = ctx.measureText(label).width;
+  ctx.fillStyle = s.term.color; rr(x + w / 2 - (lw + 260) / 2, y + 12, lw + 36, 34, 17); ctx.fill();
+  txt(label, x + w / 2 - (lw + 260) / 2 + 18, y + 37, monoF(24, 700), C.ink);
+  txt(s.term.agent, x + w / 2 - (lw + 260) / 2 + lw + 52, y + 38, koF(26, 600), s.term.color);
+  // body
+  let yy = y + 58 + 52; const maxW = w - 70;
+  const rendered = [];
+  for (const l of s.lines) {
+    if (l.kind === 'cmd') rendered.push({ l, rows: null });
+    else { const { rows, cw } = wrap(l.text, l.kind === 'note' ? maxW - 40 : maxW); rendered.push({ l, rows, cw }); }
+  }
+  // scroll so the last line stays inside the window
+  let total = 0; for (const r of rendered) total += r.rows ? r.rows.length * LH : LH + 8;
+  const room = h - 58 - 70; if (total > room) yy -= total - room;
+  ctx.save(); ctx.beginPath(); ctx.rect(x, y + 60, w, h - 64); ctx.clip();
+  for (const r of rendered) {
+    const a = ease(seg(i, r.l.t, r.l.t + 5));
+    if (r.l.kind === 'cmd') {
+      yy += 8; txt('$', x + 40, yy, monoF(FS, 700), s.term.color); txt(r.l.text, x + 40 + 34, yy, monoF(FS, 600), C.text);
+      if (r.l.typing || (Math.floor(i / 15) % 2 === 0 && r === rendered[rendered.length - 1])) { ctx.font = monoF(FS, 600); const cx = x + 74 + ctx.measureText(r.l.text).width + 4; ctx.fillStyle = C.text; ctx.fillRect(cx, yy - FS + 4, 14, FS + 2); }
+      yy += LH;
+    } else if (r.l.kind === 'note') {
+      for (const row of r.rows) { ctx.save(); ctx.globalAlpha = a; txt('↳ ' + row.chars.map((c) => c.ch).join(''), x + 40, yy, `italic 500 ${FS - 3}px ${MONO}`, C.dim); ctx.restore(); yy += LH; }
+    } else { for (const row of r.rows) { drawRow(row, x + 40, yy, r.cw, a); yy += LH; } }
+  }
+  ctx.restore(); ctx.restore();
+}
+
+function drawCaption(i, s) {
+  if (!s.cap) return;
+  const a = ease(seg(i, s.capT, s.capT + 10));
+  ctx.save(); ctx.globalAlpha = a; txt(s.cap, 110, 128 + 10 * (1 - a), koF(54, 800), C.text); ctx.restore();
+  if (s.sub) { const b = ease(seg(i, s.subT, s.subT + 10)); ctx.save(); ctx.globalAlpha = b; txt(s.sub, 112, 198, koF(34, 500), s.term ? s.term.color : C.tan); ctx.restore(); }
+  txt(T.foot, W / 2, 1022, koF(24, 500), C.dim, 'center');
+}
+
+function drawCard(i, kind) {
+  background();
+  const a = kind === 'title' ? ease(seg(i, 0, 14)) * (1 - seg(i, 64, 75)) : ease(seg(i, END, END + 16));
+  ctx.save(); ctx.globalAlpha = a;
+  const ly = kind === 'title' ? 300 : 210;
+  if (logo && logo.complete) ctx.drawImage(logo, W / 2 - 100, ly, 200, 200);
+  if (kind === 'title') {
+    txt(T.title, W / 2, ly + 330, koF(96, 900), C.text, 'center');
+    txt(T.sub, W / 2, ly + 410, koF(42, 500), C.tan, 'center');
+  } else {
+    ctx.font = monoF(48, 700); const cmd = '$ npm install -g doltap-wiki'; const cw = ctx.measureText(cmd).width;
+    ctx.fillStyle = C.ink; rr(W / 2 - cw / 2 - 40, ly + 250, cw + 80, 96, 18); ctx.fill();
+    txt(cmd, W / 2, ly + 314, monoF(48, 700), C.text, 'center');
+    txt('github.com/bluekds/doltap-wiki', W / 2, ly + 430, monoF(40, 600), C.tan, 'center');
+    txt('Claude Code · Codex · Cursor · Gemini CLI', W / 2, ly + 520, koF(34, 600), C.text, 'center');
+    txt('MCP · git · Markdown · Obsidian', W / 2, ly + 575, koF(30, 500), C.dim, 'center');
+  }
+  ctx.restore();
+}
+
+window.renderFrame = function (i) {
+  if (i < 75) { drawCard(i, 'title'); return; }
+  background();
+  const s = state(i);
+  const fade = 1 - seg(i, END - 4, END + 10);
+  ctx.save(); ctx.globalAlpha = fade; if (s.term) drawTerminal(i, s); drawCaption(i, s); ctx.restore();
+  if (i >= END) drawCard(i, 'end');
+};
+window.FRAMES = FRAMES;
+// render.py waits for READY: fonts and the logo must be loaded before the first frame is drawn.
+Promise.all([document.fonts.ready, logo ? logo.decode().catch(() => {}) : null]).then(() => { window.READY = true; });
+if (!/render/.test(location.search)) { let f = 0; const tick = () => { window.renderFrame(f); f = (f + 1) % FRAMES; requestAnimationFrame(tick); }; setTimeout(tick, 300); }
+</script></body></html>

@@ -185,7 +185,7 @@ program
         for (const h of hits) {
           console.log(`${h.id}  [${h.confidence}]  ${h.tags.join(",")}${h.unmatched.length ? `  (coverage ${Math.round(h.coverage * 100)}%, missing: ${h.unmatched.join(", ")})` : ""}`);
           console.log(`    ${h.summary}`);
-          if (h.snippet && !h.summary.includes(h.snippet.replace(/[\[\]]/g, ""))) console.log(`    … ${h.snippet.replace(/\n/g, " ")}`);
+          if (h.snippet && !h.summary.includes(h.snippet.replace(/[\[\]]/g, ""))) console.log(`    ${h.snippet.replace(/\n/g, " ").trim()}`); // the index marks a cut with its own " … "
         }
         for (const n of syncNotes(sync)) console.error(`note: ${n}`);
       });

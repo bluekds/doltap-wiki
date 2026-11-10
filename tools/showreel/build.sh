@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build the Doltap Wiki showreels end to end.
 #   ./build.sh             everything: v1 (original), music, v1 + music, v2 (+ music)
-#   ./build.sh v1|music|v1m|v2|v3|v3en
+#   ./build.sh v1|music|v1m|v2|v3|v3en|demo
 #   ./build.sh sparse [page.html]   every 10th frame into out/sparse (composition check)
 # Pages: showreel.html (v1, SFX-only bed), showreel-v1m.html (v1 with <=3-frame beat nudges, for the
 # music mix), showreel-v2.html (dynamic cut, 120 BPM grid). Music: music.py; SFX + mix: sfx.py, mix.py.
@@ -27,6 +27,17 @@ gif_v2() {   # v2 moves every pixel every frame (drift + dolly), so: 0.8 px pre-
       -vf "fps=15,scale=960:540:flags=lanczos,gblur=sigma=0.8,split[a][b];[a]palettegen=max_colors=72:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle" "$2"
 }
 probe() { for f in "$@"; do echo "== $f"; $FP -v error -show_entries stream=codec_type,codec_name,width,height,pix_fmt,r_frame_rate,nb_frames,duration:format=duration,size -of compact=p=0:nk=0 "$f"; done; }
+
+build_demo() {
+  for L in ko en; do
+    local sfx=""; [ "$L" = en ] && sfx="-en"
+    rm -rf "out/frames-demo-$L"; python3 render.py --html demo.html --start 0 --end 720 --out "out/frames-demo-$L" --query "render=1&lang=$L" --workers 6
+    $FF -y -loglevel error -framerate 30 -i "out/frames-demo-$L/%04d.png" -c:v libx264 -preset slow -pix_fmt yuv420p -crf 18 -movflags +faststart "out/doltap-demo$sfx.mp4"
+    $FF -y -loglevel error -framerate 30 -i "out/frames-demo-$L/%04d.png" \
+        -vf "fps=12,scale=960:540:flags=lanczos,split[a][b];[a]palettegen=max_colors=64:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle" "out/demo$sfx.gif"
+  done
+  probe out/doltap-demo.mp4 out/doltap-demo-en.mp4
+}
 
 build_v1() {
   rm -rf out/frames; python3 render.py --workers 6
@@ -75,7 +86,7 @@ build_v3en() {   # v3 with English on-screen copy; identical timeline, so it reu
 }
 case "${1:-all}" in
   sparse) python3 render.py --html "${2:-showreel.html}" --step 10 --out out/sparse ;;
-  v1) build_v1 ;; music) build_music ;; v1m) build_v1m ;; v2) build_v2 ;; v3) build_v3 ;; v3en) build_v3en ;;
+  v1) build_v1 ;; music) build_music ;; v1m) build_v1m ;; v2) build_v2 ;; v3) build_v3 ;; v3en) build_v3en ;; demo) build_demo ;;
   all) build_v1; build_music; build_v1m; build_v2; build_v3; build_v3en ;;
   *) echo "unknown target $1"; exit 1 ;;
 esac
