@@ -35,3 +35,11 @@ describe("/healthz", () => {
     expect(await getWithHost("/healthz", "evil.example")).toBe(421);
   });
 });
+
+describe("0.13.2, second independent audit finding 03: the Host check comes before the token", () => {
+  it("a disallowed Host gets 421 whether or not the token is valid, so a rebinding page learns nothing about tokens", async () => {
+    expect(await getWithHost(`/${"00".repeat(32)}/mcp`, "evil.example")).toBe(421);
+    expect(await getWithHost(`/${TOKEN}/mcp`, "evil.example")).toBe(421);
+    expect(await getWithHost(`/${"00".repeat(32)}/mcp`, "127.0.0.1")).toBe(404);
+  });
+});

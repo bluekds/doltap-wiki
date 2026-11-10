@@ -7,7 +7,7 @@ import type { WikiConfig } from "./config.js";
 import { WikiDb } from "./db.js";
 import { commitAndPush, commitMessage, type SyncReport } from "./git.js";
 import { withWriteLock } from "./lock.js";
-import { readPage } from "./page.js";
+import { isWindowsReservedName, readPage } from "./page.js";
 
 /**
  * Attachments: files a page needs (a diagram, a sample config, an exported table) live in
@@ -133,6 +133,7 @@ export function addAsset(cfg: WikiConfig, i: AddAssetInput): AddAssetResult {
   if (!existsSync(i.file) || !statSync(i.file).isFile()) throw new Error(`${i.file} is not a file`);
   const name = basename(i.file);
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) throw new Error(`attachment name "${name}" must be letters, digits, dot, dash or underscore`);
+  if (isWindowsReservedName(name)) throw new Error(`attachment name "${name}" is reserved on Windows (a device name or a trailing dot), so a Windows clone could not check it out; rename the file`);
   const bytes = statSync(i.file).size;
   const ext = assetExt(name);
   if (ASSET_TEXT_TYPES.has(ext)) {

@@ -3,7 +3,7 @@ import { readSafe } from "./safe.js";
 import { join } from "node:path";
 import { ASSET_MAX_BYTES, ASSET_TEXT_TYPES, ASSET_TYPES, assetExt, assetRefsIn, assetsDir, walkAssets } from "./assets.js";
 import { CATEGORIES, CONFIDENCE, isCategoryHub, isProjectOverview, today, type WikiConfig } from "./config.js";
-import type { Page } from "./page.js";
+import { isWindowsReservedName, type Page } from "./page.js";
 import { requiredSections } from "./template.js";
 import { allowedTagSet, suggestTags } from "./tags.js";
 import { findSecrets } from "./secrets.js";
@@ -158,6 +158,7 @@ export function lintAssets(cfg: WikiConfig, pages: Page[]): LintIssue[] {
   for (const f of files) {
     const id = `_assets/${f}`;
     if (!referenced.has(f)) out.push({ id, level: "warning", rule: "asset-orphan", message: "no page links this attachment; link it or remove it" });
+    if (isWindowsReservedName(f.split("/").pop()!)) out.push({ id, level: "error", rule: "asset-reserved-name", message: "a device name or trailing dot that Windows cannot check out; rename it (git mv) and update its links" });
     if (ASSET_TEXT_TYPES.has(assetExt(f))) {
       for (const found of findSecrets(readSafe(cfg.root, join(assetsDir(cfg), f)))) out.push({ id, level: "error", rule: "secret", message: `possible secret detected (${found})` });
     }

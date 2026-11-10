@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.13.2 (2026-11-10)
+
+Second independent audit (Gemini 3.8 Flash through the Antigravity CLI, on v0.13.1, briefed with docs/SECURITY-AUDIT-SCOPE.md and the list of surfaces changed since the first one). Four findings, all confirmed against the code and fixed with regression tests (`packages/core/test/v0132-audit.test.ts`, `packages/mcp/test/v0112-http.test.ts`):
+
+- **Critical: the 0.11.2 Obsidian fix checked only the file, not its directories.** A pushed symlink at `wiki/.obsidian` or `wiki/.obsidian/plugins` pointing at a host directory still made the sync check read a JSON file there and echo its array into the warning. Every path component below the root is now checked before reading, and the link is reported
+- **Medium: the same gap in the golden set.** A symlinked `wiki/_meta` made `doltap golden` read a host file as its query list. The wiki's own golden file is now checked component by component
+- **Low: a disallowed Host could tell a valid token from an invalid one** (421 vs 404). The Host check now runs before the token is looked at; every disallowed Host gets 421
+- **Low: Windows device names were accepted as attachment names** (`con.png`, `nul.txt`, and names ending in a dot), which a Windows clone cannot check out. `doltap assets add` refuses them and lint reports one that arrived through git (`asset-reserved-name`, an error)
+
 ## 0.13.1 (2026-11-10)
 
 - **Closing the HTTP server leaves no `git push` behind.** A write scheduled a background push 500 ms later on a timer that `close()` never cleared, and `close()` did not wait for a push already running, so a push could start or keep running in the wiki after the server stopped (a service restart, or a test removing its temp repo: on Windows the directory stayed locked and CI failed with EBUSY). Now `close()` cancels scheduled pushes, waits for a running one (bounded by the remote timeout) and turns later flushes into no-ops; the pending push is kept for the scheduler
