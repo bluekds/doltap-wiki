@@ -386,17 +386,19 @@ export async function startHttpServer(cfg: WikiConfig, o: HttpOptions): Promise<
     const log = (client: string, method: string, tool: string, status: string) => {
       try { appendCall(cfg, { ts: new Date(started).toISOString(), client, method, tool, status, ms: Date.now() - started }); } catch { /* logging never fails a request */ }
     };
+    // Host before token (second audit, 0.13.2): a rebinding page must not tell a valid token (421) from an invalid one (404).
+    if (!hostAllowed(req.headers.host, allowed)) {
+      res.writeHead(421, { "content-type": "text/plain" }).end("misdirected request: Host not allowed (set DOLTAP_HTTP_ALLOWED_HOSTS)\n");
+      if (!unauth) unauthFirst = started;
+      unauth++;
+      return;
+    }
     const m = /^\/([^/]+)\/mcp$/.exec(url.pathname);
     const client = m ? resolveClient(m[1], currentToken(), currentClients()) : null;
     if (!client || client.expired) {
       res.writeHead(404, { "content-type": "text/plain" }).end("not found\n");
       if (client) log(client.agent, "-", "-", "expired");
       else { if (!unauth) unauthFirst = started; unauth++; }
-      return;
-    }
-    if (!hostAllowed(req.headers.host, allowed)) {
-      res.writeHead(421, { "content-type": "text/plain" }).end("misdirected request: Host not allowed (set DOLTAP_HTTP_ALLOWED_HOSTS)\n");
-      log(client.agent, "-", "-", "421");
       return;
     }
     const sidHeader = req.headers["mcp-session-id"];

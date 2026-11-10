@@ -101,6 +101,11 @@ const PAGE_ID_MAX = 200;
 /** `CON`, `NUL`, `COM1`… are device names on Windows whatever the extension: a page named so cannot be checked out there. */
 const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
 
+/** A file name Windows cannot check out: a device name before the first dot (`con.png`, `nul.tar.gz`) or a trailing dot. */
+export function isWindowsReservedName(name: string): boolean {
+  return WINDOWS_RESERVED.test(name.split(".")[0]) || name.endsWith(".");
+}
+
 export function assertPageId(id: string): string {
   if (typeof id !== "string" || id.length > PAGE_ID_MAX || !PAGE_ID_RE.test(id)) {
     throw new Error(`invalid page id: ${JSON.stringify(String(id).slice(0, 80))} (expected <category>/<kebab-slug>, letters, digits, - and _ only)`);

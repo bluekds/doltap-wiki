@@ -1,6 +1,7 @@
 import { execFile, execFileSync, type ExecFileSyncOptions } from "node:child_process";
-import { existsSync, lstatSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { extname, join, relative, resolve, sep } from "node:path";
+import { safePath } from "./safe.js";
 import { fileURLToPath } from "node:url";
 import type { WikiConfig } from "./config.js";
 import { withWriteLock, withWriteLockIfFree } from "./lock.js";
@@ -441,15 +442,22 @@ export function obsidianWarnings(cfg: WikiConfig): string[] {
     const js = tracked.filter((f) => f.endsWith(".js"));
     if (js.length) out.push(`${js.join(", ")} tracked in git: a plugin binary pushed by a collaborator runs on every machine that opens the vault (git rm --cached it; the skeleton .gitignore excludes it)`);
   }
-  // A pushed symlink here would make this read (and echo into the warning) any JSON file on the host.
+  // A pushed symlink here (the file, `.obsidian/` itself or `plugins/`) would make this read, and echo into
+  // the warning, any JSON file on the host: every component below the root is checked (0.11.2, 0.13.2).
+  const linked = new Set<string>();
   const readJson = (p: string): unknown => {
     try {
-      if (lstatSync(p).isSymbolicLink()) { out.push(`${relative(cfg.wikiDir, p).split(sep).join("/")} is a symbolic link; doltap does not read it (remove it and check who pushed it)`); return null; }
-      return JSON.parse(readFileSync(p, "utf8"));
-    } catch { return null; }
+      safePath(cfg.root, p);
+    } catch (e) {
+      const msg = `${e instanceof Error ? e.message : String(e)}; check who pushed it`;
+      if (!linked.has(msg)) { linked.add(msg); out.push(msg); }
+      return null;
+    }
+    try { return JSON.parse(readFileSync(p, "utf8")); } catch { return null; }
   };
   const have = readJson(join(dir, "community-plugins.json"));
-  const skel = readJson(join(SKELETON_OBSIDIAN, "community-plugins.json"));
+  let skel: unknown = null;
+  try { skel = JSON.parse(readFileSync(join(SKELETON_OBSIDIAN, "community-plugins.json"), "utf8")); } catch { /* skeleton missing: nothing to compare */ }
   if (Array.isArray(have) && Array.isArray(skel)) {
     const extra = have.filter((p) => !skel.includes(p));
     if (extra.length) out.push(`community-plugins.json enables plugins the skeleton does not ship: ${extra.map(String).join(", ")} (every enabled plugin runs with Node access in Obsidian; remove the entry unless you installed it yourself)`);
