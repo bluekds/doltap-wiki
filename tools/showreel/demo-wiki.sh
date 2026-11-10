@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Build the public sample wiki behind demo.html and print every command's real output.
 #   ./demo-wiki.sh [dir]     (default: out/demo-wiki; removed and recreated)
+#   SEED_ONLY=1 ./demo-wiki.sh [dir]   stop after the seed pages and the server clone (agent-demo.sh starts from here)
 # Two clones ("laptop", "server") of one bare remote, three generic seed pages, then the demo's story:
 # search on laptop, record the fix in a section, sync and search on server. Nothing here comes from a real wiki.
 set -euo pipefail
@@ -90,6 +91,8 @@ S=demo-seed laptop add howto/release-npm-packages --title "Release npm packages 
 S=demo-seed laptop add patterns/retry-with-backoff --title "Retry with backoff" --summary "Retry transient remote failures with exponential backoff, jitter and a cap; remember the last failure so others back off." --tags networking,performance -f "$D/pages/retry.md" >/dev/null
 S=demo-seed laptop add reference/node-version-support --title "Node.js version support" --summary "Node 22.13+ LTS is supported (node:sqlite); odd releases are not tested." --tags typescript,tooling -f "$D/pages/node.md" >/dev/null
 DOLTAP_STATE_HOME="$D/state-server" doltap init --repo "$D/remote.git" --dir "$D/server" >/dev/null
+git -C "$D/server" config user.name demo; git -C "$D/server" config user.email demo@example.com
+[ -n "${SEED_ONLY:-}" ] && exit 0
 
 echo '== laptop $ doltap search "npm publish 403 OIDC"'; laptop search "npm publish 403 OIDC"
 echo '== laptop $ doltap patch howto/release-npm-packages -s Pitfalls -f fix.md'; laptop patch howto/release-npm-packages -s Pitfalls -f "$D/pages/pitfall.md"

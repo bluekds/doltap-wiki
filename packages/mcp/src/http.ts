@@ -275,7 +275,7 @@ export interface RunningHttpServer {
 
 /**
  * Streamable HTTP endpoint for remote clients (claude.ai connectors, Claude Code --transport http, Codex,
- * Cursor, Gemini CLI). A client that initializes gets an `Mcp-Session-Id` and its own McpServer for the
+ * Cursor, Antigravity CLI). A client that initializes gets an `Mcp-Session-Id` and its own McpServer for the
  * life of the session, so the session recorded in commits is the client's conversation, not the day.
  * A request without a session id (older clients, one-shot callers) is served statelessly as before.
  * The git/sqlite work stays serialized on the single Node thread; with cfg.deferPush the push runs in

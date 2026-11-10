@@ -484,7 +484,7 @@ Subcommands: `install`, `status`, `uninstall`.
 
 ### `doltap integrations install <client>`
 
-supported clients: claude, codex, cursor, gemini, generic (claude = Claude Code via its CLI; codex, cursor, gemini = their user-level config file; generic = print JSON for any other MCP client)
+supported clients: claude, codex, cursor, antigravity, gemini, generic (claude = Claude Code via its CLI; codex, cursor, antigravity, gemini = their user-level config file, where antigravity is the Antigravity CLI (agy, formerly Gemini CLI) and gemini the legacy Gemini CLI; generic = print JSON for any other MCP client)
 
 | Argument | Required | Default | Description |
 |---|---|---|---|

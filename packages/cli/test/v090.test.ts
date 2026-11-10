@@ -24,9 +24,9 @@ describe("integration config files that hold the token URL", () => {
   beforeEach(() => { home = mkdtempSync(join(tmpdir(), "doltap-home-")); });
   afterEach(() => rmSync(home, { recursive: true, force: true }));
 
-  it.skipIf(platform() === "win32")("are created mode 0600 for codex, cursor and gemini", () => {
+  it.skipIf(platform() === "win32")("are created mode 0600 for codex, cursor, antigravity and gemini", () => {
     const url = `https://x.ts.net/${HEX}/mcp`;
-    for (const client of ["codex", "cursor", "gemini"] as const) {
+    for (const client of ["codex", "cursor", "antigravity", "gemini"] as const) {
       const r = register(client, { remoteUrl: url, home });
       expect(statSync(r.file).mode & 0o777).toBe(0o600);
       expect(readFileSync(r.file, "utf8")).toContain(HEX);
