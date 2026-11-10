@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.13.1 (2026-11-10)
+
+- **Closing the HTTP server leaves no `git push` behind.** A write scheduled a background push 500 ms later on a timer that `close()` never cleared, and `close()` did not wait for a push already running, so a push could start or keep running in the wiki after the server stopped (a service restart, or a test removing its temp repo: on Windows the directory stayed locked and CI failed with EBUSY). Now `close()` cancels scheduled pushes, waits for a running one (bounded by the remote timeout) and turns later flushes into no-ops; the pending push is kept for the scheduler
+- Tests: the two-machine fixture disables automatic `git gc` / maintenance in its clones, and on Windows a temp dir still locked after ten retries is reported instead of failing the run
+
 ## 0.13.0 (2026-11-09)
 
 Two ideas from reviewing NVIDIA's auto-ontology (its `check_answerable` tool and per-term synonyms), implemented inside doltap with no new dependency:

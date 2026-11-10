@@ -346,8 +346,12 @@ export async function startHttpServer(cfg: WikiConfig, o: HttpOptions): Promise<
   let flushing: Promise<SyncReport | null> | null = null;
   let rerun = false;
   let lastFlush: SyncReport | null = null;
+  // After close() no push starts: a timer set by a late write is cleared and flush() is a no-op, so no git
+  // process outlives the server (on Windows one would also keep the repo locked).
+  let closed = false;
+  const pushTimers = new Set<NodeJS.Timeout>();
   const flush = (): Promise<SyncReport | null> => {
-    if (!cfg.deferPush) return Promise.resolve(null);
+    if (!cfg.deferPush || closed) return Promise.resolve(null);
     if (flushing) { rerun = true; return flushing; }
     flushing = (async () => {
       // Yield once: an async function with nothing to await would finish (and clear `flushing`) before the
@@ -359,7 +363,7 @@ export async function startHttpServer(cfg: WikiConfig, o: HttpOptions): Promise<
           if (!readSyncState(cfg).pendingPush) continue;
           lastFlush = await pushPendingAsync(cfg);
           for (const m of lastFlush.messages) process.stderr.write(`doltap mcp http: background push: ${m}\n`);
-        } while (rerun);
+        } while (rerun && !closed);
       } catch (e) {
         process.stderr.write(`doltap mcp http: background push failed: ${e instanceof Error ? e.message : String(e)}\n`);
       } finally { flushing = null; }
@@ -433,7 +437,11 @@ export async function startHttpServer(cfg: WikiConfig, o: HttpOptions): Promise<
     const { method, tool, isInitialize } = describeBody(body);
     res.on("finish", () => {
       log(client.agent, req.method === "POST" ? method : req.method ?? "-", tool, String(res.statusCode));
-      if (method === "tools/call" && cfg.deferPush && readSyncState(cfg).pendingPush) setTimeout(() => { flush().catch(() => {}); }, 500).unref();
+      if (method === "tools/call" && cfg.deferPush && !closed && readSyncState(cfg).pendingPush) {
+        const t = setTimeout(() => { pushTimers.delete(t); flush().catch(() => {}); }, 500);
+        t.unref();
+        pushTimers.add(t);
+      }
     });
 
     let server: McpServer;
@@ -486,12 +494,17 @@ export async function startHttpServer(cfg: WikiConfig, o: HttpOptions): Promise<
     flush,
     flushUnauth,
     close: async () => {
+      closed = true;
+      for (const t of pushTimers) clearTimeout(t);
+      pushTimers.clear();
       clearInterval(evictTimer);
       clearInterval(unauthTimer);
       flushUnauth();
       if (flushTimer) clearInterval(flushTimer);
       for (const id of [...sessions.keys()]) dropSession(id);
       await new Promise<void>((resolve, reject) => { httpServer.closeAllConnections(); httpServer.close((e) => (e ? reject(e) : resolve())); });
+      // A push already running finishes (bounded by remoteTimeoutMs) before close() resolves.
+      if (flushing) await flushing;
     },
   };
 }

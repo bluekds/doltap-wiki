@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { cpSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { platform, tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveConfig, type WikiConfig } from "../src/index.js";
@@ -12,6 +12,21 @@ export const SEED_ROOT = fileURLToPath(new URL("./fixtures/", import.meta.url));
 
 export function sh(cwd: string, cmd: string, args: string[]): string {
   return execFileSync(cmd, args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" } }).trim();
+}
+
+/**
+ * Remove a temp dir. Windows refuses to delete a directory some process still has open (an antivirus scan,
+ * the search indexer, a git child that just exited), so after the retries a leftover there is a warning,
+ * not a failed test; elsewhere it still throws.
+ */
+export function removeTemp(dir: string): void {
+  try {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (platform() !== "win32" || !["EBUSY", "EPERM", "ENOTEMPTY"].includes(code ?? "")) throw e;
+    process.stderr.write(`test cleanup: left ${dir} behind (${code})\n`);
+  }
 }
 
 export interface Fixture {
@@ -28,7 +43,7 @@ function copyWiki(dest: string): void {
 export function makeWikiCopy(): Fixture {
   const dir = mkdtempSync(join(tmpdir(), "doltap-"));
   copyWiki(join(dir, "wiki"));
-  return { dir, cleanup: () => rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }) };
+  return { dir, cleanup: () => removeTemp(dir) };
 }
 
 export function cfgFor(dir: string, extra: Partial<WikiConfig> = {}): WikiConfig {
@@ -61,6 +76,9 @@ export function makeTwoMachines(): { bare: string; a: string; b: string; cleanup
   for (const d of [a, b]) {
     sh(d, "git", ["config", "user.name", "t"]);
     sh(d, "git", ["config", "user.email", "t@t"]);
+    // No detached `git gc --auto` / maintenance left running in the repo after a commit.
+    sh(d, "git", ["config", "gc.auto", "0"]);
+    sh(d, "git", ["config", "maintenance.auto", "false"]);
   }
-  return { bare, a, b, cleanup: () => rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }) };
+  return { bare, a, b, cleanup: () => removeTemp(base) };
 }

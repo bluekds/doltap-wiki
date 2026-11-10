@@ -1,6 +1,6 @@
 # CLI reference
 
-Generated from the command definitions by `npm run reference` (`doltap --reference`); do not edit by hand. `doltap` 0.13.0: 48 commands.
+Generated from the command definitions by `npm run reference` (`doltap --reference`); do not edit by hand. `doltap` 0.13.1: 48 commands.
 
 Doltap: shared knowledge base for AI agents. Global options apply to every command:
 
