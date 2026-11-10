@@ -1,11 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.14.0 (2026-11-10)
 
+- **`doltap integrations install antigravity`**: Gemini CLI is now the Antigravity CLI (`agy`), which reads MCP servers from `~/.gemini/config/mcp_config.json` (a remote endpoint as `serverUrl`) and global rules from `~/.gemini/GEMINI.md`. `integrations status` and `uninstall` know it. `gemini` keeps writing the legacy Gemini CLI's `~/.gemini/settings.json` and now points to `antigravity`
 - `doltap search` printed the snippet line with a doubled ellipsis (`…  … text`) for a mid-page match and a stray one for a match at the start; it now prints the index's own cut marks only
 - docs/FAQ.md: how Doltap differs from CLAUDE.md / AGENTS.md, vendor memories, auto-capture memory tools, Basic Memory, mem0 and an Obsidian vault with an MCP server, with links to each project's documentation; ai-memory is compared on scope (one repository vs everything you work on), time, writing and sharing
-- **`doltap integrations install antigravity`**: Gemini CLI is now the Antigravity CLI (`agy`), which reads MCP servers from `~/.gemini/config/mcp_config.json` (a remote endpoint as `serverUrl`) and global rules from `~/.gemini/GEMINI.md`. `integrations status` and `uninstall` know it. `gemini` keeps writing the legacy Gemini CLI's `~/.gemini/settings.json` and now points to `antigravity`
 - An agent demo (`tools/showreel/demo.html`, `./build.sh demo`, 16:9 and 4:5): Claude Code records a fix, Antigravity CLI on another machine finds it. Prompts, tool calls and answers come from real sessions on a public sample wiki, recorded by `agent-demo.sh`
+- Tests: the v0.8 lock test checks that a search answers before the queued write instead of within one second, and releases the lock in `finally`; a slow Windows runner had failed the bound and the held lock broke the next test
 
 ## 0.13.2 (2026-11-10)
 
