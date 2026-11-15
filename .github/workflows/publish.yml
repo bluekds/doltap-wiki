@@ -2,8 +2,8 @@ name: Publish
 
 # Trusted publishing: pushing a release tag (v1.2.3) publishes the three packages to npm with provenance,
 # authenticated by this workflow's OIDC token (no npm token, no OTP). The tag must sit on main and match the
-# package versions; the whole suite runs first on the same runner. `workflow_dispatch` with dry_run rehearses
-# everything except the upload.
+# package versions. The suite runs first on every OS and Node version CI covers (test.yml), then again on the
+# publishing runner. `workflow_dispatch` with dry_run rehearses everything except the upload.
 
 on:
   push:
@@ -24,7 +24,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+    permissions:
+      contents: read
+    with:
+      matrix: '[{"os":"ubuntu-latest","node":22},{"os":"ubuntu-latest","node":24},{"os":"macos-latest","node":24},{"os":"windows-latest","node":22},{"os":"windows-latest","node":24}]'
+
   publish:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

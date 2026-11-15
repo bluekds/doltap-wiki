@@ -1,0 +1,50 @@
+name: Test
+
+# The suite on a list of runners. CI and Publish call this with the matrix their event needs.
+
+on:
+  workflow_call:
+    inputs:
+      matrix:
+        description: 'JSON list of {"os", "node"} to run on'
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(inputs.matrix) }}
+    steps:
+      # The tests spawn many short git processes and small files. On Windows runners the system drive and
+      # Defender's real-time scan make that roughly ten times slower than on Linux; this VM is thrown away after.
+      - name: speed up Windows file I/O
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          try { Set-MpPreference -DisableRealtimeMonitoring $true } catch { Write-Host "::warning::Defender real-time scan stays on: $_" }
+          "TEMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+          "TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: git config --global user.name ci && git config --global user.email ci@example.invalid
+      - run: npm ci
+      - run: npm run build
+      - run: npm run reference:check
+      - run: npm test
+      - name: scaffold smoke test
+        shell: bash
+        run: |
+          node packages/cli/dist/main.js init --new --dir "$RUNNER_TEMP/kb"
+          cd "$RUNNER_TEMP/kb"
+          node "$GITHUB_WORKSPACE/packages/cli/dist/main.js" lint
+          node "$GITHUB_WORKSPACE/packages/cli/dist/main.js" search obsidian | head -3
