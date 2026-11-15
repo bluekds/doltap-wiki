@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- CI: pull requests run Linux on Node 22 and 24, macOS and Windows on Node 24; a push to main runs Linux only, since its squash-merged pull request already passed; every OS on both Node versions runs on demand and before each release, which now waits for that matrix. Prose-only changes (root Markdown, docs/ except the generated references, the showreel) skip CI. Windows runners keep temp files on the D: drive and turn off Defender's real-time scan
+- Publish: the registry check waits up to 10 minutes for a new version to show up
+
 ## 0.14.0 (2026-11-10)
 
 - **`doltap integrations install antigravity`**: Gemini CLI is now the Antigravity CLI (`agy`), which reads MCP servers from `~/.gemini/config/mcp_config.json` (a remote endpoint as `serverUrl`) and global rules from `~/.gemini/GEMINI.md`. `integrations status` and `uninstall` know it. `gemini` keeps writing the legacy Gemini CLI's `~/.gemini/settings.json` and now points to `antigravity`
